@@ -104,15 +104,13 @@ class Experiment:
     def is_registered(self, value):
         self._is_registered = value
 
-    def get_mean_images(self, rotation=0, mean_amount=10):
+    def get_mean_images(self, rotation=0, mean_amount=10, *, plot = False):
         if self._mean_start == "END":
             mean_times = self.times[-15:]
         elif self._mean_start == "START":
             mean_times = self.times[:15]
         else:
             mean_times = self.times[-15:]
-        ex_path = self.img_path_generator(self.extracted_dir, self.FOVs[0], self.channels[1], self.times[0],
-                                          self.file_extension)
         img_size = self.dims
         mean_images = dict()
         for FOV in self.FOVs:
@@ -129,6 +127,15 @@ class Experiment:
             mean_images[FOV] = mean_img.astype(np.uint16)
         print(
             f"Mean images for {len(self.FOVs)} FOVs with rotation of {rotation} deg calculated, use the mean_images method to return a dict of mean images")
+
+        if plot:
+            plt.figure(figsize=(10,10))
+            plt.imshow(mean_images[self.FOVs[0]], cmap = "Greys_r")
+            plt.title(self.FOVs[0])
+            ax = plt.gca()
+            ax.grid(which='both', color='w', linestyle='-', linewidth=2)
+            plt.show()
+
         self.mean_images = mean_images
 
     def get_image(self, FOV, channel, time, registered=False, *, plot=False):
@@ -137,11 +144,13 @@ class Experiment:
             directory = self.img_path_generator(self.registered_dir, FOV, channel, time, self.file_extension)
         else:
             directory = self.img_path_generator(self.extracted_dir, FOV, channel, time, self.file_extension)
+        image = tifffile.imread(directory)
         if plot:
             plt.figure(figsize=(10, 10))
-            plt.imshow(tifffile.imread(directory), cmap="Greys_r")
+            plt.imshow(image, cmap="Greys_r")
+            plt.title(f"FOV: {FOV}, channel: {channel}, time: {time}")
             plt.show()
-        return tifffile.imread(directory)
+        return image
 
     def register_experiment(self, force=False, n_jobs=-1):
         if hasattr(self, "mean_images"):
@@ -194,6 +203,11 @@ class Experiment:
         mean_img = np.zeros(self.dims)
         for img in img_paths:
             mean_img += tifffile.imread(img) / self.num_timepoints
+        if plot:
+            plt.figure(figsize=(10, 10))
+            plt.imshow(mean_img, cmap="Greys_r")
+            plt.title(f"FOV: {FOV}, channel: {channel}, time: mean")
+            plt.show()
         return mean_img
 
     def mean_t_x(self, FOV, channel, sigma=False, *, plot=False):
@@ -207,7 +221,11 @@ class Experiment:
             plt.show()
         return mean_img
 
-    def find_trench_peaks(self, FOV, channel, sigma=False, distance=40, *, plot=False):
+    def find_trench_peaks(self, FOV, channel = None, sigma=False, distance=40, *, plot=False):
+        if channel is not None:
+            pass
+        else:
+            channel = self._registration_channel
         mean_img = self.mean_t_x(FOV, channel, sigma)
         peaks, _ = find_peaks(mean_img, distance=distance)
         if plot:
@@ -217,8 +235,12 @@ class Experiment:
             plt.show()
         return mean_img, peaks
 
-    def find_all_trench_positions(self, channel, sigma=False, distance=40, *, plot=False):
-        
+    def find_all_trench_x_positions(self, channel = None, sigma=False, distance=40, *, plot=False):
+        if channel is not None:
+            pass
+        else:
+            channel = self._registration_channel
+
         if plot:
             subplots = self.num_FOVs
             cols = 2
@@ -244,7 +266,7 @@ class Experiment:
                 else:
                     _trench_x_lims.append((L, R))
             if plot:
-                mean_img = self.get_mean_of_timestack(FOV, self._registration_channel)
+                mean_img = self.get_mean_of_timestack(FOV, channel)
                 axes_flat[i].imshow(mean_img, cmap="Greys_r")
                 axes_flat[i].get_xaxis().set_ticks([])
                 axes_flat[i].get_yaxis().set_ticks([])
