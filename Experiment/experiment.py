@@ -29,6 +29,7 @@ class Experiment:
         self.registered_dir = self.directory + "/registered/"
         self.num_timepoints = len(self.times)
         self._mean_start = "END"
+        self.PC_channel = None
 
     def __str__(self):
         return f"""
@@ -90,6 +91,15 @@ class Experiment:
         self._registration_channel = value
 
     @property
+    def PC_channel(self):
+        return self._PC_channel
+
+    @PC_channel.setter
+    def PC_channel(self, value):
+        assert value in self.channels, f"Phase contrast channel must be one of {self.channels}"
+        self._PC_channel = value
+
+    @property
     def is_registered(self):
         try:
             if len(self.files) == len(glob(self.registered_dir + "/*")):
@@ -115,12 +125,13 @@ class Experiment:
         mean_images = dict()
         for FOV in self.FOVs:
             mean_img = np.zeros(img_size)
-            mean_img_paths = [
-                self.img_path_generator(
-                    self.extracted_dir, FOV, self._registration_channel, x, self.file_extension) for x in mean_times
-            ]
-            mean_img_imgs = (tifffile.imread(x) for x in mean_img_paths)
+            #mean_img_paths = [
+            #    self.img_path_generator(
+            #        self.extracted_dir, FOV, self._registration_channel, x, self.file_extension) for x in mean_times
+            #]
 
+            #mean_img_imgs = (tifffile.imread(x) for x in mean_img_paths)
+            mean_img_imgs = (self.get_image(FOV, self._registration_channel, x) for x in mean_times)
             for img in mean_img_imgs:
                 mean_img += img / mean_amount
             mean_img = rotate(mean_img, rotation)
@@ -172,9 +183,10 @@ class Experiment:
     def register_FOV(self, FOV):
         ref = self.mean_images[FOV]
         for time in self.times:
-            img_path = self.img_path_generator(self.extracted_dir, FOV, self._registration_channel, time,
-                                               self.file_extension)
-            mov = tifffile.imread(img_path)
+            #img_path = self.img_path_generator(self.extracted_dir, FOV, self._registration_channel, time,
+            #                                   self.file_extension)
+            #mov = tifffile.imread(img_path)
+            mov = self.get_image(FOV, self._registration_channel,time,registered=False,plot=False)
             sr = StackReg(StackReg.RIGID_BODY)
             sr.register(ref, mov)
             mov = sr.transform(mov)
@@ -186,23 +198,25 @@ class Experiment:
                 if channel == self._registration_channel:
                     pass
                 else:
-                    img_path = self.img_path_generator(self.extracted_dir, FOV, channel, time, self.file_extension)
-                    mov = tifffile.imread(img_path)
+                    #img_path = self.img_path_generator(self.extracted_dir, FOV, channel, time, self.file_extension)
+                    #mov = tifffile.imread(img_path)
+                    mov = self.get_image(FOV, channel, time, registered=False, plot=False)
                     mov = sr.transform(mov)
                     mov = mov.astype(np.uint16)
                     out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.file_extension)
                     tifffile.imwrite(out_path, mov)
 
     def get_mean_of_timestack(self, FOV, channel, *, plot = False):
-        if self.is_registered:
-            img_paths = [self.img_path_generator(self.registered_dir, FOV, channel, time, self.file_extension) for time in
-                         self.times]
-        else:
-            img_paths = [self.img_path_generator(self.extracted_dir, FOV, channel, time, self.file_extension) for time in
-                         self.times]
+        #if self.is_registered:
+        #    img_paths = [self.img_path_generator(self.registered_dir, FOV, channel, time, self.file_extension) for time in
+        #                 self.times]
+        #else:
+        #    img_paths = [self.img_path_generator(self.extracted_dir, FOV, channel, time, self.file_extension) for time in
+        #                 self.times]
         mean_img = np.zeros(self.dims)
-        for img in img_paths:
-            mean_img += tifffile.imread(img) / self.num_timepoints
+        for time in self.times:
+            #mean_img += tifffile.imread(img) / self.num_timepoints
+            mean_img += self.get_image(FOV, channel, time, registered=self._is_registered, plot=False)
         if plot:
             plt.figure(figsize=(10, 10))
             plt.imshow(mean_img, cmap="Greys_r")
@@ -220,6 +234,17 @@ class Experiment:
             plt.title(f"FOV: {FOV}, Channel: {channel}, Gaussian sigma: {sigma}")
             plt.show()
         return mean_img
+
+    def mean_t_y(self, FOV, channel, sigma = False, *, plot=False):
+        mean_img = self.get_mean_of_timestack(FOV, channel)
+        mean_img = mean_img.mean(axis=1)
+        if sigma:
+            mean_img = gaussian_filter1d(mean_img, sigma)
+        if plot:
+            plt.plot(mean_img)
+            plt.title(f"FOV: {FOV}, Channel: {channel}, Gaussian sigma: {sigma}")
+            plt.show()
+
 
     def find_trench_peaks(self, FOV, channel = None, sigma=False, distance=40, *, plot=False):
         if channel is not None:
@@ -240,14 +265,6 @@ class Experiment:
             pass
         else:
             channel = self._registration_channel
-
-        if plot:
-            subplots = self.num_FOVs
-            cols = 2
-            rows = round(np.ceil(subplots / cols))
-            fig, axes = plt.subplots(nrows=rows, ncols=cols, dpi=80, figsize=(20, 20))
-            color_cycler = cycle(["red", "green", "blue", "yellow", "orange", "purple", "white"])
-            axes_flat = axes.flatten()
             
         self.peaks = {FOV: self.find_trench_peaks(FOV, channel, sigma, distance, plot=False)[1] for FOV in self.FOVs}
         self.trench_spacing = np.mean([np.mean(np.diff(self.peaks[FOV])) for FOV in self.FOVs])
@@ -256,6 +273,15 @@ class Experiment:
                                             self.peaks[FOV] + round(self.trench_spacing / 2.2)) for FOV in
                                     self.FOVs
                                     }
+
+        if plot:
+            subplots = self.num_FOVs
+            cols = 2
+            rows = round(np.ceil(subplots / cols))
+            fig, axes = plt.subplots(nrows=rows, ncols=cols, dpi=80, figsize=(20, 20))
+            color_cycler = cycle(["red", "green", "blue", "yellow", "orange", "purple", "white"])
+            axes_flat = axes.flatten()
+
         pruned_experiment_trench_x_lims = {}
         for i, FOV in enumerate(self.FOVs):
             trench_x_lims = experiment_trench_x_lims[FOV]
@@ -281,5 +307,7 @@ class Experiment:
         if plot:
             plt.tight_layout()
             plt.show()
+        self.pruned_experiment_trench_x_lims = pruned_experiment_trench_x_lims
         return pruned_experiment_trench_x_lims
 
+    #def find_all_trench_y_positions_PC(self, sigma = False, *, plot = False):
