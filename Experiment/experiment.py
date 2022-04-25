@@ -16,28 +16,29 @@ from PIL import Image
 class Experiment:
     def __init__(self, directory):
         self.directory = directory
-        self.extracted_dir = directory + "/extracted/"
+        self.extracted_dir = directory + "{}extracted{}".format(os.path.sep,os.path.sep)
         self.files = glob(self.extracted_dir + "*")
-        self.FOVs = [x.split("/")[-1].split("_")[0] for x in self.files]
+        self.FOVs = [x.split(os.path.sep)[-1].split("_")[0] for x in self.files]
         self.FOVs = sorted(list(set(self.FOVs)))
         self.num_FOVs = len(self.FOVs)
-        self.times = [x.split("/")[-1].split("_")[2].split(".")[0] for x in self.files]
+        self.times = [x.split(os.path.sep)[-1].split("_")[2].split(".")[0] for x in self.files]
         self.times = sorted(list(set(self.times)))
-        self.channels = [x.split("/")[-1].split("_")[1] for x in self.files]
+        self.channels = [x.split(os.path.sep)[-1].split("_")[1] for x in self.files]
         self.channels = sorted(list(set(self.channels)))
-        self.file_extension = self.files[0].split("/")[-1].split("_")[2].split(".")[-1]
+        self.file_extension = self.files[0].split(os.path.sep)[-1].split("_")[2].split(".")[-1]
         self.dims = tifffile.imread(self.files[0]).shape
         self.dtype = tifffile.imread(self.files[0]).dtype
         self.experiment_name = os.path.basename(os.path.normpath(self.directory))  # gets last part of the directory
-        self.registered_dir = self.directory + "/registered/"
+        self.registered_dir = self.directory + "{}registered{}".format(os.path.sep,os.path.sep)
         self.num_timepoints = len(self.times)
         self._mean_start = "END"
         self.PC_channel = None
         self.trench_y_offsets = None
         self.y_peaks = None
         self.pruned_experiment_trench_x_lims = None
-        self.trench_directory = directory + "/trenches/"
-
+        self.trench_directory = directory + "{}trenches{}".format(os.path.sep,os.path.sep)
+        self.rotation = None
+        
     def __str__(self):
         return f"""
             Experiment name: {self.experiment_name}
@@ -131,12 +132,13 @@ class Experiment:
         self._is_registered = value
 
     def get_mean_images(self, rotation=0, mean_amount=10, *, plot=False):
+        self.rotation = rotation
         if self._mean_start == "END":
-            mean_times = self.times[-15:]
+            mean_times = self.times[-mean_amount:]
         elif self._mean_start == "START":
-            mean_times = self.times[:15]
+            mean_times = self.times[:mean_amount]
         else:
-            mean_times = self.times[-15:]
+            mean_times = self.times[-mean_amount:]
         img_size = self.dims
         mean_images = dict()
         for FOV in self.FOVs:
@@ -150,7 +152,7 @@ class Experiment:
             mean_img_imgs = (self.get_image(FOV, self._registration_channel, x) for x in mean_times)
             for img in mean_img_imgs:
                 mean_img += img / mean_amount
-            mean_img = rotate(mean_img, rotation)
+            mean_img = rotate(mean_img, rotation, preserve_range=True)
             mean_images[FOV] = mean_img.astype(np.uint16)
         print(
             f"Mean images for {len(self.FOVs)} FOVs with rotation of {rotation} deg calculated, use the mean_images method to return a dict of mean images")
@@ -165,6 +167,8 @@ class Experiment:
 
         self.mean_images = mean_images
 
+
+        
     def get_image(self, FOV, channel, time, registered=False, *, plot=False):
         if registered:
             assert self.is_registered, "Experiment not registered"
@@ -196,7 +200,37 @@ class Experiment:
             else:
                 raise Exception(
                     "The registration directory exists, but the experiment does not seem to be fully registed. Check number of files")
-
+    
+    def rotate_experiment(self, rotation, force=False, n_jobs = -1):
+        rotation = self.rotation
+        if hasattr(self, "mean_images"):
+            pass
+        else:
+            raise Exception("You haven't called get_mean_images to calculate this experiment's mean images.")
+        try:
+            os.mkdir(self.directory + "/registered/")
+            fields = product(self.FOVs, self.channels, self.times)
+            Parallel(n_jobs=n_jobs)(delayed(self.rotate_image)(*field, rotation) for field in fields)
+        except:
+            if force:
+                warnings.warn("Rerotating experiment")
+                fields = product(self.FOVs, self.channels, self.times)
+                Parallel(n_jobs=n_jobs)(delayed(self.rotate_image)(*field, rotation) for field in fields)
+            elif (not force) and (self.is_registered):
+                raise Exception("The experiment has already been rotated, to re-rotate use force=True")
+            else:
+                raise Exception(
+                    "The registration directory exists, but the experiment does not seem to be fully registed. Check number of files")
+    
+            
+    def rotate_image(self, FOV, channel, time, rotation):
+        img = self.get_image(FOV, channel, time, registered = False)
+        img = rotate(img, rotation, preserve_range=True).astype(np.uint16)
+        out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.file_extension)
+        tifffile.imwrite(out_path, img)
+        
+                
+                
     def register_FOV(self, FOV):
         ref = self.mean_images[FOV]
         for time in self.times:
@@ -278,7 +312,17 @@ class Experiment:
             plt.show()
         return mean_img, peaks
 
-    def find_all_trench_x_positions(self, channel=None, *, sigma=False, distance=40, plot=False):
+    def find_all_trench_x_positions(self, channel=None, *, sigma=False, distance=40, plot=False, plot_save = False):
+        if plot_save: 
+            try:
+                os.mkdir(self.directory + "/diagnostics/")
+            except:
+                pass
+            try:
+                os.mkdir(self.directory + "/diagnostics/trench_x_positions/")
+            except:
+                pass
+        
         if channel is not None:
             pass
         else:
@@ -287,7 +331,7 @@ class Experiment:
         self.peaks = {FOV: self.find_trench_peaks(FOV, channel, sigma, distance, plot=False)[1] for FOV in self.FOVs}
         self.trench_spacing = np.mean([np.mean(np.diff(self.peaks[FOV])) for FOV in self.FOVs])
         experiment_trench_x_lims = {FOV:
-                                        zip(self.peaks[FOV] - round(self.trench_spacing / 2.2),
+                                        zip(self.peaks[FOV] - round(self.trench_spacing / 2.2), #TODO make this an argument
                                             self.peaks[FOV] + round(self.trench_spacing / 2.2)) for FOV in
                                     self.FOVs
                                     }
@@ -309,8 +353,9 @@ class Experiment:
                     pass
                 else:
                     _trench_x_lims.append((L, R))
+            if plot or plot_save:
+                mean_img = self.get_image(FOV, channel, 1, registered=self.is_registered)
             if plot:
-                mean_img = self.get_mean_of_timestack(FOV, channel)
                 axes_flat[i].imshow(mean_img, cmap="Greys_r")
                 axes_flat[i].get_xaxis().set_ticks([])
                 axes_flat[i].get_yaxis().set_ticks([])
@@ -323,11 +368,31 @@ class Experiment:
                     axes_flat[i].axvspan(L, R, alpha=0.1, color=color)
                     axes_flat[i].axvline(x=L, color=color)
                     axes_flat[i].axvline(x=R, color=color)
-
+                
+            if plot_save:
+                fig_save, axes_save = plt.subplots(nrows=1, ncols=1, dpi=80, figsize=(20, 20))
+                color_cycler = cycle(["red", "green", "blue", "yellow", "orange", "purple", "white"])
+                axes_save.imshow(mean_img, cmap="Greys_r")
+                axes_save.get_xaxis().set_ticks([])
+                axes_save.get_yaxis().set_ticks([])
+                axes_save.set_title(FOV)
+                axes_save.autoscale(enable=True)
+                if self.y_peaks and self.trench_y_offsets:
+                    axes_save.axhline(self.y_peaks[FOV][0] - self.trench_y_offsets[0], color="r")
+                    axes_save.axhline(self.y_peaks[FOV][0] - self.trench_y_offsets[1], color="r")
+                for (L, R), color in zip(_trench_x_lims, color_cycler):
+                    axes_save.axvspan(L, R, alpha=0.1, color=color)
+                    axes_save.axvline(x=L, color=color)
+                    axes_save.axvline(x=R, color=color)
+                plt.tight_layout()
+                plt.savefig(self.directory + "/diagnostics/trench_x_positions/{}.png".format(str(FOV)))
+                plt.close()
+                
+            
             pruned_experiment_trench_x_lims[FOV] = _trench_x_lims
-        if plot:
-            plt.tight_layout()
-            plt.show()
+            if plot:
+                plt.tight_layout()
+                plt.show()
         self.pruned_experiment_trench_x_lims = pruned_experiment_trench_x_lims
         return pruned_experiment_trench_x_lims
 
@@ -345,7 +410,18 @@ class Experiment:
             plt.show()
         return mean_img, peaks
 
-    def find_all_trench_y_positions_PC(self, channel=None, *, sigma=False, distance=1, height=1, plot=False):
+    def find_all_trench_y_positions_PC(self, channel=None, *, sigma=False, distance=1, height=1, plot=False, plot_save = False):
+        
+        if plot_save: 
+            try:
+                os.mkdir(self.directory + "/diagnostics/")
+            except:
+                pass
+            try:
+                os.mkdir(self.directory + "/diagnostics/trench_y_positions/")
+            except:
+                pass
+        
         if channel is not None:
             pass
         else:
@@ -364,8 +440,9 @@ class Experiment:
             axes_flat = axes.flatten()
 
         for i, FOV in enumerate(self.FOVs):
+            if plot or plot_save:
+                mean_img = self.get_image(FOV, channel, 1, registered=self.is_registered)
             if plot:
-                mean_img = self.get_mean_of_timestack(FOV, channel)
                 axes_flat[i].imshow(mean_img, cmap="Greys_r")
                 axes_flat[i].get_xaxis().set_ticks([])
                 axes_flat[i].get_yaxis().set_ticks([])
@@ -378,6 +455,27 @@ class Experiment:
                         axes_flat[i].axvspan(L, R, alpha=0.1, color=color)
                         axes_flat[i].axvline(x=L, color=color)
                         axes_flat[i].axvline(x=R, color=color)
+                        
+            if plot_save:
+                fig_save, axes_save = plt.subplots(nrows=1, ncols=1, dpi=80, figsize=(20, 20))
+                color_cycler = cycle(["red", "green", "blue", "yellow", "orange", "purple", "white"])
+                axes_save.imshow(mean_img, cmap="Greys_r")
+                axes_save.get_xaxis().set_ticks([])
+                axes_save.get_yaxis().set_ticks([])
+                axes_save.set_title(FOV)
+                axes_save.autoscale(enable=True)
+                axes_save.axhline(self.y_peaks[FOV][0] - self.trench_y_offsets[0], color="r")
+                axes_save.axhline(self.y_peaks[FOV][0] - self.trench_y_offsets[1], color="r")
+                if self.y_peaks and self.trench_y_offsets:
+                    axes_save.axhline(self.y_peaks[FOV][0] - self.trench_y_offsets[0], color="r")
+                    axes_save.axhline(self.y_peaks[FOV][0] - self.trench_y_offsets[1], color="r")
+                for (L, R), color in zip(self.pruned_experiment_trench_x_lims[FOV], color_cycler):
+                    axes_save.axvspan(L, R, alpha=0.1, color=color)
+                    axes_save.axvline(x=L, color=color)
+                    axes_save.axvline(x=R, color=color)
+                plt.tight_layout()
+                plt.savefig(self.directory + "/diagnostics/trench_y_positions/{}.png".format(str(FOV)))
+                plt.close()
 
         if plot:
             plt.tight_layout()
