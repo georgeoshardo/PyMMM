@@ -26,8 +26,21 @@ class Experiment:
         self.channels = [x.split(os.path.sep)[-1].split("_")[1] for x in self.files]
         self.channels = sorted(list(set(self.channels)))
         self.file_extension = self.files[0].split(os.path.sep)[-1].split("_")[2].split(".")[-1]
-        self.dims = tifffile.imread(self.files[0]).shape
-        self.dtype = tifffile.imread(self.files[0]).dtype
+        if "png" in self.file_extension.lower():
+            def imreader(filename):
+                return np.array(Image.open(filename))
+            def imwriter(filename, data):
+                data = Image.fromarray(data)
+                data.save(filename)
+        elif "tiff" in self.file_extension.lower():
+            def imreader(filename):
+                return tifffile.imread(filename)
+            def imwriter(data, filename):
+                tifffile.imwrite(filename, data)
+        self.imreader = imreader
+        self.imwriter = imwriter
+        self.dims = imreader(self.files[0]).shape
+        self.dtype = imreader(self.files[0]).dtype
         self.experiment_name = os.path.basename(os.path.normpath(self.directory))  # gets last part of the directory
         self.registered_dir = self.directory + "{}registered{}".format(os.path.sep,os.path.sep)
         self.num_timepoints = len(self.times)
@@ -143,12 +156,6 @@ class Experiment:
         mean_images = dict()
         for FOV in self.FOVs:
             mean_img = np.zeros(img_size)
-            # mean_img_paths = [
-            #    self.img_path_generator(
-            #        self.extracted_dir, FOV, self._registration_channel, x, self.file_extension) for x in mean_times
-            # ]
-
-            # mean_img_imgs = (tifffile.imread(x) for x in mean_img_paths)
             mean_img_imgs = (self.get_image(FOV, self._registration_channel, x) for x in mean_times)
             for img in mean_img_imgs:
                 mean_img += img / mean_amount
@@ -175,7 +182,7 @@ class Experiment:
             directory = self.img_path_generator(self.registered_dir, FOV, channel, time, self.file_extension)
         else:
             directory = self.img_path_generator(self.extracted_dir, FOV, channel, time, self.file_extension)
-        image = tifffile.imread(directory)
+        image = self.imreader(directory)
         if plot:
             plt.figure(figsize=(10, 10))
             plt.imshow(image, cmap="Greys_r")
@@ -227,16 +234,13 @@ class Experiment:
         img = self.get_image(FOV, channel, time, registered = False)
         img = rotate(img, rotation, preserve_range=True).astype(np.uint16)
         out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.file_extension)
-        tifffile.imwrite(out_path, img)
+        self.imwriter(out_path, img)
         
                 
                 
     def register_FOV(self, FOV):
         ref = self.mean_images[FOV]
         for time in self.times:
-            # img_path = self.img_path_generator(self.extracted_dir, FOV, self._registration_channel, time,
-            #                                   self.file_extension)
-            # mov = tifffile.imread(img_path)
             mov = self.get_image(FOV, self._registration_channel, time, registered=False, plot=False)
             sr = StackReg(StackReg.RIGID_BODY)
             tmats = sr.register(ref, mov)
@@ -246,7 +250,7 @@ class Experiment:
             mov = mov.astype(np.uint16)
             out_path = self.img_path_generator(self.registered_dir, FOV, self._registration_channel, time,
                                                self.file_extension)
-            tifffile.imwrite(out_path, mov)
+            self.imwriter(out_path, mov)
 
             for channel in self.channels:
                 if channel == self._registration_channel:
@@ -256,7 +260,7 @@ class Experiment:
                     mov = warp(mov, tmats, preserve_range=True, order=3)
                     mov = mov.astype(np.uint16)
                     out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.file_extension)
-                    tifffile.imwrite(out_path, mov)
+                    self.imwriter(out_path, mov)
 
     def get_mean_of_timestack(self, FOV, channel, *, plot=False):
         # if self.is_registered:
@@ -267,7 +271,6 @@ class Experiment:
         #                 self.times]
         mean_img = np.zeros(self.dims)
         for time in self.times:
-            # mean_img += tifffile.imread(img) / self.num_timepoints
             mean_img += self.get_image(FOV, channel, time, registered=self._is_registered, plot=False)
         if plot:
             plt.figure(figsize=(10, 10))
@@ -493,7 +496,7 @@ class Experiment:
         if save:
             for i, trench in enumerate(trenches):
                 out_path = self.trench_path_generator(self.trench_directory, FOV, channel, i, time, self.file_extension)
-                tifffile.imwrite(out_path, trench)
+                self.imwriter(out_path, trench)
     def extract_trenches(self, n_jobs=-1, force=False):
         fields = product(self.FOVs, self.channels, self.times)
         try:
