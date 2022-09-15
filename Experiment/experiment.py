@@ -12,12 +12,13 @@ from scipy.ndimage import gaussian_filter1d
 from itertools import cycle, product
 from skimage.transform import warp
 from PIL import Image
+from functools import lru_cache
 
 class Experiment:
     def __init__(self, directory):
         self.directory = directory
         self.extracted_dir = directory + "{}extracted{}".format(os.path.sep,os.path.sep)
-        self.files = glob(self.extracted_dir + "*")
+        self.files = glob(self.extracted_dir + "/*")
         self.FOVs = [x.split(os.path.sep)[-1].split("_")[0] for x in self.files]
         self.FOVs = sorted(list(set(self.FOVs)))
         self.num_FOVs = len(self.FOVs)
@@ -26,19 +27,25 @@ class Experiment:
         self.channels = [x.split(os.path.sep)[-1].split("_")[1] for x in self.files]
         self.channels = sorted(list(set(self.channels)))
         self.file_extension = self.files[0].split(os.path.sep)[-1].split("_")[2].split(".")[-1]
+        # Checking the file type and assigning the correct imreader and imwriter functions.
         if "png" in self.file_extension.lower():
             def imreader(filename):
                 return np.array(Image.open(filename))
             def imwriter(filename, data):
                 data = Image.fromarray(data)
                 data.save(filename)
-        elif "tiff" in self.file_extension.lower():
+            self.imreader = imreader
+            self.imwriter = imwriter
+        elif "tif" in self.file_extension.lower():
             def imreader(filename):
                 return tifffile.imread(filename)
-            def imwriter(data, filename):
+            def imwriter(filename, data):
                 tifffile.imwrite(filename, data)
-        self.imreader = imreader
-        self.imwriter = imwriter
+            self.imreader = imreader
+            self.imwriter = imwriter
+        else:
+            raise ValueError(f"Invalid file extension: {self.file_extension.lower()}")
+
         self.dims = imreader(self.files[0]).shape
         self.dtype = imreader(self.files[0]).dtype
         self.experiment_name = os.path.basename(os.path.normpath(self.directory))  # gets last part of the directory
@@ -51,6 +58,7 @@ class Experiment:
         self.pruned_experiment_trench_x_lims = None
         self.trench_directory = directory + "{}trenches{}".format(os.path.sep,os.path.sep)
         self.rotation = None
+        self.mean_of_timestack = dict()
         
     def __str__(self):
         return f"""
@@ -60,9 +68,6 @@ class Experiment:
             FOVs: {len(self.FOVs)}
             Registered: {self.is_registered}
         """
-
-    def __len__(self):
-        return self.num_timepoints
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
@@ -190,18 +195,18 @@ class Experiment:
             plt.show()
         return image
 
-    def register_experiment(self, force=False, n_jobs=-1):
+    def register_experiment(self, force=False, mode = "mean", sum=False, n_jobs=-1):
         if hasattr(self, "mean_images"):
             pass
         else:
             raise Exception("You haven't called get_mean_images to calculate this experiment's mean images.")
         try:
             os.mkdir(self.directory + "/registered/")
-            Parallel(n_jobs=n_jobs)(delayed(self.register_FOV)(FOV) for FOV in self.FOVs)
+            Parallel(n_jobs=n_jobs)(delayed(self.register_FOV)(FOV, mode, sum) for FOV in self.FOVs)
         except:
             if force:
                 warnings.warn("Reregistering experiment")
-                Parallel(n_jobs=n_jobs)(delayed(self.register_FOV)(FOV) for FOV in self.FOVs)
+                Parallel(n_jobs=n_jobs)(delayed(self.register_FOV)(FOV, mode, sum) for FOV in self.FOVs)
             elif (not force) and (self.is_registered):
                 raise Exception("The experiment has already been registered, to re-register use force=True")
             else:
@@ -238,40 +243,66 @@ class Experiment:
         
                 
                 
-    def register_FOV(self, FOV):
-        ref = self.mean_images[FOV]
-        for time in self.times:
-            mov = self.get_image(FOV, self._registration_channel, time, registered=False, plot=False)
-            sr = StackReg(StackReg.RIGID_BODY)
-            tmats = sr.register(ref, mov)
-            #Use skimage warp because pystackreg has ability to clip to data type
-            mov = warp(mov, tmats, preserve_range=True, order=3)
-            #mov = np.clip(mov, 0, np.iinfo(self.dtype).max)
-            mov = mov.astype(np.uint16)
-            out_path = self.img_path_generator(self.registered_dir, FOV, self._registration_channel, time,
+    def register_FOV(self, FOV, mode="mean", sum = False):
+        if mode == "mean":
+            ref = self.mean_images[FOV]
+        if mode == "previous": # If aligning to the previous frame, write the first frame without any modification
+            mov = self.get_image(FOV, self._registration_channel, self.times[0], registered=False, plot=False)
+            out_path = self.img_path_generator(self.registered_dir, FOV, self._registration_channel, self.times[0],
                                                self.file_extension)
             self.imwriter(out_path, mov)
-
             for channel in self.channels:
                 if channel == self._registration_channel:
                     pass
                 else:
-                    mov = self.get_image(FOV, channel, time, registered=False, plot=False)
-                    mov = warp(mov, tmats, preserve_range=True, order=3)
+                    mov = self.get_image(FOV, channel, self.times[0], registered=False, plot=False)
                     mov = mov.astype(np.uint16)
-                    out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.file_extension)
+                    out_path = self.img_path_generator(self.registered_dir, FOV, channel, self.times[0], self.file_extension)
                     self.imwriter(out_path, mov)
+        for time, prev_time in list(zip(self.times[1:], self.times)):
+            if sum:
+                mov = self.get_image(FOV, self.channels[0], time, registered=False, plot=False).astype(float)
+                for channel in self.channels[1:]:
+                    mov += self.get_image(FOV, self.channels[0], time, registered=False, plot=False).astype(float)
+            else:
+                mov = self.get_image(FOV, self._registration_channel, time, registered=False, plot=False)
+            sr = StackReg(StackReg.RIGID_BODY)
+            if mode == "previous":
+                if sum:
+                    ref = self.get_image(FOV, self.channels[0], prev_time, registered=False, plot=False)
+                    for channel in self.channels[1:]:
+                        ref += self.get_image(FOV, channel, prev_time, registered=False, plot=False)
+                else:
+                    ref = self.get_image(FOV, self._registration_channel, prev_time, registered=False, plot=False)
+            tmats = sr.register(ref, mov)
+
+
+            for channel in self.channels:
+                #if channel == self._registration_channel:
+                #    # Use skimage warp because pystackreg has ability to clip to data type
+                #    mov = warp(mov, tmats, preserve_range=True, order=3)
+                #    # mov = np.clip(mov, 0, np.iinfo(self.dtype).max)
+                #    mov = mov.astype(np.uint16)
+                #    out_path = self.img_path_generator(self.registered_dir, FOV, self._registration_channel, time,
+                #                                       self.file_extension)
+                #    self.imwriter(out_path, mov)
+                #else:
+                mov = self.get_image(FOV, channel, time, registered=False, plot=False)
+                mov = warp(mov, tmats, preserve_range=True, order=3)
+                mov = mov.astype(np.uint16)
+                out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.file_extension)
+                self.imwriter(out_path, mov)
 
     def get_mean_of_timestack(self, FOV, channel, *, plot=False):
-        # if self.is_registered:
-        #    img_paths = [self.img_path_generator(self.registered_dir, FOV, channel, time, self.file_extension) for time in
-        #                 self.times]
-        # else:
-        #    img_paths = [self.img_path_generator(self.extracted_dir, FOV, channel, time, self.file_extension) for time in
-        #                 self.times]
-        mean_img = np.zeros(self.dims)
-        for time in self.times:
-            mean_img += self.get_image(FOV, channel, time, registered=self._is_registered, plot=False)
+        try:
+            FOV, channel, _ = self.coordinate_converter(FOV, channel, 0)
+            mean_img =  self.mean_of_timestack[FOV+channel]
+        except:
+            mean_img = np.zeros(self.dims)
+            for time in self.times:
+                mean_img += self.get_image(FOV, channel, time, registered=self._is_registered, plot=False)
+            self.mean_of_timestack[FOV+channel] = mean_img
+
         if plot:
             plt.figure(figsize=(10, 10))
             plt.imshow(mean_img, cmap="Greys_r")
@@ -315,7 +346,7 @@ class Experiment:
             plt.show()
         return mean_img, peaks
 
-    def find_all_trench_x_positions(self, channel=None, *, sigma=False, distance=40, plot=False, plot_save = False):
+    def find_all_trench_x_positions(self, channel=None, *, sigma=False, distance=40, shrink_scale = 2.2, plot=False, plot_save = False):
         if plot_save: 
             try:
                 os.mkdir(self.directory + "/diagnostics/")
@@ -334,8 +365,8 @@ class Experiment:
         self.peaks = {FOV: self.find_trench_peaks(FOV, channel, sigma, distance, plot=False)[1] for FOV in self.FOVs}
         self.trench_spacing = np.mean([np.mean(np.diff(self.peaks[FOV])) for FOV in self.FOVs])
         experiment_trench_x_lims = {FOV:
-                                        zip(self.peaks[FOV] - round(self.trench_spacing / 2.2), #TODO make this an argument
-                                            self.peaks[FOV] + round(self.trench_spacing / 2.2)) for FOV in
+                                        zip(self.peaks[FOV] - round(self.trench_spacing / shrink_scale), #TODO make this an argument
+                                            self.peaks[FOV] + round(self.trench_spacing / shrink_scale)) for FOV in
                                     self.FOVs
                                     }
 
@@ -357,7 +388,8 @@ class Experiment:
                 else:
                     _trench_x_lims.append((L, R))
             if plot or plot_save:
-                mean_img = self.get_image(FOV, channel, 1, registered=self.is_registered)
+                #mean_img = self.get_image(FOV, channel, 1, registered=self.is_registered)
+                mean_img = self.get_mean_of_timestack(FOV, channel)
             if plot:
                 axes_flat[i].imshow(mean_img, cmap="Greys_r")
                 axes_flat[i].get_xaxis().set_ticks([])
@@ -444,7 +476,7 @@ class Experiment:
 
         for i, FOV in enumerate(self.FOVs):
             if plot or plot_save:
-                mean_img = self.get_image(FOV, channel, 1, registered=self.is_registered)
+                mean_img = self.get_mean_of_timestack(FOV, channel)
             if plot:
                 axes_flat[i].imshow(mean_img, cmap="Greys_r")
                 axes_flat[i].get_xaxis().set_ticks([])
