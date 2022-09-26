@@ -12,42 +12,90 @@ from scipy.ndimage import gaussian_filter1d
 from itertools import cycle, product
 from skimage.transform import warp
 from PIL import Image
-from functools import lru_cache
+from copy import deepcopy
 
 class Experiment:
-    def __init__(self, directory):
+    def __init__(self, directory, custom_filename_splitter=None, custom_img_path_generator = None, save_filetype = None):
         self.directory = directory
         self.extracted_dir = directory + "{}extracted{}".format(os.path.sep,os.path.sep)
         self.files = glob(self.extracted_dir + "/*")
-        self.FOVs = [x.split(os.path.sep)[-1].split("_")[0] for x in self.files]
+        self.custom_img_path_generator = custom_img_path_generator
+
+        if self.custom_img_path_generator:
+            def img_path_generator(directory, FOV, channel, time, file_extension):
+                FOV, channel, time = self.coordinate_converter(FOV, channel, time)
+                return self.custom_img_path_generator(directory, FOV, channel, time, file_extension)
+            self.img_path_generator = img_path_generator
+        else:
+            def img_path_generator(directory, FOV, channel, time, file_extension):
+                FOV, channel, time = self.coordinate_converter(FOV, channel, time)
+                return f"{directory}/{FOV}_{channel}_{time}.{file_extension}"
+            self.img_path_generator = img_path_generator
+
+        if custom_filename_splitter:
+            def filename_splitter(filename):
+                filename = filename.split(os.path.sep)[-1]
+                return custom_filename_splitter(filename)
+            
+            self.filename_splitter = filename_splitter
+        else:
+            def filename_splitter(filename):
+                FOV = filename.split(os.path.sep)[-1].split("_")[0]
+                time = filename.split(os.path.sep)[-1].split("_")[2].split(".")[0]
+                channel = filename.split(os.path.sep)[-1].split("_")[1]
+                file_extension = filename.split(os.path.sep)[-1].split("_")[2].split(".")[-1]
+                return FOV, time, channel, file_extension
+            self.filename_splitter = filename_splitter
+
+        self.FOVs = [self.filename_splitter(x)[0] for x in self.files]
         self.FOVs = sorted(list(set(self.FOVs)))
         self.num_FOVs = len(self.FOVs)
-        self.times = [x.split(os.path.sep)[-1].split("_")[2].split(".")[0] for x in self.files]
+        self.times = [self.filename_splitter(x)[1] for x in self.files]
         self.times = sorted(list(set(self.times)))
-        self.channels = [x.split(os.path.sep)[-1].split("_")[1] for x in self.files]
+        self._times = deepcopy(self.times)
+        self.channels = [self.filename_splitter(x)[2] for x in self.files]
         self.channels = sorted(list(set(self.channels)))
-        self.file_extension = self.files[0].split(os.path.sep)[-1].split("_")[2].split(".")[-1]
+        self.file_extension = self.filename_splitter(self.files[0])[3]
+
         # Checking the file type and assigning the correct imreader and imwriter functions.
+        def png_imreader(filename):
+            return np.array(Image.open(filename))
+        def png_imwriter(filename, data):
+            """
+            write PNG
+            """
+            data = Image.fromarray(data)
+            data.save(filename)
+        def tiff_imreader(filename):
+            return tifffile.imread(filename)
+        def tiff_imwriter(filename, data):
+            """
+            write TIFF
+            """
+            tifffile.imwrite(filename, data)
+        
         if "png" in self.file_extension.lower():
-            def imreader(filename):
-                return np.array(Image.open(filename))
-            def imwriter(filename, data):
-                data = Image.fromarray(data)
-                data.save(filename)
-            self.imreader = imreader
-            self.imwriter = imwriter
+            self.imreader = png_imreader
+            self.imwriter = png_imwriter
         elif "tif" in self.file_extension.lower():
-            def imreader(filename):
-                return tifffile.imread(filename)
-            def imwriter(filename, data):
-                tifffile.imwrite(filename, data)
-            self.imreader = imreader
-            self.imwriter = imwriter
+            self.imreader = tiff_imreader
+            self.imwriter = tiff_imwriter
         else:
             raise ValueError(f"Invalid file extension: {self.file_extension.lower()}")
 
-        self.dims = imreader(self.files[0]).shape
-        self.dtype = imreader(self.files[0]).dtype
+        self.save_file_extension = self.file_extension
+        if save_filetype:
+            if "png" in save_filetype.lower():
+                self.imwriter = png_imwriter
+                self.reg_imreader = png_imreader
+                self.save_file_extension = "png"
+            elif "tif" in save_filetype.lower():
+                self.imwriter = tiff_imreader
+                self.reg_imreader = tiff_imreader
+                self.save_file_extension = "tiff"
+
+        self.dims = self.imreader(self.files[0]).shape
+        self.dtype = self.imreader(self.files[0]).dtype
         self.experiment_name = os.path.basename(os.path.normpath(self.directory))  # gets last part of the directory
         self.registered_dir = self.directory + "{}registered{}".format(os.path.sep,os.path.sep)
         self.num_timepoints = len(self.times)
@@ -100,13 +148,11 @@ class Experiment:
         if isinstance(time, int):
             time = self.times[time]
         return FOV, channel, time
-
-    def img_path_generator(self, directory, FOV, channel, time, file_extension):
-        FOV, channel, time = self.coordinate_converter(FOV, channel, time)
-        return f"{directory}/{FOV}_{channel}_{time}.{file_extension}"
+    
     def trench_path_generator(self, directory, FOV, channel, trench, time, file_extension):
         FOV, channel, time = self.coordinate_converter(FOV, channel, time)
         return f"{directory}/{FOV}_{channel}_TR{trench}_{time}.{file_extension}"
+
     @property
     def mean_start(self):
         return self._mean_start
@@ -115,6 +161,9 @@ class Experiment:
     def mean_start(self, value):
         assert value in ["START", "END"], "mean_start should be START or END"
         self._mean_start = value
+
+    def set_analysis_times(self, start, end):
+        self.times = self._times[start:end]
 
     @property
     def registration_channel(self):
@@ -138,6 +187,8 @@ class Experiment:
     def is_registered(self):
         try:
             if len(self.files) == len(glob(self.registered_dir + "/*")):
+                self._is_registered = True
+            elif self.set_analysis_times:
                 self._is_registered = True
             else:
                 self._is_registered = False
@@ -184,10 +235,11 @@ class Experiment:
     def get_image(self, FOV, channel, time, registered=False, *, plot=False):
         if registered:
             assert self.is_registered, "Experiment not registered"
-            directory = self.img_path_generator(self.registered_dir, FOV, channel, time, self.file_extension)
+            directory = self.img_path_generator(self.registered_dir, FOV, channel, time, self.save_file_extension)
+            image = self.reg_imreader(directory)
         else:
             directory = self.img_path_generator(self.extracted_dir, FOV, channel, time, self.file_extension)
-        image = self.imreader(directory)
+            image = self.imreader(directory)
         if plot:
             plt.figure(figsize=(10, 10))
             plt.imshow(image, cmap="Greys_r")
@@ -238,7 +290,7 @@ class Experiment:
     def rotate_image(self, FOV, channel, time, rotation):
         img = self.get_image(FOV, channel, time, registered = False)
         img = rotate(img, rotation, preserve_range=True).astype(np.uint16)
-        out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.file_extension)
+        out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.save_file_extension)
         self.imwriter(out_path, img)
         
                 
@@ -246,19 +298,19 @@ class Experiment:
     def register_FOV(self, FOV, mode="mean", sum = False):
         if mode == "mean":
             ref = self.mean_images[FOV]
-        if mode == "previous": # If aligning to the previous frame, write the first frame without any modification
-            mov = self.get_image(FOV, self._registration_channel, self.times[0], registered=False, plot=False)
-            out_path = self.img_path_generator(self.registered_dir, FOV, self._registration_channel, self.times[0],
-                                               self.file_extension)
-            self.imwriter(out_path, mov)
-            for channel in self.channels:
-                if channel == self._registration_channel:
-                    pass
-                else:
-                    mov = self.get_image(FOV, channel, self.times[0], registered=False, plot=False)
-                    mov = mov.astype(np.uint16)
-                    out_path = self.img_path_generator(self.registered_dir, FOV, channel, self.times[0], self.file_extension)
-                    self.imwriter(out_path, mov)
+        #if mode == "previous": # If aligning to the previous frame, write the first frame without any modification
+        mov = self.get_image(FOV, self._registration_channel, self.times[0], registered=False, plot=False)
+        out_path = self.img_path_generator(self.registered_dir, FOV, self._registration_channel, self.times[0],
+                                            self.save_file_extension)
+        self.imwriter(out_path, mov)
+        for channel in self.channels:
+            if channel == self._registration_channel:
+                pass
+            else:
+                mov = self.get_image(FOV, channel, self.times[0], registered=False, plot=False)
+                mov = mov.astype(np.uint16)
+                out_path = self.img_path_generator(self.registered_dir, FOV, channel, self.times[0], self.save_file_extension)
+                self.imwriter(out_path, mov)
         for time, prev_time in list(zip(self.times[1:], self.times)):
             if sum:
                 mov = self.get_image(FOV, self.channels[0], time, registered=False, plot=False).astype(float)
@@ -290,7 +342,7 @@ class Experiment:
                 mov = self.get_image(FOV, channel, time, registered=False, plot=False)
                 mov = warp(mov, tmats, preserve_range=True, order=3)
                 mov = mov.astype(np.uint16)
-                out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.file_extension)
+                out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.save_file_extension)
                 self.imwriter(out_path, mov)
 
     def get_mean_of_timestack(self, FOV, channel, *, plot=False):
@@ -527,7 +579,7 @@ class Experiment:
             trenches.append(trench)
         if save:
             for i, trench in enumerate(trenches):
-                out_path = self.trench_path_generator(self.trench_directory, FOV, channel, i, time, self.file_extension)
+                out_path = self.trench_path_generator(self.trench_directory, FOV, channel, i, time, self.save_file_extension)
                 self.imwriter(out_path, trench)
     def extract_trenches(self, n_jobs=-1, force=False):
         fields = product(self.FOVs, self.channels, self.times)
