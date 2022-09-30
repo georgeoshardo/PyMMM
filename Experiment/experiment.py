@@ -298,19 +298,33 @@ class Experiment:
     def register_FOV(self, FOV, mode="mean", sum = False):
         if mode == "mean":
             ref = self.mean_images[FOV]
-        #if mode == "previous": # If aligning to the previous frame, write the first frame without any modification
-        mov = self.get_image(FOV, self._registration_channel, self.times[0], registered=False, plot=False)
-        out_path = self.img_path_generator(self.registered_dir, FOV, self._registration_channel, self.times[0],
-                                            self.save_file_extension)
-        self.imwriter(out_path, mov)
-        for channel in self.channels:
-            if channel == self._registration_channel:
-                pass
-            else:
+            sr = StackReg(StackReg.RIGID_BODY)
+            mov = self.get_image(FOV, self._registration_channel, self.times[0], registered=False, plot=False)
+            tmats = sr.register(ref, mov)
+            for channel in self.channels:
                 mov = self.get_image(FOV, channel, self.times[0], registered=False, plot=False)
+                mov = warp(mov, tmats, preserve_range=True, order=3)
                 mov = mov.astype(np.uint16)
                 out_path = self.img_path_generator(self.registered_dir, FOV, channel, self.times[0], self.save_file_extension)
                 self.imwriter(out_path, mov)
+        elif mode == "previous": # If aligning to the previous frame, write the first frame without any modification
+            mov = self.get_image(FOV, self._registration_channel, self.times[0], registered=False, plot=False)
+            if rotate: # Need to rotate the first image if rotation specified 
+                mov = rotate(mov, self.rotation, preserve_range = True)
+                mov = mov.astype(np.uint16)
+            out_path = self.img_path_generator(self.registered_dir, FOV, self._registration_channel, self.times[0],
+                                                self.save_file_extension)
+            self.imwriter(out_path, mov)
+            for channel in self.channels:
+                if channel == self._registration_channel:
+                    pass
+                else:
+                    mov = self.get_image(FOV, channel, self.times[0], registered=False, plot=False)
+                    if rotate: # Need to rotate the first image if rotation specified 
+                        mov = rotate(mov, self.rotation, preserve_range = True)
+                        mov = mov.astype(np.uint16)
+                    out_path = self.img_path_generator(self.registered_dir, FOV, channel, self.times[0], self.save_file_extension)
+                    self.imwriter(out_path, mov)
         for time, prev_time in list(zip(self.times[1:], self.times)):
             if sum:
                 mov = self.get_image(FOV, self.channels[0], time, registered=False, plot=False).astype(float)
@@ -330,15 +344,6 @@ class Experiment:
 
 
             for channel in self.channels:
-                #if channel == self._registration_channel:
-                #    # Use skimage warp because pystackreg has ability to clip to data type
-                #    mov = warp(mov, tmats, preserve_range=True, order=3)
-                #    # mov = np.clip(mov, 0, np.iinfo(self.dtype).max)
-                #    mov = mov.astype(np.uint16)
-                #    out_path = self.img_path_generator(self.registered_dir, FOV, self._registration_channel, time,
-                #                                       self.file_extension)
-                #    self.imwriter(out_path, mov)
-                #else:
                 mov = self.get_image(FOV, channel, time, registered=False, plot=False)
                 mov = warp(mov, tmats, preserve_range=True, order=3)
                 mov = mov.astype(np.uint16)
@@ -435,7 +440,7 @@ class Experiment:
             trench_x_lims = experiment_trench_x_lims[FOV]
             _trench_x_lims = []
             for L, R in trench_x_lims:
-                if L < 0 or R > self.dims[1]:
+                if (L < 0) or (R > self.dims[1]):
                     pass
                 else:
                     _trench_x_lims.append((L, R))
@@ -581,6 +586,7 @@ class Experiment:
             for i, trench in enumerate(trenches):
                 out_path = self.trench_path_generator(self.trench_directory, FOV, channel, i, time, self.save_file_extension)
                 self.imwriter(out_path, trench)
+
     def extract_trenches(self, n_jobs=-1, force=False):
         fields = product(self.FOVs, self.channels, self.times)
         try:
