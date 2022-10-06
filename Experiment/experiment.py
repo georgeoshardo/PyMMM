@@ -77,9 +77,11 @@ class Experiment:
         if "png" in self.file_extension.lower():
             self.imreader = png_imreader
             self.imwriter = png_imwriter
+            self.reg_imreader = png_imreader
         elif "tif" in self.file_extension.lower():
             self.imreader = tiff_imreader
             self.imwriter = tiff_imwriter
+            self.reg_imreader = tiff_imreader
         else:
             raise ValueError(f"Invalid file extension: {self.file_extension.lower()}")
 
@@ -210,13 +212,18 @@ class Experiment:
             mean_times = self.times[-mean_amount:]
         img_size = self.dims
         mean_images = dict()
-        for FOV in self.FOVs:
+        def mean_img_getter(FOV):
             mean_img = np.zeros(img_size)
             mean_img_imgs = (self.get_image(FOV, self._registration_channel, x) for x in mean_times)
             for img in mean_img_imgs:
                 mean_img += img / mean_amount
             mean_img = rotate(mean_img, rotation, preserve_range=True)
-            mean_images[FOV] = mean_img.astype(np.uint16)
+            return mean_img.astype(np.uint16)
+        mean_images_ = Parallel(n_jobs=-1)(delayed(mean_img_getter)(FOV) for FOV in self.FOVs)
+        for img, FOV in zip(mean_images_, self.FOVs):
+            mean_images[FOV] = img
+            self.mean_of_timestack[FOV+self._registration_channel] = img
+
         print(
             f"Mean images for {len(self.FOVs)} FOVs with rotation of {rotation} deg calculated, use the mean_images method to return a dict of mean images")
 
