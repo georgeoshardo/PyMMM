@@ -13,9 +13,10 @@ from itertools import cycle, product
 from skimage.transform import warp
 from PIL import Image
 from copy import deepcopy
+from tqdm.autonotebook import tqdm
 
 class Experiment:
-    def __init__(self, directory, custom_filename_splitter=None, custom_img_path_generator = None, save_filetype = None):
+    def __init__(self, directory, custom_filename_splitter=None, custom_img_path_generator = None, save_filetype = None, mean_amount = None):
         self.directory = directory
         self.extracted_dir = directory + "{}extracted{}".format(os.path.sep,os.path.sep)
         self.files = glob(self.extracted_dir + "/*")
@@ -49,6 +50,7 @@ class Experiment:
 
         self.FOVs = [self.filename_splitter(x)[0] for x in self.files]
         self.FOVs = sorted(list(set(self.FOVs)))
+        self.FOVs = deepcopy(self.FOVs)
         self.num_FOVs = len(self.FOVs)
         self.times = [self.filename_splitter(x)[1] for x in self.files]
         self.times = sorted(list(set(self.times)))
@@ -102,6 +104,10 @@ class Experiment:
         self.registered_dir = self.directory + "{}registered{}".format(os.path.sep,os.path.sep)
         self.num_timepoints = len(self.times)
         self._mean_start = "END"
+        if mean_amount:
+            self.mean_amount = mean_amount
+        else:
+            self.mean_amonut = self.num_timepoints
         self.PC_channel = None
         self.trench_y_offsets = None
         self.y_peaks = None
@@ -167,6 +173,9 @@ class Experiment:
     def set_analysis_times(self, start, end):
         self.times = self._times[start:end]
 
+    def discard_FOVs(self, FOVs):
+        self.FOVs = [x for x in self.FOVs if x not in FOVs]
+
     @property
     def registration_channel(self):
         return self._registration_channel
@@ -202,27 +211,30 @@ class Experiment:
     def is_registered(self, value):
         self._is_registered = value
 
-    def get_mean_images(self, rotation=0, mean_amount=10, *, plot=False):
-        self.rotation = rotation
+
+    def mean_img_getter(self, FOV, channel, rotation = None, registered = False):
         if self._mean_start == "END":
-            mean_times = self.times[-mean_amount:]
+            mean_times = self.times[-self.mean_amount:]
         elif self._mean_start == "START":
-            mean_times = self.times[:mean_amount]
+            mean_times = self.times[:self.mean_amount]
         else:
-            mean_times = self.times[-mean_amount:]
+            mean_times = self.times[-self.mean_amount:]
         img_size = self.dims
-        mean_images = dict()
-        def mean_img_getter(FOV):
-            mean_img = np.zeros(img_size)
-            mean_img_imgs = (self.get_image(FOV, self._registration_channel, x) for x in mean_times)
-            for img in mean_img_imgs:
-                mean_img += img / mean_amount
+        mean_img = np.zeros(img_size)
+        mean_img_imgs = (self.get_image(FOV, channel, x, registered) for x in mean_times)
+        for img in mean_img_imgs:
+            mean_img += img / self.mean_amount
+        if rotation:
+            self.rotation = rotation
             mean_img = rotate(mean_img, rotation, preserve_range=True)
-            return mean_img.astype(np.uint16)
-        mean_images_ = Parallel(n_jobs=-1)(delayed(mean_img_getter)(FOV) for FOV in self.FOVs)
+        return mean_img.astype(np.uint16)
+
+    def get_mean_images(self, rotation=0, *, plot=False): 
+        mean_images = dict()
+        mean_images_ = Parallel(n_jobs=-1)(delayed(self.mean_img_getter)(FOV, self._registration_channel, rotation) for FOV in tqdm(self.FOVs))
         for img, FOV in zip(mean_images_, self.FOVs):
             mean_images[FOV] = img
-            self.mean_of_timestack[FOV+self._registration_channel] = img
+            #self.mean_of_timestack[FOV+self._registration_channel] = img
 
         print(
             f"Mean images for {len(self.FOVs)} FOVs with rotation of {rotation} deg calculated, use the mean_images method to return a dict of mean images")
@@ -254,24 +266,7 @@ class Experiment:
             plt.show()
         return image
 
-    def register_experiment(self, force=False, mode = "mean", sum=False, n_jobs=-1):
-        if hasattr(self, "mean_images"):
-            pass
-        else:
-            raise Exception("You haven't called get_mean_images to calculate this experiment's mean images.")
-        try:
-            os.mkdir(self.directory + "/registered/")
-            Parallel(n_jobs=n_jobs)(delayed(self.register_FOV)(FOV, mode, sum) for FOV in self.FOVs)
-        except:
-            if force:
-                warnings.warn("Reregistering experiment")
-                Parallel(n_jobs=n_jobs)(delayed(self.register_FOV)(FOV, mode, sum) for FOV in self.FOVs)
-            elif (not force) and (self.is_registered):
-                raise Exception("The experiment has already been registered, to re-register use force=True")
-            else:
-                raise Exception(
-                    "The registration directory exists, but the experiment does not seem to be fully registed. Check number of files")
-    
+
     def rotate_experiment(self, rotation, force=False, n_jobs = -1):
         rotation = self.rotation
         if hasattr(self, "mean_images"):
@@ -299,19 +294,72 @@ class Experiment:
         img = rotate(img, rotation, preserve_range=True).astype(np.uint16)
         out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.save_file_extension)
         self.imwriter(out_path, img)
-        
-                
-                
-    def register_FOV(self, FOV, mode="mean", sum = False):
+
+    def register_experiment(self, force=False, mode = "mean", sum=False, n_jobs=-1, fiduciary = None, parallel_time = False, y_lims = (0,-1), x_lims = (0,-1)):
+        if mode == "mean":
+            if hasattr(self, "mean_images"):
+                pass
+            else:
+                raise Exception("You haven't called get_mean_images to calculate this experiment's mean images.")
+        try:
+            os.mkdir(self.directory + "/registered/")
+        except:
+            pass
+        if fiduciary:
+            self.tmats = self.get_transformation_matrices(fiduciary, mode, y_lims, x_lims)
+            Parallel(n_jobs=-1)(delayed(self.warp_and_save)(FOV, channel, time, tmat) for time, tmat in zip(self.times, self.tmats) for FOV in tqdm(self.FOVs) for channel in self.channels)
+        else:
+            for FOV in tqdm(self.FOVs):
+                tmats = self.get_transformation_matrices(FOV, mode, y_lims, x_lims)
+                Parallel(n_jobs=-1)(delayed(self.warp_and_save)(FOV, channel, time, tmat) for time, tmat in zip(self.times, tmats) for channel in self.channels)
+
+
+    def warp_image(self, FOV, channel, time, tmats):
+        mov = self.get_image(FOV, channel, time, registered=False, plot=False)
+        mov = warp(mov, tmats, preserve_range=True, order=3)
+        mov = mov.astype(np.uint16)
+        return mov
+
+    def warp_and_save(self, FOV, channel, time, tmats):
+        out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.save_file_extension)
+        mov = self.warp_image(FOV, channel, time, tmats)
+        self.imwriter(out_path, mov)
+
+    def register_image(self, FOV, channel, time, sr, ref, y_lims, x_lims):
+        mov = self.get_image(FOV, channel, time, registered=False, plot=False)
+        tmats = sr.register(ref[y_lims[0]:y_lims[1],x_lims[0]:x_lims[1]], mov[y_lims[0]:y_lims[1],x_lims[0]:x_lims[1]])
+        return tmats
+
+    def get_transformation_matrices(self, FOV, mode, y_lims, x_lims):
+        if mode == "mean":
+            ref = self.mean_images[FOV]
+        elif mode == "last":
+            ref = self.get_image(FOV, self._registration_channel, self.times[-1], registered=False)
+        elif mode == "first":
+            ref = self.get_image(FOV, self._registration_channel, self.times[0], registered=False)
+        elif type(mode) == int:
+            ref = self.get_image(FOV, self._registration_channel, self.times[mode], registered=False)
+        sr = StackReg(StackReg.RIGID_BODY)
+        return Parallel(n_jobs=-1)(delayed(self.register_image)(FOV, self._registration_channel, time, sr, ref, y_lims, x_lims) for time in tqdm(self.times))
+
+    def register_FOV(self, FOV, mode="mean", sum = False, tmats_list = None, parallel_time = False):
+        # modes: mean, first, last, n, 
+        if tmats_list:
+            for time, tmats in zip(self.times,tmats_list):
+                for channel in self.channels:
+                    mov = self.register_image(FOV, channel, time, tmats)
+                    out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.save_file_extension)
+                    self.imwriter(out_path, mov)
+            return None
+        tmats_list = []
         if mode == "mean":
             ref = self.mean_images[FOV]
             sr = StackReg(StackReg.RIGID_BODY)
             mov = self.get_image(FOV, self._registration_channel, self.times[0], registered=False, plot=False)
             tmats = sr.register(ref, mov)
+            tmats_list.append(tmats)
             for channel in self.channels:
-                mov = self.get_image(FOV, channel, self.times[0], registered=False, plot=False)
-                mov = warp(mov, tmats, preserve_range=True, order=3)
-                mov = mov.astype(np.uint16)
+                mov = self.register_image(FOV, channel, self.times[0], tmats)
                 out_path = self.img_path_generator(self.registered_dir, FOV, channel, self.times[0], self.save_file_extension)
                 self.imwriter(out_path, mov)
         elif mode == "previous": # If aligning to the previous frame, write the first frame without any modification
@@ -332,40 +380,47 @@ class Experiment:
                         mov = mov.astype(np.uint16)
                     out_path = self.img_path_generator(self.registered_dir, FOV, channel, self.times[0], self.save_file_extension)
                     self.imwriter(out_path, mov)
-        for time, prev_time in list(zip(self.times[1:], self.times)):
-            if sum:
-                mov = self.get_image(FOV, self.channels[0], time, registered=False, plot=False).astype(float)
-                for channel in self.channels[1:]:
-                    mov += self.get_image(FOV, self.channels[0], time, registered=False, plot=False).astype(float)
-            else:
-                mov = self.get_image(FOV, self._registration_channel, time, registered=False, plot=False)
-            sr = StackReg(StackReg.RIGID_BODY)
-            if mode == "previous":
+        def register(time, prev_time):
+            #for time, prev_time in list(zip(self.times[1:], self.times)):
                 if sum:
-                    ref = self.get_image(FOV, self.channels[0], prev_time, registered=False, plot=False)
+                    mov = self.get_image(FOV, self.channels[0], time, registered=False, plot=False).astype(float)
                     for channel in self.channels[1:]:
-                        ref += self.get_image(FOV, channel, prev_time, registered=False, plot=False)
+                        mov += self.get_image(FOV, self.channels[0], time, registered=False, plot=False).astype(float)
                 else:
-                    ref = self.get_image(FOV, self._registration_channel, prev_time, registered=False, plot=False)
-            tmats = sr.register(ref, mov)
+                    mov = self.get_image(FOV, self._registration_channel, time, registered=False, plot=False)
+                sr = StackReg(StackReg.RIGID_BODY)
+                if mode == "previous":
+                    if sum:
+                        ref = self.get_image(FOV, self.channels[0], prev_time, registered=False, plot=False)
+                        for channel in self.channels[1:]:
+                            ref += self.get_image(FOV, channel, prev_time, registered=False, plot=False)
+                    else:
+                        ref = self.get_image(FOV, self._registration_channel, prev_time, registered=False, plot=False)
+                tmats = sr.register(ref, mov)
 
+                for channel in self.channels:
+                    mov = self.register_image(FOV, channel, time, tmats)
+                    out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.save_file_extension)
+                    self.imwriter(out_path, mov)
+                return tmats
+        if parallel_time:
+            n_jobs = -1
+        else:
+            n_jobs = 1
+        tmats_ = Parallel(n_jobs=n_jobs)(delayed(register)(time, prev_time ) for time, prev_time in list(zip(self.times[1:], self.times)))
+        tmats_list += tmats_
+        return tmats_list
 
-            for channel in self.channels:
-                mov = self.get_image(FOV, channel, time, registered=False, plot=False)
-                mov = warp(mov, tmats, preserve_range=True, order=3)
-                mov = mov.astype(np.uint16)
-                out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.save_file_extension)
-                self.imwriter(out_path, mov)
 
     def get_mean_of_timestack(self, FOV, channel, *, plot=False):
         try:
             FOV, channel, _ = self.coordinate_converter(FOV, channel, 0)
             mean_img =  self.mean_of_timestack[FOV+channel]
         except:
-            mean_img = np.zeros(self.dims)
-            for time in self.times:
-                mean_img += self.get_image(FOV, channel, time, registered=self._is_registered, plot=False)
-            self.mean_of_timestack[FOV+channel] = mean_img
+            mean_img = self.mean_img_getter(FOV, channel, registered=self.is_registered)
+            self.mean_of_timestack[FOV+channel] = mean_img.astype(np.uint16)
+
+
 
         if plot:
             plt.figure(figsize=(10, 10))
@@ -429,7 +484,7 @@ class Experiment:
         self.peaks = {FOV: self.find_trench_peaks(FOV, channel, sigma, distance, plot=False)[1] for FOV in self.FOVs}
         self.trench_spacing = np.mean([np.mean(np.diff(self.peaks[FOV])) for FOV in self.FOVs])
         experiment_trench_x_lims = {FOV:
-                                        zip(self.peaks[FOV] - round(self.trench_spacing / shrink_scale), #TODO make this an argument
+                                        zip(self.peaks[FOV] - round(self.trench_spacing / shrink_scale), 
                                             self.peaks[FOV] + round(self.trench_spacing / shrink_scale)) for FOV in
                                     self.FOVs
                                     }
