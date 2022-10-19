@@ -14,6 +14,7 @@ from skimage.transform import warp
 from PIL import Image
 from copy import deepcopy
 from tqdm.autonotebook import tqdm
+from multipledispatch import dispatch
 
 class Experiment:
     def __init__(self, directory, custom_filename_splitter=None, custom_img_path_generator = None, save_filetype = None, mean_amount = None):
@@ -107,6 +108,7 @@ class Experiment:
         if mean_amount:
             self.mean_amount = mean_amount
         else:
+            warnings.warn("No mean_amount attribute set. Taking image means over all timepoints. Very slow!")
             self.mean_amonut = self.num_timepoints
         self.PC_channel = None
         self.trench_y_offsets = None
@@ -140,23 +142,19 @@ class Experiment:
                 [name_eq, fov_eq, channels_eq, times_eq, n_fov_eq, n_times_eq, n_channels_eq, dims_eq, registered_eq])
         else:
             return False
-
-    def coordinate_converter(self, FOV, channel, time):
-        """
-        
-        :param FOV:
-        :param channel:
-        :param time:
-        :return:
-        """
-        if isinstance(FOV, int):
-            FOV = self.FOVs[FOV]
-        if isinstance(channel, int):
-            channel = self.channels[channel]
-        if isinstance(time, int):
-            time = self.times[time]
-        return FOV, channel, time
     
+    @dispatch(str, str, str)
+    def coordinate_converter(self, FOV, channel, time):
+        return FOV, channel, time
+
+    @dispatch(int, int, int)
+    def coordinate_converter(self, FOV, channel, time):
+        FOV = self.FOVs[FOV]
+        channel = self.channels[channel]
+        time = self.times[time]
+        return FOV, channel, time
+
+
     def trench_path_generator(self, directory, FOV, channel, trench, time, file_extension):
         FOV, channel, time = self.coordinate_converter(FOV, channel, time)
         return f"{directory}/{FOV}_{channel}_TR{trench}_{time}.{file_extension}"
@@ -253,7 +251,7 @@ class Experiment:
         
     def get_image(self, FOV, channel, time, registered=False, *, plot=False):
         if registered:
-            assert self.is_registered, "Experiment not registered"
+            #assert self.is_registered, "Experiment not registered"
             directory = self.img_path_generator(self.registered_dir, FOV, channel, time, self.save_file_extension)
             image = self.reg_imreader(directory)
         else:
@@ -481,7 +479,12 @@ class Experiment:
         else:
             channel = self._registration_channel
 
-        self.peaks = {FOV: self.find_trench_peaks(FOV, channel, sigma, distance, plot=False)[1] for FOV in self.FOVs}
+        peaks = Parallel(n_jobs=-1)(delayed(self.find_trench_peaks)(FOV, channel, sigma, distance, plot=False) for FOV in self.FOVs)
+        self.peaks = dict()
+        for FOV, peak in zip(self.FOVs, peaks):
+            self.peaks[FOV] = peak[1]
+        
+        #self.peaks = {FOV: self.find_trench_peaks(FOV, channel, sigma, distance, plot=False)[1] for FOV in self.FOVs}
         self.trench_spacing = np.mean([np.mean(np.diff(self.peaks[FOV])) for FOV in self.FOVs])
         experiment_trench_x_lims = {FOV:
                                         zip(self.peaks[FOV] - round(self.trench_spacing / shrink_scale), 
