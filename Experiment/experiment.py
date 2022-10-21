@@ -109,7 +109,7 @@ class Experiment:
             self.mean_amount = mean_amount
         else:
             warnings.warn("No mean_amount attribute set. Taking image means over all timepoints. Very slow!")
-            self.mean_amonut = self.num_timepoints
+            self.mean_amount = self.num_timepoints
         self.PC_channel = None
         self.trench_y_offsets = None
         self.y_peaks = None
