@@ -162,7 +162,7 @@ class Experiment:
 
     def trench_path_generator(self, directory, FOV, channel, trench, time, file_extension):
         FOV, channel, time = self.coordinate_converter(FOV, channel, time)
-        return f"{directory}/{FOV}_{channel}_TR{trench}_{time}.{file_extension}"
+        return "{}/{}_{}_TR{}_{}.{}".format(directory, FOV, channel, str(trench).zfill(2), time, file_extension)
 
     @property
     def mean_start(self):
@@ -235,6 +235,7 @@ class Experiment:
     def get_mean_images(self, rotation=0, *, plot=False): 
         mean_images = dict()
         mean_images_ = Parallel(n_jobs=-1)(delayed(self.mean_img_getter)(FOV, self._registration_channel, rotation) for FOV in tqdm(self.FOVs))
+        self.rotation = rotation
         for img, FOV in zip(mean_images_, self.FOVs):
             mean_images[FOV] = img
             #self.mean_of_timestack[FOV+self._registration_channel] = img
@@ -254,7 +255,7 @@ class Experiment:
 
 
         
-    def get_image(self, FOV, channel, time, registered=False, *, plot=False):
+    def get_image(self, FOV, channel, time, registered=False, *, plot=False, rotation=False):
         if registered:
             #assert self.is_registered, "Experiment not registered"
             directory = self.img_path_generator(self.registered_dir, FOV, channel, time, self.save_file_extension)
@@ -262,11 +263,16 @@ class Experiment:
         else:
             directory = self.img_path_generator(self.extracted_dir, FOV, channel, time, self.file_extension)
             image = self.imreader(directory)
+        if rotation:
+            image = rotate(image, rotation, preserve_range=True).astype(np.uint16)
         if plot:
             plt.figure(figsize=(10, 10))
             plt.imshow(image, cmap="Greys_r")
             plt.title(f"FOV: {FOV}, channel: {channel}, time: {time}")
             plt.show()
+        
+
+        
         return image
 
 
@@ -292,11 +298,15 @@ class Experiment:
                     "The registration directory exists, but the experiment does not seem to be fully registed. Check number of files")
     
             
-    def rotate_image(self, FOV, channel, time, rotation):
+    def rotate_image(self, FOV, channel, time, rotation, save=False):
         img = self.get_image(FOV, channel, time, registered = False)
         img = rotate(img, rotation, preserve_range=True).astype(np.uint16)
-        out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.save_file_extension)
-        self.imwriter(out_path, img)
+        if save:
+            out_path = self.img_path_generator(self.registered_dir, FOV, channel, time, self.save_file_extension)
+            self.imwriter(out_path, img)
+            return None
+        else:
+            return img
 
     def register_experiment(self, force=False, mode = "mean", sum=False, n_jobs=-1, fiduciary = None, parallel_time = False, y_lims = (0,-1), x_lims = (0,-1)):
         if mode == "mean":
@@ -318,7 +328,7 @@ class Experiment:
 
 
     def warp_image(self, FOV, channel, time, tmats):
-        mov = self.get_image(FOV, channel, time, registered=False, plot=False)
+        mov = self.get_image(FOV, channel, time, registered=False, plot=False, rotation = self.rotation)
         mov = warp(mov, tmats, preserve_range=True, order=3)
         mov = mov.astype(np.uint16)
         return mov
@@ -329,7 +339,7 @@ class Experiment:
         self.imwriter(out_path, mov)
 
     def register_image(self, FOV, channel, time, sr, ref, y_lims, x_lims):
-        mov = self.get_image(FOV, channel, time, registered=False, plot=False)
+        mov = self.get_image(FOV, channel, time, registered=False, plot=False, rotation = self.rotation)
         tmats = sr.register(ref[y_lims[0]:y_lims[1],x_lims[0]:x_lims[1]], mov[y_lims[0]:y_lims[1],x_lims[0]:x_lims[1]])
         return tmats
 
@@ -337,11 +347,11 @@ class Experiment:
         if mode == "mean":
             ref = self.mean_images[FOV]
         elif mode == "last":
-            ref = self.get_image(FOV, self._registration_channel, self.times[-1], registered=False)
+            ref = self.get_image(FOV, self._registration_channel, self.times[-1], registered=False, rotation = self.rotation)
         elif mode == "first":
-            ref = self.get_image(FOV, self._registration_channel, self.times[0], registered=False)
+            ref = self.get_image(FOV, self._registration_channel, self.times[0], registered=False, rotation = self.rotation)
         elif type(mode) == int:
-            ref = self.get_image(FOV, self._registration_channel, self.times[mode], registered=False)
+            ref = self.get_image(FOV, self._registration_channel, self.times[mode], registered=False, rotation = self.rotation)
         sr = StackReg(StackReg.RIGID_BODY)
         return Parallel(n_jobs=-1)(delayed(self.register_image)(FOV, self._registration_channel, time, sr, ref, y_lims, x_lims) for time in tqdm(self.times))
 
@@ -454,13 +464,14 @@ class Experiment:
             plt.show()
         return mean_img
 
-    def find_trench_peaks(self, FOV, channel=None, sigma=False, distance=40, *, plot=False):
+    def find_trench_peaks(self, FOV, channel=None, sigma=False, distance=40, height=0, prominence=0, threshold=0, *, plot=False):
         if channel is not None:
             pass
         else:
             channel = self._registration_channel
         mean_img = self.mean_t_x(FOV, channel, sigma)
-        peaks, _ = find_peaks(mean_img, distance=distance)
+        peaks, _ = find_peaks(mean_img, distance=distance, height=height, prominence=prominence, threshold=threshold)
+        ### Would be good to add here a minimum x value and maximum x value for the peaks, such that trenches close to the edge of the image are stripped out.
         if plot:
             plt.plot(mean_img)
             plt.title(f"FOV: {FOV}, Channel: {channel}, Gaussian sigma: {sigma}")
@@ -468,7 +479,17 @@ class Experiment:
             plt.show()
         return mean_img, peaks
 
-    def find_all_trench_x_positions(self, channel=None, *, sigma=False, distance=40, shrink_scale = 2.2, plot=False, plot_save = False):
+    def find_all_trench_x_positions(self, 
+                                    channel=None, 
+                                    *, 
+                                    sigma=False, 
+                                    distance=40, 
+                                    height=0, 
+                                    prominence=0, 
+                                    threshold=0, 
+                                    shrink_scale = 2.2, 
+                                    plot=False, 
+                                    plot_save = False):
         if plot_save: 
             try:
                 os.mkdir(self.directory + "/diagnostics/")
@@ -484,7 +505,14 @@ class Experiment:
         else:
             channel = self._registration_channel
 
-        peaks = Parallel(n_jobs=-1)(delayed(self.find_trench_peaks)(FOV, channel, sigma, distance, plot=False) for FOV in self.FOVs)
+        peaks = Parallel(n_jobs=-1)(delayed(self.find_trench_peaks)(FOV, 
+                                                                    channel, 
+                                                                    sigma, 
+                                                                    distance, 
+                                                                    height, 
+                                                                    prominence, 
+                                                                    threshold, 
+                                                                    plot=False) for FOV in self.FOVs)
         self.peaks = dict()
         for FOV, peak in zip(self.FOVs, peaks):
             self.peaks[FOV] = peak[1]
