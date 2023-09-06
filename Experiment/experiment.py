@@ -3,7 +3,7 @@ import numpy as np
 from glob import glob
 import matplotlib.pyplot as plt
 from skimage.transform import rotate
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, convolve
 from pystackreg import StackReg
 import os
 import warnings
@@ -13,7 +13,7 @@ from itertools import cycle, product
 from skimage.transform import warp
 from PIL import Image
 from copy import deepcopy
-from tqdm.autonotebook import tqdm
+from tqdm.auto import tqdm
 from multipledispatch import dispatch
 
 class Experiment:
@@ -308,22 +308,24 @@ class Experiment:
         else:
             return img
 
-    def register_experiment(self, force=False, mode = "mean", sum=False, n_jobs=-1, fiduciary = None, parallel_time = False, y_lims = (0,-1), x_lims = (0,-1)):
+    def register_experiment(self, force=False, mode = "mean", sum=False, n_jobs=-1, fiduciary = None, parallel_time = False, y_lims = (0,-1), x_lims = (0,-1), plot = False):
+        
+        
         if mode == "mean":
             if hasattr(self, "mean_images"):
                 pass
             else:
-                raise Exception("You haven't called get_mean_images to calculate this experiment's mean images.")
+                raise Exception("You haven't called get_mean_images to calculate this experiment's mean images.")            
         try:
             os.mkdir(self.directory + "/registered/")
         except:
             pass
         if fiduciary:
-            self.tmats = self.get_transformation_matrices(fiduciary, mode, y_lims, x_lims)
+            self.tmats = self.get_transformation_matrices(fiduciary, mode, y_lims, x_lims, plot = plot)
             Parallel(n_jobs=-1)(delayed(self.warp_and_save)(FOV, channel, time, tmat) for time, tmat in zip(self.times, self.tmats) for FOV in tqdm(self.FOVs) for channel in self.channels)
         else:
             for FOV in tqdm(self.FOVs):
-                tmats = self.get_transformation_matrices(FOV, mode, y_lims, x_lims)
+                tmats = self.get_transformation_matrices(FOV, mode, y_lims, x_lims, plot = plot)
                 Parallel(n_jobs=-1)(delayed(self.warp_and_save)(FOV, channel, time, tmat) for time, tmat in zip(self.times, tmats) for channel in self.channels)
 
 
@@ -343,18 +345,61 @@ class Experiment:
         tmats = sr.register(ref[y_lims[0]:y_lims[1],x_lims[0]:x_lims[1]], mov[y_lims[0]:y_lims[1],x_lims[0]:x_lims[1]])
         return tmats
 
-    def get_transformation_matrices(self, FOV, mode, y_lims, x_lims):
-        if mode == "mean":
-            ref = self.mean_images[FOV]
-        elif mode == "last":
-            ref = self.get_image(FOV, self._registration_channel, self.times[-1], registered=False, rotation = self.rotation)
-        elif mode == "first":
-            ref = self.get_image(FOV, self._registration_channel, self.times[0], registered=False, rotation = self.rotation)
-        elif type(mode) == int:
-            ref = self.get_image(FOV, self._registration_channel, self.times[mode], registered=False, rotation = self.rotation)
-        sr = StackReg(StackReg.RIGID_BODY)
-        return Parallel(n_jobs=-1)(delayed(self.register_image)(FOV, self._registration_channel, time, sr, ref, y_lims, x_lims) for time in tqdm(self.times))
 
+    
+    def get_transformation_matrices(self, FOV, mode, y_lims, x_lims, plot = False):
+
+        if plot: 
+            try:
+                os.mkdir(self.directory + "/diagnostics/")
+            except:
+                pass
+            try:
+                os.mkdir(self.directory + "/diagnostics/registration/")
+            except:
+                pass
+        
+        if mode == "previous":
+            def register_image(ref, mov):
+                sr = StackReg(StackReg.TRANSLATION)
+                return sr.register(ref, mov)
+
+            def load_and_register_prev(FOV, ref_time, mov_time):
+                
+                ref = self.get_image(FOV, self._registration_channel, ref_time, registered=False, rotation = self.rotation)
+                mov = self.get_image(FOV, self._registration_channel, mov_time, registered=False, rotation = self.rotation)
+                
+                return register_image(ref[y_lims[0]:y_lims[1],x_lims[0]:x_lims[1]], mov[y_lims[0]:y_lims[1],x_lims[0]:x_lims[1]])
+
+            tmats = Parallel(n_jobs=-1)(delayed(load_and_register_prev)(FOV, ref_time, mov_time) for ref_time, mov_time in tqdm(zip(self.times, self.times[1:]), total=len(self.times)-1))
+
+            tmats_cum = [tmats[0]]
+            for j, tmat in enumerate(tmats):
+                tmats_cum.append(tmats_cum[j] @ tmat)
+            
+        else:
+            if mode == "mean":
+                ref = self.mean_images[FOV]
+            elif mode == "last":
+                ref = self.get_image(FOV, self._registration_channel, self.times[-1], registered=False, rotation = self.rotation)
+            elif mode == "first":
+                ref = self.get_image(FOV, self._registration_channel, self.times[0], registered=False, rotation = self.rotation)
+            elif type(mode) == int:
+                ref = self.get_image(FOV, self._registration_channel, self.times[mode], registered=False, rotation = self.rotation)
+            sr = StackReg(StackReg.RIGID_BODY)
+            tmats_cum = Parallel(n_jobs=-1)(delayed(self.register_image)(FOV, self._registration_channel, time, sr, ref, y_lims, x_lims) for time in tqdm(self.times))
+        
+        if plot:
+            plt.plot(np.array(tmats_cum)[:,1,2], label = "Y-drift (px)")
+            plt.title(FOV)
+            plt.plot(np.array(tmats_cum)[:,0,2], label = "X-drift (px)")
+            plt.legend()
+            plt.savefig(self.directory + "/diagnostics/registration/{}.png".format(str(FOV)))
+            plt.show()
+        
+        return tmats_cum
+
+    ## TODO is this deprecated?
     def register_FOV(self, FOV, mode="mean", sum = False, tmats_list = None, parallel_time = False):
         # modes: mean, first, last, n, 
         if tmats_list:
@@ -393,6 +438,7 @@ class Experiment:
                         mov = mov.astype(np.uint16)
                     out_path = self.img_path_generator(self.registered_dir, FOV, channel, self.times[0], self.save_file_extension)
                     self.imwriter(out_path, mov)
+
         def register(time, prev_time):
             #for time, prev_time in list(zip(self.times[1:], self.times)):
                 if sum:
@@ -442,8 +488,10 @@ class Experiment:
             plt.show()
         return mean_img
 
-    def mean_t_x(self, FOV, channel, sigma=False, *, plot=False):
+    def mean_t_x(self, FOV, channel, sigma=False, x_crop = None, *, plot=False):            
         mean_img = self.get_mean_of_timestack(FOV, channel)
+        if x_crop is not None:
+            mean_img = mean_img[x_crop[0]:x_crop[1],:]
         mean_img = mean_img.mean(axis=0)
         if sigma:
             mean_img = gaussian_filter1d(mean_img, sigma)
@@ -464,13 +512,18 @@ class Experiment:
             plt.show()
         return mean_img
 
-    def find_trench_peaks(self, FOV, channel=None, sigma=False, distance=40, height=0, prominence=0, threshold=0, *, plot=False):
+    def find_trench_peaks(self, FOV, channel=None, sigma=False, distance=40, height=0, prominence=0, threshold=0, conv_filter = None, x_crop = None, *, plot=False):
         if channel is not None:
             pass
         else:
             channel = self._registration_channel
-        mean_img = self.mean_t_x(FOV, channel, sigma)
-        peaks, _ = find_peaks(mean_img, distance=distance, height=height, prominence=prominence, threshold=threshold)
+        mean_img = self.mean_t_x(FOV, channel, sigma, x_crop)
+        if conv_filter is not None: # Use a convolution filter to extract "peaks" when the image is noisy or uses the side-trench chip
+            convolution = convolve(mean_img, conv_filter)/sum(conv_filter)
+            peaks, _ = find_peaks(convolution, distance=distance, height=height, prominence=prominence, threshold=threshold) 
+            peaks -= int(round(len(conv_filter)/2))
+        else:
+            peaks, _ = find_peaks(mean_img, distance=distance, height=height, prominence=prominence, threshold=threshold)
         ### Would be good to add here a minimum x value and maximum x value for the peaks, such that trenches close to the edge of the image are stripped out.
         if plot:
             plt.plot(mean_img)
@@ -489,6 +542,8 @@ class Experiment:
                                     threshold=0, 
                                     shrink_scale = 2.2, 
                                     plot=False, 
+                                    conv_filter = None,
+                                    x_crop = None,
                                     plot_save = False):
         if plot_save: 
             try:
@@ -511,7 +566,9 @@ class Experiment:
                                                                     distance, 
                                                                     height, 
                                                                     prominence, 
-                                                                    threshold, 
+                                                                    threshold,
+                                                                    conv_filter,
+                                                                    x_crop,
                                                                     plot=False) for FOV in self.FOVs)
         self.peaks = dict()
         for FOV, peak in zip(self.FOVs, peaks):
@@ -534,14 +591,16 @@ class Experiment:
             axes_flat = axes.flatten()
 
         pruned_experiment_trench_x_lims = {}
+        trench_counter = 0
         for i, FOV in enumerate(self.FOVs):
             trench_x_lims = experiment_trench_x_lims[FOV]
-            _trench_x_lims = []
-            for L, R in trench_x_lims:
+            _trench_x_lims = {}
+            for i, (L, R) in enumerate(trench_x_lims):
                 if (L < 0) or (R > self.dims[1]):
                     pass
                 else:
-                    _trench_x_lims.append((L, R))
+                    _trench_x_lims[trench_counter] = (L, R)
+                    trench_counter += 1
             if plot or plot_save:
                 #mean_img = self.get_image(FOV, channel, 1, registered=self.is_registered)
                 mean_img = self.get_mean_of_timestack(FOV, channel)
@@ -554,10 +613,11 @@ class Experiment:
                 if self.y_peaks and self.trench_y_offsets:
                     axes_flat[i].axhline(self.y_peaks[FOV][0] - self.trench_y_offsets[0], color="r")
                     axes_flat[i].axhline(self.y_peaks[FOV][0] - self.trench_y_offsets[1], color="r")
-                for (L, R), color in zip(_trench_x_lims, color_cycler):
+                for (trench_key, (L, R)), color in zip(_trench_x_lims.items(), color_cycler):
                     axes_flat[i].axvspan(L, R, alpha=0.1, color=color)
                     axes_flat[i].axvline(x=L, color=color)
                     axes_flat[i].axvline(x=R, color=color)
+                    plt.text((R+L)/2, mean_img.shape[0]*1/5, trench_key, fontsize = 22, color=color, horizontalalignment='center', verticalalignment='center',)
                 
             if plot_save:
                 fig_save, axes_save = plt.subplots(nrows=1, ncols=1, dpi=80, figsize=(20, 20))
@@ -570,10 +630,12 @@ class Experiment:
                 if self.y_peaks and self.trench_y_offsets:
                     axes_save.axhline(self.y_peaks[FOV][0] - self.trench_y_offsets[0], color="r")
                     axes_save.axhline(self.y_peaks[FOV][0] - self.trench_y_offsets[1], color="r")
-                for (L, R), color in zip(_trench_x_lims, color_cycler):
+                for (trench_key, (L, R)), color in zip(_trench_x_lims.items(), color_cycler):
                     axes_save.axvspan(L, R, alpha=0.1, color=color)
                     axes_save.axvline(x=L, color=color)
                     axes_save.axvline(x=R, color=color)
+                    plt.text((R+L)/2, mean_img.shape[0]*1/5, trench_key, fontsize = 22, color=color, horizontalalignment='center', verticalalignment='center',)
+
                 plt.tight_layout()
                 plt.savefig(self.directory + "/diagnostics/trench_x_positions/{}.png".format(str(FOV)))
                 plt.close()
