@@ -648,6 +648,12 @@ class Experiment:
         self.pruned_experiment_trench_x_lims = pruned_experiment_trench_x_lims
         return pruned_experiment_trench_x_lims
 
+    def discard_trenches(self, trench_keys):
+        for trench_key in trench_keys:
+            for FOV in self.FOVs:
+                if trench_key in self.pruned_experiment_trench_x_lims[FOV]:
+                    self.pruned_experiment_trench_x_lims[FOV].pop(trench_key)
+
     def find_lane_peaks(self, FOV, channel=None, sigma=False, distance=1, height=1, *, plot=False):
         if channel is not None:
             pass
@@ -703,10 +709,12 @@ class Experiment:
                 axes_flat[i].axhline(self.y_peaks[FOV][0] - self.trench_y_offsets[0], color="r")
                 axes_flat[i].axhline(self.y_peaks[FOV][0] - self.trench_y_offsets[1], color="r")
                 if self.pruned_experiment_trench_x_lims:
-                    for (L, R), color in zip(self.pruned_experiment_trench_x_lims[FOV], color_cycler):
+                    for (trench_key, (L, R)), color in zip(self.pruned_experiment_trench_x_lims[FOV].items(), color_cycler):
                         axes_flat[i].axvspan(L, R, alpha=0.1, color=color)
                         axes_flat[i].axvline(x=L, color=color)
                         axes_flat[i].axvline(x=R, color=color)
+                        plt.text((R+L)/2, mean_img.shape[0]*1/5, trench_key, fontsize = 22, color=color, horizontalalignment='center', verticalalignment='center',)
+
                         
             if plot_save:
                 fig_save, axes_save = plt.subplots(nrows=1, ncols=1, dpi=80, figsize=(20, 20))
@@ -721,10 +729,12 @@ class Experiment:
                 if self.y_peaks and self.trench_y_offsets:
                     axes_save.axhline(self.y_peaks[FOV][0] - self.trench_y_offsets[0], color="r")
                     axes_save.axhline(self.y_peaks[FOV][0] - self.trench_y_offsets[1], color="r")
-                for (L, R), color in zip(self.pruned_experiment_trench_x_lims[FOV], color_cycler):
-                    axes_save.axvspan(L, R, alpha=0.1, color=color)
-                    axes_save.axvline(x=L, color=color)
-                    axes_save.axvline(x=R, color=color)
+                    for (trench_key, (L, R)), color in zip(self.pruned_experiment_trench_x_lims[FOV].items(), color_cycler):
+                        axes_save.axvspan(L, R, alpha=0.1, color=color)
+                        axes_save.axvline(x=L, color=color)
+                        axes_save.axvline(x=R, color=color)
+                        plt.text((R+L)/2, mean_img.shape[0]*1/5, trench_key, fontsize = 22, color=color, horizontalalignment='center', verticalalignment='center',)
+
                 plt.tight_layout()
                 plt.savefig(self.directory + "/diagnostics/trench_y_positions/{}.png".format(str(FOV)))
                 plt.close()
