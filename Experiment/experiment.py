@@ -541,6 +541,8 @@ class Experiment:
                                     prominence=0, 
                                     threshold=0, 
                                     shrink_scale = 2.2, 
+                                    trench_width = 96,
+                                    use_exact_trench_width = False,
                                     plot=False, 
                                     conv_filter = None,
                                     x_crop = None,
@@ -581,7 +583,12 @@ class Experiment:
                                             self.peaks[FOV] + round(self.trench_spacing / shrink_scale)) for FOV in
                                     self.FOVs
                                     }
-
+        
+        # specify an exact trench width in pixels
+        if use_exact_trench_width:
+            experiment_trench_x_lims = {FOV:
+                                            zip(self.peaks[FOV] - int(trench_width/2), 
+                                                self.peaks[FOV] + int(trench_width/2)) for FOV in self.FOVs}
         if plot:
             subplots = self.num_FOVs
             cols = 2
