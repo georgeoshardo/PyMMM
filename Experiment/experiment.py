@@ -541,6 +541,7 @@ class Experiment:
                                     prominence=0, 
                                     threshold=0, 
                                     shrink_scale = 2.2, 
+                                    trench_width = False,
                                     plot=False, 
                                     conv_filter = None,
                                     x_crop = None,
@@ -559,6 +560,9 @@ class Experiment:
             pass
         else:
             channel = self._registration_channel
+
+        if trench_width:
+            print("Using the trench width specified by trench_width. Please ensure this parameter is an appropriate integer")
 
         peaks = Parallel(n_jobs=-1)(delayed(self.find_trench_peaks)(FOV, 
                                                                     channel, 
@@ -581,7 +585,12 @@ class Experiment:
                                             self.peaks[FOV] + round(self.trench_spacing / shrink_scale)) for FOV in
                                     self.FOVs
                                     }
-
+        
+        # specify an exact trench width in pixels
+        if trench_width:
+            experiment_trench_x_lims = {FOV:
+                                            zip(self.peaks[FOV] - int(trench_width/2), 
+                                                self.peaks[FOV] + int(trench_width/2)) for FOV in self.FOVs}
         if plot:
             subplots = self.num_FOVs
             cols = 2
