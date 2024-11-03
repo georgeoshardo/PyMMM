@@ -491,7 +491,7 @@ class Experiment:
     def mean_t_x(self, FOV, channel, sigma=False, x_crop = None, *, plot=False):            
         mean_img = self.get_mean_of_timestack(FOV, channel)
         if x_crop is not None:
-            mean_img = mean_img[x_crop[0]:x_crop[1],:]
+            mean_img = mean_img[:,x_crop[0]:x_crop[1]]
         mean_img = mean_img.mean(axis=0)
         if sigma:
             mean_img = gaussian_filter1d(mean_img, sigma)
