@@ -14,7 +14,8 @@ from skimage.transform import warp
 from PIL import Image
 from copy import deepcopy
 from tqdm.auto import tqdm
-from multipledispatch import dispatch
+import nd2 
+
 
 class Experiment:
     def __init__(self, directory, custom_filename_splitter=None, custom_img_path_generator = None, save_filetype = None, mean_amount = None):
