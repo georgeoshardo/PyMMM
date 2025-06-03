@@ -1,0 +1,39 @@
+# experiment_config.yaml
+data_source:
+  path: "/path/to/your/experiment.nd2"  # Can also be a /path/to/your/experiment.zarr
+
+# Define how axes in the N-dimensional array map to experimental concepts.
+# Axes are 0-indexed. Use 'null' or omit if an axis is not present.
+# T: Time
+# P: Position (FOV - Field of View)
+# C: Channel (e.g., phase contrast, fluorescence)
+# Z: Z-stack (slices along the optical axis)
+# Y: Pixel dimension Y (height)
+# X: Pixel dimension X (width)
+axes_map:
+  T: 0      # Time is axis 0
+  P: 1      # Position/FOV is axis 1
+  C: 2      # Channel is axis 2
+  Y: 3      # Y-pixel is axis 3 (e.g., height)
+  X: 4      # X-pixel is axis 4 (e.g., width)
+  Z: null   # Example: No Z-stack in this dataset. If present, assign an index e.g., 3 (and adjust Y,X)
+
+# Optional: Provide explicit names for positions and channels.
+# If not provided, defaults like "FOV001", "Channel01" can be generated.
+# These should match the order of items along their respective axes.
+position_names: # Corresponds to axis 'P'
+  - "xy01"
+  - "xy02"
+  # ... more FOV names
+
+channel_names: # Corresponds to axis 'C'
+  - "PC"      # Phase Contrast
+  - "GFP"     # Green Fluorescent Protein
+  # ... more channel names
+
+# You can add other settings here later, like registration parameters,
+# trench finding parameters, default output paths, etc.
+# Example:
+# registration_settings:
+#   channel_to_use: "PC"
+#   reference_type: "mean_over_time" # 'first_frame', 'specific_frame_index'
