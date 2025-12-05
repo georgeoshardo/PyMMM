@@ -1,0 +1,23 @@
+[workspace]
+channels = ["conda-forge"]
+name = "PyMMM"
+platforms = ["linux-64", "win-64", "osx-64", "osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = "3.13.*"
+pystackreg = ">=0.2.8,<0.3"
+ipython = ">=9.8.0,<10"
+ipykernel = ">=7.1.0,<8"
+xarray = ">=2025.11.0,<2026"
+matplotlib = ">=3.10.8,<4"
+stackview = ">=0.18.0,<0.19"
+datashader = ">=0.18.2,<0.19"
+pyarrow = ">=22.0.0,<23"
+
+[pypi-dependencies]
+nd2 = ">=0.10.4, <0.11"
+hvplot = ">=0.12.1, <0.13"
+jupyter-bokeh = ">=4.0.5, <5"

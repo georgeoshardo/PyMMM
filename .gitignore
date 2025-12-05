@@ -115,3 +115,6 @@ dmypy.json
 
 # PyCharm bs
 .idea/
+# pixi environments
+.pixi/*
+!.pixi/config.toml
