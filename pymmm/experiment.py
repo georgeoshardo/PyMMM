@@ -64,6 +64,8 @@ class ND2Experiment:
         # Track discarded FOVs / time subsetting
         self._discarded_fovs: List[str] = []
         self._time_slice: Optional[slice] = None
+        self._y_slice: Optional[slice] = None
+        self._x_slice: Optional[slice] = None
 
     # ------------------------------------------------------------------
     # Core data access
@@ -78,6 +80,10 @@ class ND2Experiment:
             d = d.sel(P=keep)
         if self._time_slice is not None and "T" in d.dims:
             d = d.isel(T=self._time_slice)
+        if self._y_slice is not None and "Y" in d.dims:
+            d = d.isel(Y=self._y_slice)
+        if self._x_slice is not None and "X" in d.dims:
+            d = d.isel(X=self._x_slice)
         return d
 
     # ------------------------------------------------------------------
@@ -215,6 +221,14 @@ class ND2Experiment:
     def select_times(self, start: int, end: int) -> "ND2Experiment":
         """Restrict time dimension to ``[start, end)``. Returns self for chaining."""
         self._time_slice = slice(start, end)
+        return self
+
+    def select_roi(self, y=None, x=None) -> "ND2Experiment":
+        """Restrict Y and X dimensions to a region of interest. Returns self for chaining."""
+        if y is not None:
+            self._y_slice = slice(y[0], y[1])
+        if x is not None:
+            self._x_slice = slice(x[0], x[1])
         return self
 
     # ------------------------------------------------------------------

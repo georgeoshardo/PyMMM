@@ -129,55 +129,57 @@ class Extractor:
         trench_mapping = trench_table.to_dict(orient="records")
         store.attrs["trench_mapping"] = trench_mapping
 
-        # Extract per channel
-        iterator = trench_table.iterrows()
+        # Build lazy stabilized graphs once per channel (outside the FOV loop)
+        if n_channels > 1:
+            stabilized_per_ch = [
+                self.registrator.get_stabilized_data(channel=ch)
+                for ch in channel_names
+            ]
+        else:
+            stabilized_single = self.registrator.get_stabilized_data()
+
+        # Extract per FOV: compute the full warped FOV once, then slice
+        # all trenches from the in-memory result.  This avoids redundant
+        # per-trench frame loads + warps.
+        grouped = trench_table.groupby("fov")
+        fov_iter = grouped
         if show_progress:
-            iterator = tqdm(
-                list(iterator), desc="Extracting trenches", total=n_trenches
-            )
+            fov_iter = tqdm(grouped, desc="Extracting FOVs", total=len(grouped))
 
-        for _, row in iterator:
-            tid = row["trench_id"]
-            fov = row["fov"]
-            y_top = row["y_top"]
-            y_bottom = row["y_bottom"]
-            x_left = row["x_left"]
-            x_right = row["x_right"]
-            needs_flip = row["needs_flip"]
-
+        for fov, fov_df in fov_iter:
             if n_channels > 1:
-                for c_idx, ch_name in enumerate(channel_names):
-                    stabilized = self.registrator.get_stabilized_data(channel=ch_name)
-                    if "P" in stabilized.dims:
-                        stack = stabilized.sel(P=fov)
-                    else:
-                        stack = stabilized
+                for c_idx, stab in enumerate(stabilized_per_ch):
+                    stack = stab.sel(P=fov) if "P" in stab.dims else stab
+                    fov_data = stack.compute().values  # (T, Y, X)
 
-                    crop = stack.isel(
-                        Y=slice(y_top, y_bottom), X=slice(x_left, x_right)
-                    )
-                    crop_np = crop.compute().values
+                    for _, row in fov_df.iterrows():
+                        crop = fov_data[
+                            :, row["y_top"]:row["y_bottom"],
+                            row["x_left"]:row["x_right"],
+                        ]
+                        if row["needs_flip"]:
+                            crop = crop[:, ::-1, :]
+                        data_arr[row["trench_id"], :, c_idx, :, :] = crop
 
-                    if needs_flip:
-                        crop_np = crop_np[:, ::-1, :]  # flip Y
-
-                    data_arr[tid, :, c_idx, :, :] = crop_np
+                    del fov_data
             else:
-                stabilized = self.registrator.get_stabilized_data()
-                if "P" in stabilized.dims:
-                    stack = stabilized.sel(P=fov)
-                else:
-                    stack = stabilized
-
-                crop = stack.isel(
-                    Y=slice(y_top, y_bottom), X=slice(x_left, x_right)
+                stack = (
+                    stabilized_single.sel(P=fov)
+                    if "P" in stabilized_single.dims
+                    else stabilized_single
                 )
-                crop_np = crop.compute().values
+                fov_data = stack.compute().values  # (T, Y, X)
 
-                if needs_flip:
-                    crop_np = crop_np[:, ::-1, :]  # flip Y
+                for _, row in fov_df.iterrows():
+                    crop = fov_data[
+                        :, row["y_top"]:row["y_bottom"],
+                        row["x_left"]:row["x_right"],
+                    ]
+                    if row["needs_flip"]:
+                        crop = crop[:, ::-1, :]
+                    data_arr[row["trench_id"], :, :, :] = crop
 
-                data_arr[tid, :, :, :] = crop_np
+                del fov_data
 
         print(f"Extraction complete: {self.output_path}")
         print(f"  Shape: {shape}, Chunks: {chunks}")
