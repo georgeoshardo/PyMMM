@@ -85,13 +85,17 @@ class CompanionStore:
         grp = self._store.require_group("registration")
 
         # Overwrite arrays if they exist
+        tmats_np = np.asarray(tmats, dtype="float64")
         if "tmats" in grp:
             del grp["tmats"]
-        grp.create_dataset("tmats", data=np.asarray(tmats), dtype="float64")
+        arr = grp.create_array("tmats", shape=tmats_np.shape, dtype="float64")
+        arr[:] = tmats_np
 
+        mean_np = np.asarray(mean_images, dtype="float64")
         if "mean_images" in grp:
             del grp["mean_images"]
-        grp.create_dataset("mean_images", data=np.asarray(mean_images), dtype="float64")
+        arr = grp.create_array("mean_images", shape=mean_np.shape, dtype="float64")
+        arr[:] = mean_np
 
         # Store params as JSON string in attrs
         grp.attrs["params"] = json.dumps(params, default=str)
@@ -201,6 +205,33 @@ class CompanionStore:
             "trench_detection" in self._store
             and "trench_data" in self._store["trench_detection"].attrs
         )
+
+    # ------------------------------------------------------------------
+    # Reset
+    # ------------------------------------------------------------------
+
+    def reset(self, section: Optional[str] = None) -> None:
+        """Delete checkpointed data and re-open the store.
+
+        Parameters
+        ----------
+        section : str | None
+            ``"registration"``, ``"lane_detection"``, or
+            ``"trench_detection"`` to clear just that section.
+            ``None`` (default) deletes the entire store and re-creates it.
+        """
+        import shutil
+
+        if section is not None:
+            if section in self._store:
+                del self._store[section]
+                print(f"Cleared '{section}' from {self.path}")
+            else:
+                print(f"No '{section}' section found — nothing to clear")
+        else:
+            shutil.rmtree(self.path)
+            self._store = zarr.open_group(str(self.path), mode="a")
+            print(f"Store reset: {self.path}")
 
     # ------------------------------------------------------------------
     # Utilities

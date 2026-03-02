@@ -1,3 +1,4 @@
 {
-    "gitdoc.enabled": false
+    "gitdoc.enabled": false,
+    "python.defaultInterpreterPath": "/home/georgeos/GitHub/PyMMM/.pixi/envs/default/bin/python"
 }

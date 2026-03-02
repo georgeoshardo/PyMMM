@@ -25,6 +25,9 @@ panel = "*"
 bokeh = "*"
 jupyterlab = "*"
 ipykernel = "*"
+ipywidgets = "*"
+datashader = "*"
+jupyter_bokeh = "*"
 
 [tasks]
 test = "python -m pytest tests/ -v"

@@ -7,7 +7,7 @@ from typing import Optional, Union
 
 import numpy as np
 import zarr
-from numcodecs import Zstd
+import zarr.codecs
 from tqdm.auto import tqdm
 
 from pymmm._utils import normalize_channel_arg
@@ -89,7 +89,7 @@ class Extractor:
 
         # Create output zarr store
         if compressor == "zstd":
-            comp = Zstd(level=clevel)
+            comp = [zarr.codecs.ZstdCodec(level=clevel)]
         else:
             comp = None
 
@@ -101,12 +101,13 @@ class Extractor:
             chunks = (1, n_times, trench_h, trench_w)
 
         store = zarr.open_group(str(self.output_path), mode="w")
-        data_arr = store.create_dataset(
+        codec_kwargs = {"compressors": comp} if comp else {}
+        data_arr = store.create_array(
             "data",
             shape=shape,
             chunks=chunks,
             dtype=self.experiment.data.dtype,
-            compressor=comp,
+            **codec_kwargs,
         )
 
         # Write metadata

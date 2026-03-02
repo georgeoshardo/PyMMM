@@ -186,6 +186,27 @@ class ND2Experiment:
     # Subsetting
     # ------------------------------------------------------------------
 
+    def select_fovs(self, fov_names: List[str]) -> "ND2Experiment":
+        """Keep only the listed FOVs, discarding all others. Returns self for chaining.
+
+        Accepts FOV names or integer indices.
+
+        Examples
+        --------
+        >>> exp.select_fovs(["xy001", "xy002"])  # by name
+        >>> exp.select_fovs([0, 1])               # first two FOVs
+        """
+        all_fovs = [str(v) for v in self._raw_data.coords["P"].values] if "P" in self._raw_data.dims else []
+        resolved = []
+        for f in fov_names:
+            if isinstance(f, int):
+                resolved.append(all_fovs[f])
+            else:
+                resolved.append(str(f))
+        to_discard = [f for f in all_fovs if f not in resolved]
+        self._discarded_fovs.extend(to_discard)
+        return self
+
     def discard_fovs(self, fov_names: List[str]) -> "ND2Experiment":
         """Mark FOVs to be excluded from ``data``. Returns self for chaining."""
         self._discarded_fovs.extend(fov_names)

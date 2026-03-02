@@ -1,7 +1,11 @@
-"""Registrator – drift-correction via pystackreg, parallelised with dask."""
+"""Registrator – drift-correction via pystackreg, parallelised with ProcessPoolExecutor."""
 
 from __future__ import annotations
 
+import multiprocessing
+import os
+import tempfile
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Any, Dict, List, Literal, Optional, Union
 
 import numpy as np
@@ -14,17 +18,20 @@ from pymmm._utils import normalize_channel_arg, normalize_fov_arg
 from pymmm.checkpoint import CompanionStore
 from pymmm.experiment import ND2Experiment
 
+# Spawn context — fresh Python interpreters that know nothing about
+# the parent's dask Client, event loops, or thread state.
+_mp_ctx = multiprocessing.get_context("spawn")
+
 
 # ======================================================================
-# Pure-function helpers (module-level for dask serialisation)
+# Pure-function helpers (module-level for pickling across spawn workers)
 # ======================================================================
 
 
 def _register_and_get_matrix(ref: np.ndarray, mov: np.ndarray) -> np.ndarray:
     """Register two 2-D images and return the 3×3 transformation matrix.
 
-    A fresh ``StackReg`` instance is created per call for thread safety
-    across dask workers.
+    A fresh ``StackReg`` instance is created per call for thread safety.
     """
     ref_sq = np.squeeze(ref)
     mov_sq = np.squeeze(mov)
@@ -47,42 +54,153 @@ def _warp_frame(image: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     return warp(image, matrix, preserve_range=True, order=1)
 
 
-def _add_identity_frame(
-    matrices: xr.DataArray, original_ref: xr.DataArray
-) -> xr.DataArray:
-    """Prepend identity matrices along T (handles P dimension if present)."""
-    non_matrix_dims = [d for d in matrices.dims if d not in {"T", "row", "col"}]
-    eye_data = np.eye(3)[None, :, :]
+def _slice_roi(img: np.ndarray, roi: dict) -> np.ndarray:
+    """Apply ROI dict to a 2D numpy array. Returns a view (no copy).
 
-    if non_matrix_dims:
-        extra_shape = tuple(matrices.sizes[d] for d in non_matrix_dims)
-        expand_shape = (1,) + extra_shape + (3, 3)
-        eye_data = np.broadcast_to(eye_data, expand_shape)
-
-    first_t_coord = original_ref.coords["T"].isel(T=[0])
-    coords: Dict[str, Any] = {d: matrices.coords[d] for d in non_matrix_dims}
-    coords["T"] = first_t_coord
-
-    identity_da = xr.DataArray(
-        eye_data,
-        dims=["T"] + non_matrix_dims + ["row", "col"],
-        coords=coords,
-    )
-    full_stack = xr.concat([identity_da, matrices], dim="T")
-    full_stack["T"] = original_ref.coords["T"]
-    return full_stack
+    roi keys: ``"y"`` and/or ``"x"``, values: ``(start, end)`` where
+    ``end=None`` means to-the-end.
+    """
+    if not roi:
+        return img
+    y_slice = slice(*(roi.get("y", (None, None))))
+    x_slice = slice(*(roi.get("x", (None, None))))
+    return img[y_slice, x_slice]
 
 
-def _cumulative_matrices(matrices_da: xr.DataArray) -> xr.DataArray:
-    """Compute cumulative matrix product along T, preserving P dimension."""
-    mats_np = matrices_da.values  # already computed
-    cumulative = np.zeros_like(mats_np)
-    cumulative[0] = mats_np[0]
-    for t in range(1, len(mats_np)):
-        cumulative[t] = cumulative[t - 1] @ mats_np[t]
-    return xr.DataArray(
-        cumulative, dims=matrices_da.dims, coords=matrices_da.coords
-    )
+def _resolve_roi(roi: dict) -> dict:
+    """Normalize ROI dict: convert ``-1`` stops to ``None``. Returns new dict."""
+    if not roi:
+        return {}
+    out = {}
+    for k, (start, end) in roi.items():
+        out[k] = (start, None if end == -1 else end)
+    return out
+
+
+def _load_single_frame(
+    nd2_path: str,
+    fov_idx: int,
+    time_idx: int,
+    channel_idx: Optional[int],
+    rotation: float,
+) -> np.ndarray:
+    """Open ND2, read one (Y,X) frame via random access, close file.
+
+    Uses ``nd2.ND2File.read_frame()`` for true random access — reads ONLY
+    the requested frame from disk, never loads the full dataset. Each call
+    opens and closes the file; the I/O overhead (~5-50ms) is negligible
+    relative to the pystackreg CPU cost (~200ms per registration).
+
+    Parameters
+    ----------
+    nd2_path : str
+        Path to the ND2 file.
+    fov_idx : int
+        Integer position index into the P dimension (0-based).
+        Ignored if file has no P dimension.
+    time_idx : int
+        Integer index into the T dimension.
+    channel_idx : int | None
+        Integer index into the C dimension. None for single-channel files.
+    rotation : float
+        Rotation angle in degrees (0.0 = no rotation).
+
+    Returns
+    -------
+    np.ndarray
+        2D float64 array (Y, X).
+    """
+    import nd2
+
+    with nd2.ND2File(nd2_path) as f:
+        # Determine coordinate axes: everything except {X, Y, C, S}
+        coord_axes = [k for k in f.sizes if k not in {"X", "Y", "C", "S"}]
+        coord_shape = tuple(f.sizes[k] for k in coord_axes)
+
+        # Build coordinate tuple in the file's axis order
+        coord_map = {"T": time_idx, "P": fov_idx, "Z": 0}
+        coord_tuple = tuple(coord_map.get(ax, 0) for ax in coord_axes)
+
+        # Convert to flat frame index and read
+        frame_idx = int(np.ravel_multi_index(coord_tuple, coord_shape))
+        frame = f.read_frame(frame_idx).copy()  # copy: read_frame returns a view into file buffer
+
+    # Channel selection (read_frame returns all channels)
+    if channel_idx is not None and frame.ndim == 3:
+        frame = frame[channel_idx]
+
+    img = frame.astype(np.float64)
+
+    if rotation != 0.0:
+        img = rotate(img, rotation, preserve_range=True)
+    return img
+
+
+def _register_one_frame(
+    nd2_path: str,
+    fov_idx: int,
+    time_idx: int,
+    channel_idx: Optional[int],
+    rotation: float,
+    roi: dict,
+    ref_np: np.ndarray,
+) -> np.ndarray:
+    """Worker for fixed-ref mode: load one frame, register vs ref.
+
+    Opens the ND2 file, reads the single frame it needs via random access,
+    registers against ref_np, returns 3x3 matrix.
+    """
+    img = _load_single_frame(nd2_path, fov_idx, time_idx, channel_idx, rotation)
+    img_roi = _slice_roi(img, roi)
+    return _register_and_get_matrix(ref_np, img_roi)
+
+
+_worker_ref_cache: dict[str, np.ndarray] = {}
+
+
+def _register_one_frame_fileref(
+    nd2_path: str,
+    fov_idx: int,
+    time_idx: int,
+    channel_idx: Optional[int],
+    rotation: float,
+    roi: dict,
+    ref_path: str,
+) -> np.ndarray:
+    """Worker for fixed-ref mode: load ref from file, load frame, register.
+
+    Like ``_register_one_frame`` but receives a path to a ``.npy`` file
+    instead of the full reference array.  A per-worker cache ensures the
+    file is read at most once per FOV (cache is evicted when the path
+    changes).  With ``spawn`` context each worker is a separate process,
+    so the module-level cache has no thread-safety concerns.
+    """
+    if ref_path not in _worker_ref_cache:
+        _worker_ref_cache.clear()
+        _worker_ref_cache[ref_path] = np.load(ref_path)
+    ref_np = _worker_ref_cache[ref_path]
+    img = _load_single_frame(nd2_path, fov_idx, time_idx, channel_idx, rotation)
+    img_roi = _slice_roi(img, roi)
+    return _register_and_get_matrix(ref_np, img_roi)
+
+
+def _register_pair(
+    nd2_path: str,
+    fov_idx: int,
+    ref_time: int,
+    mov_time: int,
+    channel_idx: Optional[int],
+    rotation: float,
+    roi: dict,
+) -> np.ndarray:
+    """Worker for previous mode: load two frames, register.
+
+    Opens the ND2 file twice (once per frame), reads each via random access.
+    Registers mov against ref using TRANSLATION mode. Returns 3x3 matrix.
+    """
+    ref = _load_single_frame(nd2_path, fov_idx, ref_time, channel_idx, rotation)
+    mov = _load_single_frame(nd2_path, fov_idx, mov_time, channel_idx, rotation)
+    return _register_translation(_slice_roi(ref, roi), _slice_roi(mov, roi))
 
 
 # ======================================================================
@@ -167,11 +285,10 @@ class Registrator:
     # ------------------------------------------------------------------
 
     def _get_registration_data(self) -> xr.DataArray:
-        """Get the channel data for registration, with rotation applied."""
+        """Get the channel data for registration (channel + Z selection only)."""
         d = self.experiment.data
         if self.experiment.has_channels:
             d = d.sel(C=self.channel)
-        # Drop Z if present — take first slice
         if "Z" in d.dims:
             d = d.isel(Z=0)
         return d
@@ -247,35 +364,29 @@ class Registrator:
     # Transformation matrices
     # ------------------------------------------------------------------
 
-    def compute_tmats(self, plot: bool = False) -> None:
+    def compute_tmats(self, plot: bool = False, n_jobs: int = -1) -> None:
         """Compute transformation matrices for all FOVs.
+
+        Parameters
+        ----------
+        plot : bool
+            Show drift diagnostics for the first FOV.
+        n_jobs : int
+            Number of worker processes for within-FOV parallelism.
+            ``-1`` = all cores (default), ``1`` = sequential (no subprocess
+            overhead, useful for debugging).  FOVs are always processed
+            sequentially; the parallelism axis is across timepoints
+            *within* each FOV.
 
         The chosen ``mode`` determines the registration strategy:
         - ``"mean"`` — register each frame to temporal mean (RIGID_BODY)
         - ``"previous"`` — register to predecessor, cumulative (TRANSLATION)
         - ``"first"`` / ``"last"`` / ``int`` — register to a fixed frame (RIGID_BODY)
         """
-        data = self._get_registration_data()
-
-        # Apply rotation lazily if needed
-        if self.rotation != 0.0:
-            data = xr.apply_ufunc(
-                self._apply_rotation_np,
-                data,
-                input_core_dims=[["Y", "X"]],
-                output_core_dims=[["Y", "X"]],
-                vectorize=True,
-                dask="parallelized",
-                output_dtypes=[data.dtype],
-            )
-
-        # Apply ROI for registration (tmat valid for full image)
-        data_roi = self._apply_roi(data)
-
         if self.mode == "previous":
-            self._compute_tmats_previous(data_roi, data)
+            self._compute_tmats_previous(n_jobs=n_jobs)
         else:
-            self._compute_tmats_fixed_ref(data_roi, data)
+            self._compute_tmats_fixed_ref(n_jobs=n_jobs)
 
         if plot:
             from pymmm.plotting import plot_drift_diagnostics
@@ -287,86 +398,227 @@ class Registrator:
                 mats = self._tmats
             plot_drift_diagnostics(mats, fov_label=fov)
 
-    def _compute_tmats_fixed_ref(
-        self, data_roi: xr.DataArray, data_full: xr.DataArray
-    ) -> None:
-        """Register every frame to a fixed reference image."""
-        if self.mode == "mean":
-            if self._mean_images is None:
-                raise RuntimeError(
-                    "Call compute_mean_images() before compute_tmats(mode='mean')."
-                )
-            ref = self._apply_roi(self._mean_images)
-        elif self.mode == "first":
-            ref = self._apply_roi(data_full.isel(T=0)).compute()
-        elif self.mode == "last":
-            ref = self._apply_roi(data_full.isel(T=-1)).compute()
-        elif isinstance(self.mode, int):
-            ref = self._apply_roi(data_full.isel(T=self.mode)).compute()
-        else:
-            raise ValueError(f"Unknown mode: {self.mode!r}")
+    def _compute_tmats_fixed_ref(self, n_jobs: int = -1) -> None:
+        """Register every frame to a fixed reference image.
 
-        # Broadcast ref to have a T dimension matching data
-        ref_broadcast = ref.broadcast_like(data_roi)
-
-        tmats = xr.apply_ufunc(
-            _register_and_get_matrix,
-            ref_broadcast,
-            data_roi,
-            input_core_dims=[["Y", "X"], ["Y", "X"]],
-            output_core_dims=[["row", "col"]],
-            vectorize=True,
-            dask="parallelized",
-            output_dtypes=[np.float64],
-            dask_gufunc_kwargs={"output_sizes": {"row": 3, "col": 3}},
-            keep_attrs=False,
-        )
-
+        Sequential across FOVs, parallel across timepoints within each FOV
+        via ``ProcessPoolExecutor`` with spawn context.  Completely
+        independent of dask — workers are fresh Python interpreters that
+        know nothing about the parent's dask Client or event loop.
+        """
         print("Computing transformation matrices...")
-        self._tmats = tmats.compute()
+        exp = self.experiment
+        nd2_path = str(exp.path)
+        roi = _resolve_roi(self.roi)
 
-    def _compute_tmats_previous(
-        self, data_roi: xr.DataArray, data_full: xr.DataArray
-    ) -> None:
-        """Register each frame to its predecessor (cumulative product)."""
-        import dask.array as da
+        # Registration data (for T coords and FOV names only)
+        reg_data = self._get_registration_data()
+        fov_names = reg_data.coords["P"].values if "P" in reg_data.dims else [None]
+        has_channels = exp.has_channels
 
-        ref_stack = data_roi.isel(T=slice(0, -1))
-        mov_stack = data_roi.isel(T=slice(1, None))
-        mov_stack["T"] = ref_stack["T"]
+        # Map FOV names → integer P indices for read_frame()
+        raw_fov_names = [str(v) for v in exp._raw_data.coords["P"].values] if "P" in exp._raw_data.dims else []
+        channel_idx = exp.channel_names.index(self.channel) if has_channels else None
 
-        # Ensure dask backing
-        ref_stack = ref_stack.copy(data=da.asarray(ref_stack.data))
-        mov_stack = mov_stack.copy(data=da.asarray(mov_stack.data))
+        # Map subsetted T indices → original file T indices
+        if exp._time_slice is not None:
+            n_raw_T = exp._raw_data.sizes["T"]
+            original_t_indices = list(range(*exp._time_slice.indices(n_raw_T)))
+        else:
+            original_t_indices = list(range(exp._raw_data.sizes["T"]))
+        n_times = len(original_t_indices)
 
-        relative = xr.apply_ufunc(
-            _register_translation,
-            ref_stack,
-            mov_stack,
-            input_core_dims=[["Y", "X"], ["Y", "X"]],
-            output_core_dims=[["row", "col"]],
-            vectorize=True,
-            dask="parallelized",
-            output_dtypes=[np.float64],
-            dask_gufunc_kwargs={"output_sizes": {"row": 3, "col": 3}},
-            keep_attrs=False,
-        )
+        max_workers = None if n_jobs == -1 else n_jobs
 
-        # Prepend identity frame
-        relative_full = _add_identity_frame(relative, data_full)
+        def _compute_ref(fov_idx):
+            if self.mode == "mean":
+                n_ref = min(self.mean_n_frames, n_times)
+                if self.mean_from == "end":
+                    ref_t_indices = [original_t_indices[i] for i in range(n_times - n_ref, n_times)]
+                else:
+                    ref_t_indices = [original_t_indices[i] for i in range(n_ref)]
+                ref_frames = [
+                    _load_single_frame(nd2_path, fov_idx, t, channel_idx, self.rotation)
+                    for t in ref_t_indices
+                ]
+                return _slice_roi(np.mean(ref_frames, axis=0), roi)
+            elif self.mode == "first":
+                ref_frame = _load_single_frame(
+                    nd2_path, fov_idx, original_t_indices[0], channel_idx, self.rotation
+                )
+                return _slice_roi(ref_frame, roi)
+            elif self.mode == "last":
+                ref_frame = _load_single_frame(
+                    nd2_path, fov_idx, original_t_indices[-1], channel_idx, self.rotation
+                )
+                return _slice_roi(ref_frame, roi)
+            elif isinstance(self.mode, int):
+                ref_frame = _load_single_frame(
+                    nd2_path, fov_idx, original_t_indices[self.mode], channel_idx, self.rotation
+                )
+                return _slice_roi(ref_frame, roi)
+            else:
+                raise ValueError(f"Unknown mode: {self.mode!r}")
 
-        print("Computing relative transformation matrices...")
-        relative_computed = relative_full.compute()
+        def _wrap_da(fov, tmats_list):
+            fov_tmats_np = np.stack(tmats_list)  # (T, 3, 3)
+            if fov is not None:
+                t_coords = reg_data.sel(P=fov).coords["T"].values
+            else:
+                t_coords = reg_data.coords["T"].values
+            fov_da = xr.DataArray(
+                fov_tmats_np,
+                dims=["T", "row", "col"],
+                coords={"T": t_coords, "row": [0, 1, 2], "col": [0, 1, 2]},
+            )
+            if fov is not None:
+                fov_da = fov_da.expand_dims(P=[str(fov)])
+            return fov_da
 
-        # Cumulative product per FOV
-        if "P" in relative_computed.dims:
-            parts = []
-            for fov in relative_computed.coords["P"].values:
-                part = _cumulative_matrices(relative_computed.sel(P=fov))
-                parts.append(part)
+        parts = []
+
+        if n_jobs == 1:
+            # Sequential path — no pickling, no temp files
+            for fov in tqdm(fov_names, desc="Registering FOVs"):
+                fov_str = str(fov) if fov is not None else None
+                fov_idx = raw_fov_names.index(fov_str) if fov_str is not None else 0
+                ref_np = _compute_ref(fov_idx)
+                tmats_list = [
+                    _register_one_frame(
+                        nd2_path, fov_idx, original_t_indices[t],
+                        channel_idx, self.rotation, roi, ref_np,
+                    )
+                    for t in range(n_times)
+                ]
+                del ref_np
+                parts.append(_wrap_da(fov, tmats_list))
+        else:
+            # Parallel path — pool + tmpdir created once, reused across FOVs
+            with tempfile.TemporaryDirectory(prefix="pymmm_reg_") as tmpdir, \
+                 ProcessPoolExecutor(max_workers=max_workers, mp_context=_mp_ctx) as pool:
+                for fov in tqdm(fov_names, desc="Registering FOVs"):
+                    fov_str = str(fov) if fov is not None else None
+                    fov_idx = raw_fov_names.index(fov_str) if fov_str is not None else 0
+                    ref_np = _compute_ref(fov_idx)
+
+                    ref_path = os.path.join(tmpdir, f"ref_{fov_idx}.npy")
+                    np.save(ref_path, ref_np)
+                    del ref_np
+
+                    future_to_t = {
+                        pool.submit(
+                            _register_one_frame_fileref, nd2_path, fov_idx,
+                            original_t_indices[t], channel_idx,
+                            self.rotation, roi, ref_path,
+                        ): t
+                        for t in range(n_times)
+                    }
+
+                    results = [None] * n_times
+                    for fut in tqdm(
+                        as_completed(future_to_t), total=n_times,
+                        desc=f"  frames ({fov})", leave=False,
+                    ):
+                        results[future_to_t[fut]] = fut.result()
+
+                    os.unlink(ref_path)
+                    parts.append(_wrap_da(fov, results))
+
+        if "P" in reg_data.dims:
             self._tmats = xr.concat(parts, dim="P")
         else:
-            self._tmats = _cumulative_matrices(relative_computed)
+            self._tmats = parts[0]
+
+    def _compute_tmats_previous(self, n_jobs: int = -1) -> None:
+        """Register each frame to its predecessor (cumulative product).
+
+        Sequential across FOVs, parallel across consecutive frame pairs
+        within each FOV via ``ProcessPoolExecutor`` with spawn context.
+        The cumulative product is computed sequentially after all pairs
+        finish.
+        """
+        print("Computing relative transformation matrices...")
+        exp = self.experiment
+        nd2_path = str(exp.path)
+        roi = _resolve_roi(self.roi)
+
+        reg_data = self._get_registration_data()
+        fov_names = reg_data.coords["P"].values if "P" in reg_data.dims else [None]
+        has_channels = exp.has_channels
+
+        raw_fov_names = [str(v) for v in exp._raw_data.coords["P"].values] if "P" in exp._raw_data.dims else []
+        channel_idx = exp.channel_names.index(self.channel) if has_channels else None
+
+        if exp._time_slice is not None:
+            n_raw_T = exp._raw_data.sizes["T"]
+            original_t_indices = list(range(*exp._time_slice.indices(n_raw_T)))
+        else:
+            original_t_indices = list(range(exp._raw_data.sizes["T"]))
+        n_times = len(original_t_indices)
+
+        max_workers = None if n_jobs == -1 else n_jobs
+
+        def _collect_pairs(fov, fov_idx, pair_mats):
+            cumulative = [np.eye(3)]
+            for mat in pair_mats:
+                cumulative.append(cumulative[-1] @ mat)
+            cumulative_np = np.stack(cumulative)  # (T, 3, 3)
+            if fov is not None:
+                t_coords = reg_data.sel(P=fov).coords["T"].values
+            else:
+                t_coords = reg_data.coords["T"].values
+            fov_da = xr.DataArray(
+                cumulative_np,
+                dims=["T", "row", "col"],
+                coords={"T": t_coords, "row": [0, 1, 2], "col": [0, 1, 2]},
+            )
+            if fov is not None:
+                fov_da = fov_da.expand_dims(P=[str(fov)])
+            return fov_da
+
+        parts = []
+
+        if n_jobs == 1:
+            for fov in tqdm(fov_names, desc="Registering FOVs"):
+                fov_str = str(fov) if fov is not None else None
+                fov_idx = raw_fov_names.index(fov_str) if fov_str is not None else 0
+                pair_mats = [
+                    _register_pair(
+                        nd2_path, fov_idx, original_t_indices[t],
+                        original_t_indices[t + 1], channel_idx,
+                        self.rotation, roi,
+                    )
+                    for t in range(n_times - 1)
+                ]
+                parts.append(_collect_pairs(fov, fov_idx, pair_mats))
+        else:
+            with ProcessPoolExecutor(max_workers=max_workers, mp_context=_mp_ctx) as pool:
+                for fov in tqdm(fov_names, desc="Registering FOVs"):
+                    fov_str = str(fov) if fov is not None else None
+                    fov_idx = raw_fov_names.index(fov_str) if fov_str is not None else 0
+
+                    future_to_t = {
+                        pool.submit(
+                            _register_pair, nd2_path, fov_idx,
+                            original_t_indices[t], original_t_indices[t + 1],
+                            channel_idx, self.rotation, roi,
+                        ): t
+                        for t in range(n_times - 1)
+                    }
+
+                    results = [None] * (n_times - 1)
+                    for fut in tqdm(
+                        as_completed(future_to_t), total=n_times - 1,
+                        desc=f"  pairs ({fov})", leave=False,
+                    ):
+                        results[future_to_t[fut]] = fut.result()
+
+                    parts.append(_collect_pairs(fov, fov_idx, results))
+
+        if "P" in reg_data.dims:
+            self._tmats = xr.concat(parts, dim="P")
+        else:
+            self._tmats = parts[0]
 
     # ------------------------------------------------------------------
     # Lazy stabilised data access

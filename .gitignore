@@ -121,3 +121,5 @@ dmypy.json
 
 # git worktrees
 .worktrees/
+/.vscode
+/.vscode
