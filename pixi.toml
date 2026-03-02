@@ -1,0 +1,31 @@
+[workspace]
+authors = ["Georgeos Hardo <gh464@cantab.ac.uk>"]
+channels = ["conda-forge"]
+name = "PyMMM"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[dependencies]
+python = ">=3.11"
+nd2 = "*"
+xarray = "*"
+dask = "*"
+distributed = "*"
+zarr = "*"
+numcodecs = "*"
+numpy = "*"
+scipy = "*"
+pystackreg = "*"
+scikit-image = "*"
+matplotlib = "*"
+tqdm = "*"
+pandas = "*"
+hvplot = "*"
+panel = "*"
+bokeh = "*"
+jupyterlab = "*"
+ipykernel = "*"
+
+[tasks]
+test = "python -m pytest tests/ -v"
+notebook = "jupyter lab"
