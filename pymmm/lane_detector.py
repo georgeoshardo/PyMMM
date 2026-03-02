@@ -166,8 +166,10 @@ class LaneDetector:
 
     def _plot_first_fov(self) -> None:
         """Plot lane overlay for the first FOV."""
+        from pymmm._utils import get_diagnostics_dir
         from pymmm.plotting import plot_fov_with_lanes
 
+        diag_dir = get_diagnostics_dir(self.experiment.path)
         fov = self.experiment.fov_names[0]
         mean_img = self.registrator.get_registered_mean_of_timestack(
             fov=fov, channel=self.channel
@@ -180,6 +182,7 @@ class LaneDetector:
             y_positions,
             orientations=orientations,
             title=f"Lanes – {fov}",
+            save_path=str(diag_dir / f"lanes_{fov}.png"),
         )
 
     def plot_fov(self, fov: Union[int, str] = 0) -> None:

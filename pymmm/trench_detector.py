@@ -285,10 +285,15 @@ class TrenchDetector:
 
     def _plot_first_fov(self) -> None:
         """Plot trench overlay for the first FOV."""
-        fov = self.experiment.fov_names[0]
-        self.plot_fov(fov)
+        from pymmm._utils import get_diagnostics_dir
 
-    def plot_fov(self, fov: Union[int, str] = 0) -> None:
+        diag_dir = get_diagnostics_dir(self.experiment.path)
+        fov = self.experiment.fov_names[0]
+        self.plot_fov(fov, save_path=str(diag_dir / f"trenches_{fov}.png"))
+
+    def plot_fov(
+        self, fov: Union[int, str] = 0, save_path: Optional[str] = None,
+    ) -> None:
         """Plot trench overlay for any FOV."""
         from pymmm.plotting import plot_fov_with_trenches
 
@@ -298,7 +303,8 @@ class TrenchDetector:
         )
         fov_trenches = self._trenches.get(fov_name, [])
         plot_fov_with_trenches(
-            mean_img, fov_trenches, title=f"Trenches – {fov_name}"
+            mean_img, fov_trenches, title=f"Trenches – {fov_name}",
+            save_path=save_path,
         )
 
     # ------------------------------------------------------------------

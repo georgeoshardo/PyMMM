@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from pathlib import Path
 from typing import Any, List, Union
 
 import xarray as xr
+
+
+def get_diagnostics_dir(experiment_path: Path) -> Path:
+    """Return (and create) a diagnostics directory next to the data file."""
+    diag_dir = experiment_path.parent / f"{experiment_path.stem}_diagnostics"
+    diag_dir.mkdir(exist_ok=True)
+    return diag_dir
 
 
 def rename_duplicate_coords(

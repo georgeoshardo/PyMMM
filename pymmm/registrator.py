@@ -28,6 +28,15 @@ _mp_ctx = multiprocessing.get_context("spawn")
 # ======================================================================
 
 
+def _try_get_dask_client():
+    """Return the active dask distributed Client, or None."""
+    try:
+        from dask.distributed import get_client
+        return get_client()
+    except (ImportError, ValueError):
+        return None
+
+
 def _register_and_get_matrix(ref: np.ndarray, mov: np.ndarray) -> np.ndarray:
     """Register two 2-D images and return the 3×3 transformation matrix.
 
@@ -257,6 +266,7 @@ class Registrator:
         # Computed state
         self._mean_images: Optional[xr.DataArray] = None  # (P, Y, X)
         self._tmats: Optional[xr.DataArray] = None  # (T, P, 3, 3)
+        self._registered_mean_cache: Dict[tuple, np.ndarray] = {}  # (fov, channel) → 2D array
 
     # ------------------------------------------------------------------
     # Properties
@@ -351,14 +361,19 @@ class Registrator:
         self._mean_images = mean_imgs.compute()
 
         if plot:
+            from pymmm._utils import get_diagnostics_dir
             from pymmm.plotting import plot_mean_image
 
+            diag_dir = get_diagnostics_dir(self.experiment.path)
             fov = self.experiment.fov_names[0]
             if "P" in self._mean_images.dims:
                 img = self._mean_images.sel(P=fov).values
             else:
                 img = self._mean_images.values
-            plot_mean_image(img, title=f"Mean image – {fov}")
+            plot_mean_image(
+                img, title=f"Mean image – {fov}",
+                save_path=str(diag_dir / f"mean_image_{fov}.png"),
+            )
 
     # ------------------------------------------------------------------
     # Transformation matrices
@@ -389,14 +404,19 @@ class Registrator:
             self._compute_tmats_fixed_ref(n_jobs=n_jobs)
 
         if plot:
+            from pymmm._utils import get_diagnostics_dir
             from pymmm.plotting import plot_drift_diagnostics
 
-            fov = self.experiment.fov_names[0]
-            if "P" in self._tmats.dims:
-                mats = self._tmats.sel(P=fov)
-            else:
-                mats = self._tmats
-            plot_drift_diagnostics(mats, fov_label=fov)
+            diag_dir = get_diagnostics_dir(self.experiment.path)
+            for fov in self.experiment.fov_names:
+                if "P" in self._tmats.dims:
+                    mats = self._tmats.sel(P=fov)
+                else:
+                    mats = self._tmats
+                plot_drift_diagnostics(
+                    mats, fov_label=fov,
+                    save_path=str(diag_dir / f"drift_{fov}.png"),
+                )
 
     def _compute_tmats_fixed_ref(self, n_jobs: int = -1) -> None:
         """Register every frame to a fixed reference image.
@@ -492,8 +512,37 @@ class Registrator:
                 ]
                 del ref_np
                 parts.append(_wrap_da(fov, tmats_list))
+        elif (client := _try_get_dask_client()) is not None:
+            # Dask path — reuse the user's existing distributed cluster
+            from dask.distributed import as_completed as dask_as_completed
+
+            for fov in tqdm(fov_names, desc="Registering FOVs"):
+                fov_str = str(fov) if fov is not None else None
+                fov_idx = raw_fov_names.index(fov_str) if fov_str is not None else 0
+                ref_np = _compute_ref(fov_idx)
+                ref_future = client.scatter(ref_np, broadcast=True)
+                del ref_np
+
+                future_to_t = {
+                    client.submit(
+                        _register_one_frame, nd2_path, fov_idx,
+                        original_t_indices[t], channel_idx,
+                        self.rotation, roi, ref_future,
+                    ): t
+                    for t in range(n_times)
+                }
+
+                results = [None] * n_times
+                for fut in tqdm(
+                    dask_as_completed(future_to_t), total=n_times,
+                    desc=f"  frames ({fov})", leave=False,
+                ):
+                    results[future_to_t[fut]] = fut.result()
+
+                del ref_future
+                parts.append(_wrap_da(fov, results))
         else:
-            # Parallel path — pool + tmpdir created once, reused across FOVs
+            # PPE fallback — pool + tmpdir created once, reused across FOVs
             with tempfile.TemporaryDirectory(prefix="pymmm_reg_") as tmpdir, \
                  ProcessPoolExecutor(max_workers=max_workers, mp_context=_mp_ctx) as pool:
                 for fov in tqdm(fov_names, desc="Registering FOVs"):
@@ -591,6 +640,31 @@ class Registrator:
                     for t in range(n_times - 1)
                 ]
                 parts.append(_collect_pairs(fov, fov_idx, pair_mats))
+        elif (client := _try_get_dask_client()) is not None:
+            # Dask path — no scatter needed, workers load their own frames
+            from dask.distributed import as_completed as dask_as_completed
+
+            for fov in tqdm(fov_names, desc="Registering FOVs"):
+                fov_str = str(fov) if fov is not None else None
+                fov_idx = raw_fov_names.index(fov_str) if fov_str is not None else 0
+
+                future_to_t = {
+                    client.submit(
+                        _register_pair, nd2_path, fov_idx,
+                        original_t_indices[t], original_t_indices[t + 1],
+                        channel_idx, self.rotation, roi,
+                    ): t
+                    for t in range(n_times - 1)
+                }
+
+                results = [None] * (n_times - 1)
+                for fut in tqdm(
+                    dask_as_completed(future_to_t), total=n_times - 1,
+                    desc=f"  pairs ({fov})", leave=False,
+                ):
+                    results[future_to_t[fut]] = fut.result()
+
+                parts.append(_collect_pairs(fov, fov_idx, results))
         else:
             with ProcessPoolExecutor(max_workers=max_workers, mp_context=_mp_ctx) as pool:
                 for fov in tqdm(fov_names, desc="Registering FOVs"):
@@ -710,14 +784,38 @@ class Registrator:
         fov: Union[int, str] = 0,
         channel: Optional[Union[int, str]] = None,
     ) -> np.ndarray:
-        """Return the mean of registered frames for one FOV + channel."""
-        stabilized = self.get_stabilized_data(channel=channel)
+        """Return the mean of registered frames for one FOV + channel.
+
+        Results are cached per (fov, channel) so repeated calls (e.g. from
+        LaneDetector and TrenchDetector) return instantly.  Only
+        ``mean_n_frames`` frames are averaged (taken from the ``mean_from``
+        end of the timeseries), matching the reference used for registration.
+        """
+        ch = channel if channel is not None else self.channel
+        if isinstance(ch, int):
+            ch = normalize_channel_arg(ch, self.experiment.channel_names)
         fov_name = normalize_fov_arg(fov, self.experiment.fov_names)
+        cache_key = (fov_name, ch)
+
+        if cache_key in self._registered_mean_cache:
+            return self._registered_mean_cache[cache_key]
+
+        stabilized = self.get_stabilized_data(channel=ch)
         if "P" in stabilized.dims:
             stack = stabilized.sel(P=fov_name)
         else:
             stack = stabilized
-        return stack.mean(dim="T").compute().values
+
+        # Average only mean_n_frames frames instead of the full timeseries
+        n = min(self.mean_n_frames, stack.sizes["T"])
+        if self.mean_from == "end":
+            stack = stack.isel(T=slice(-n, None))
+        else:
+            stack = stack.isel(T=slice(0, n))
+
+        result = stack.mean(dim="T").compute().values
+        self._registered_mean_cache[cache_key] = result
+        return result
 
     # ------------------------------------------------------------------
     # Drift diagnostics shortcut
