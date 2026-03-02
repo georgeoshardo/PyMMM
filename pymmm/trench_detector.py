@@ -92,6 +92,117 @@ class TrenchDetector:
     # Detection
     # ------------------------------------------------------------------
 
+    def _detect_trenches_single_fov(
+        self,
+        mean_img: np.ndarray,
+        fov: str,
+        sigma: float,
+        distance: float,
+        prominence: float,
+        height: float,
+        trench_width: Optional[int],
+        shrink_scale: float,
+        trench_length: int,
+        trench_bottom_offset: int,
+        conv_filter: Optional[np.ndarray] = None,
+        start_id: int = 0,
+    ) -> tuple:
+        """Run trench detection on a single FOV.
+
+        Returns
+        -------
+        fov_trenches : list[TrenchDefinition]
+        lane_profiles : list[tuple[np.ndarray, np.ndarray, np.ndarray]]
+            Per-lane (x_profile, x_profile_smooth, peaks).
+        next_id : int
+            Next available trench ID counter.
+        """
+        fov_lanes = self.lane_detector.lanes.get(fov, [])
+        img_height, img_width = mean_img.shape
+
+        fov_trenches: List[TrenchDefinition] = []
+        lane_profiles: list = []
+        trench_counter = start_id
+
+        for lane_info in fov_lanes:
+            lane_y = lane_info.y_center
+            orientation = lane_info.orientation
+            lane_idx = lane_info.lane_index
+
+            crop_half = max(trench_length, 100)
+            y_start = max(0, lane_y - crop_half)
+            y_end = min(img_height, lane_y + crop_half)
+            lane_crop = mean_img[y_start:y_end, :]
+
+            x_profile = lane_crop.mean(axis=0)
+
+            if sigma > 0:
+                x_profile_smooth = gaussian_filter1d(x_profile, sigma)
+            else:
+                x_profile_smooth = x_profile.copy()
+
+            if conv_filter is not None:
+                x_profile_smooth = (
+                    convolve(x_profile_smooth, conv_filter) / conv_filter.sum()
+                )
+
+            peaks, _ = find_peaks(
+                x_profile_smooth,
+                distance=distance,
+                height=height,
+                prominence=prominence,
+            )
+
+            lane_profiles.append((x_profile, x_profile_smooth, peaks))
+
+            if len(peaks) == 0:
+                continue
+
+            if trench_width is not None:
+                half_w = trench_width // 2
+                x_lefts = peaks - half_w
+                x_rights = peaks + half_w
+            else:
+                spacing = np.mean(np.diff(peaks)) if len(peaks) > 1 else 100
+                half_w = int(round(spacing / shrink_scale))
+                x_lefts = peaks - half_w
+                x_rights = peaks + half_w
+
+            if orientation == 1:
+                y_top = lane_y - trench_bottom_offset - trench_length
+                y_bottom = lane_y - trench_bottom_offset
+                needs_flip = False
+            else:
+                y_top = lane_y + trench_bottom_offset
+                y_bottom = lane_y + trench_bottom_offset + trench_length
+                needs_flip = True
+
+            for x_left, x_right in zip(x_lefts, x_rights):
+                x_left = int(x_left)
+                x_right = int(x_right)
+
+                if x_left < 0 or x_right > img_width:
+                    continue
+                if y_top < 0 or y_bottom > img_height:
+                    continue
+
+                fov_trenches.append(
+                    TrenchDefinition(
+                        trench_id=trench_counter,
+                        fov=fov,
+                        lane_index=lane_idx,
+                        x_left=x_left,
+                        x_right=x_right,
+                        y_top=y_top,
+                        y_bottom=y_bottom,
+                        orientation=orientation,
+                        needs_flip=needs_flip,
+                    )
+                )
+                trench_counter += 1
+
+        return fov_trenches, lane_profiles, trench_counter
+
     def detect_trenches(
         self,
         sigma: float = 4.0,
@@ -139,13 +250,6 @@ class TrenchDetector:
         plot : bool
             If ``True``, show overlay for the first FOV.
         """
-        lanes_dict = self.lane_detector.lanes
-        img_shape = self.experiment.data.sizes
-
-        # Image dimensions
-        img_height = img_shape["Y"]
-        img_width = img_shape["X"]
-
         trenches: Dict[str, List[TrenchDefinition]] = {}
         trench_counter = 0
 
@@ -153,96 +257,11 @@ class TrenchDetector:
             mean_img = self.registrator.get_registered_mean_of_timestack(
                 fov=fov, channel=self.channel
             )
-            fov_lanes = lanes_dict.get(fov, [])
-            fov_trenches: List[TrenchDefinition] = []
-
-            for lane_info in fov_lanes:
-                lane_y = lane_info.y_center
-                orientation = lane_info.orientation
-                lane_idx = lane_info.lane_index
-
-                # Crop a region around the lane for x-profile analysis
-                # Use a generous vertical window around the lane centre
-                crop_half = max(trench_length, 100)
-                y_start = max(0, lane_y - crop_half)
-                y_end = min(img_height, lane_y + crop_half)
-                lane_crop = mean_img[y_start:y_end, :]
-
-                # 1-D x-profile: average along Y
-                x_profile = lane_crop.mean(axis=0)
-
-                # Gaussian smoothing
-                if sigma > 0:
-                    x_profile_smooth = gaussian_filter1d(x_profile, sigma)
-                else:
-                    x_profile_smooth = x_profile
-
-                # Optional convolution filter
-                if conv_filter is not None:
-                    x_profile_smooth = (
-                        convolve(x_profile_smooth, conv_filter) / conv_filter.sum()
-                    )
-
-                # Find peaks
-                peaks, _ = find_peaks(
-                    x_profile_smooth,
-                    distance=distance,
-                    height=height,
-                    prominence=prominence,
-                )
-
-                if len(peaks) == 0:
-                    continue
-
-                # Compute x-boundaries
-                if trench_width is not None:
-                    half_w = trench_width // 2
-                    x_lefts = peaks - half_w
-                    x_rights = peaks + half_w
-                else:
-                    spacing = np.mean(np.diff(peaks)) if len(peaks) > 1 else 100
-                    half_w = int(round(spacing / shrink_scale))
-                    x_lefts = peaks - half_w
-                    x_rights = peaks + half_w
-
-                # Compute y-boundaries based on orientation
-                if orientation == 1:
-                    # Trenches open downward from lane
-                    y_top = lane_y - trench_bottom_offset - trench_length
-                    y_bottom = lane_y - trench_bottom_offset
-                    needs_flip = False
-                else:
-                    # Trenches open upward from lane
-                    y_top = lane_y + trench_bottom_offset
-                    y_bottom = lane_y + trench_bottom_offset + trench_length
-                    needs_flip = True
-
-                # Create trench definitions, pruning edge cases
-                for x_left, x_right in zip(x_lefts, x_rights):
-                    x_left = int(x_left)
-                    x_right = int(x_right)
-
-                    # Prune trenches extending beyond image edges
-                    if x_left < 0 or x_right > img_width:
-                        continue
-                    if y_top < 0 or y_bottom > img_height:
-                        continue
-
-                    fov_trenches.append(
-                        TrenchDefinition(
-                            trench_id=trench_counter,
-                            fov=fov,
-                            lane_index=lane_idx,
-                            x_left=x_left,
-                            x_right=x_right,
-                            y_top=y_top,
-                            y_bottom=y_bottom,
-                            orientation=orientation,
-                            needs_flip=needs_flip,
-                        )
-                    )
-                    trench_counter += 1
-
+            fov_trenches, _, trench_counter = self._detect_trenches_single_fov(
+                mean_img, fov, sigma, distance, prominence, height,
+                trench_width, shrink_scale, trench_length, trench_bottom_offset,
+                conv_filter, start_id=trench_counter,
+            )
             trenches[fov] = fov_trenches
 
         self._trenches = trenches
@@ -306,6 +325,181 @@ class TrenchDetector:
             mean_img, fov_trenches, title=f"Trenches – {fov_name}",
             save_path=save_path,
         )
+
+    # ------------------------------------------------------------------
+    # Interactive widget
+    # ------------------------------------------------------------------
+
+    def interactive_detect_trenches(self) -> None:
+        """Display an interactive widget for trench detection tuning.
+
+        Uses ipywidgets for controls and matplotlib for plots, which
+        work reliably in VSCode notebooks.
+        """
+        import ipywidgets as widgets
+        import matplotlib.pyplot as plt
+        from itertools import cycle
+        from matplotlib.patches import Rectangle
+        from IPython.display import display
+
+        # Pre-cache mean images for all FOVs
+        mean_images: Dict[str, np.ndarray] = {}
+        for fov in self.experiment.fov_names:
+            mean_images[fov] = self.registrator.get_registered_mean_of_timestack(
+                fov=fov, channel=self.channel
+            )
+
+        # --- Widgets ---
+        fov_select = widgets.Dropdown(
+            options=list(self.experiment.fov_names),
+            value=self.experiment.fov_names[0],
+            description="FOV",
+        )
+        sigma_slider = widgets.FloatSlider(
+            value=4, min=0, max=50, step=0.5, description="sigma",
+            continuous_update=False, style={"description_width": "initial"},
+        )
+        distance_slider = widgets.FloatSlider(
+            value=100, min=1, max=500, step=1, description="distance",
+            continuous_update=False, style={"description_width": "initial"},
+        )
+        prominence_slider = widgets.FloatSlider(
+            value=10, min=0, max=500, step=1, description="prominence",
+            continuous_update=False, style={"description_width": "initial"},
+        )
+        trench_width_slider = widgets.IntSlider(
+            value=0, min=0, max=200, step=1, description="trench width (0=auto)",
+            continuous_update=False, style={"description_width": "initial"},
+        )
+        shrink_scale_slider = widgets.FloatSlider(
+            value=2.2, min=1.0, max=5.0, step=0.1, description="shrink scale",
+            continuous_update=False, style={"description_width": "initial"},
+        )
+        trench_length_slider = widgets.IntSlider(
+            value=160, min=10, max=500, step=5, description="trench length",
+            continuous_update=False, style={"description_width": "initial"},
+        )
+        trench_bottom_offset_slider = widgets.IntSlider(
+            value=50, min=-200, max=200, step=5, description="bottom offset",
+            continuous_update=False, style={"description_width": "initial"},
+        )
+        apply_btn = widgets.Button(
+            description="Apply to all FOVs", button_style="primary",
+        )
+        status_label = widgets.HTML(value="")
+        output = widgets.Output()
+
+        def _update(_change: Any = None) -> None:
+            fov = fov_select.value
+            mean_img = mean_images[fov]
+            tw = trench_width_slider.value
+            trench_width = tw if tw > 0 else None
+
+            fov_trenches, lane_profiles, _ = self._detect_trenches_single_fov(
+                mean_img, fov,
+                sigma=sigma_slider.value,
+                distance=distance_slider.value,
+                prominence=prominence_slider.value,
+                height=0,
+                trench_width=trench_width,
+                shrink_scale=shrink_scale_slider.value,
+                trench_length=trench_length_slider.value,
+                trench_bottom_offset=trench_bottom_offset_slider.value,
+            )
+            n_trenches = len(fov_trenches)
+            n_lanes = len(lane_profiles)
+
+            with output:
+                output.clear_output(wait=True)
+
+                if n_lanes == 0:
+                    fig, ax_img = plt.subplots(1, 1, figsize=(14, 5))
+                    ax_img.imshow(mean_img, cmap="gray", aspect="auto")
+                    ax_img.set_title(f"0 trenches in {fov} (no lanes)")
+                else:
+                    fig = plt.figure(figsize=(14, max(5, 3 * n_lanes)))
+                    gs = fig.add_gridspec(n_lanes, 2, width_ratios=[2, 1])
+
+                    # Image with trench rectangles (spans all rows on left)
+                    ax_img = fig.add_subplot(gs[:, 0])
+                    ax_img.imshow(mean_img, cmap="gray", aspect="auto")
+                    colors_list = [
+                        "red", "lime", "dodgerblue", "yellow",
+                        "orange", "purple", "cyan",
+                    ]
+                    for td, color in zip(fov_trenches, cycle(colors_list)):
+                        rect = Rectangle(
+                            (td.x_left, td.y_top),
+                            td.x_right - td.x_left,
+                            td.y_bottom - td.y_top,
+                            linewidth=1, edgecolor=color,
+                            facecolor=color, alpha=0.2,
+                        )
+                        ax_img.add_patch(rect)
+                        ax_img.text(
+                            (td.x_left + td.x_right) / 2, td.y_top - 3,
+                            str(td.trench_id), color=color, fontsize=7,
+                            ha="center", va="bottom",
+                        )
+                    ax_img.set_title(
+                        f"{n_trenches} trench{'es' if n_trenches != 1 else ''}"
+                        f" in {fov}"
+                    )
+
+                    # X-profiles per lane (stacked on right)
+                    for i, (x_prof, x_smooth, peaks) in enumerate(lane_profiles):
+                        ax = fig.add_subplot(gs[i, 1])
+                        xs = np.arange(len(x_prof))
+                        ax.plot(xs, x_prof, color="grey", alpha=0.5, label="raw")
+                        ax.plot(xs, x_smooth, color="blue", label="smoothed")
+                        if len(peaks) > 0:
+                            ax.plot(
+                                peaks, x_smooth[peaks], "rv",
+                                markersize=8, label="peaks",
+                            )
+                        ax.set_xlabel("x pixel")
+                        ax.set_ylabel("intensity")
+                        ax.set_title(f"Lane {i} x-profile")
+                        ax.legend(fontsize=8)
+
+                fig.tight_layout()
+                plt.show()
+
+        def _on_apply(_btn: Any) -> None:
+            status_label.value = "<b>Applying\u2026</b>"
+            tw = trench_width_slider.value
+            trench_width = tw if tw > 0 else None
+            self.detect_trenches(
+                sigma=sigma_slider.value,
+                distance=distance_slider.value,
+                prominence=prominence_slider.value,
+                height=0,
+                trench_width=trench_width,
+                shrink_scale=shrink_scale_slider.value,
+                trench_length=trench_length_slider.value,
+                trench_bottom_offset=trench_bottom_offset_slider.value,
+            )
+            total = self.n_trenches
+            status_label.value = (
+                f"<b>Applied</b> \u2014 {total} trenches across "
+                f"{len(self._trenches)} FOVs"
+            )
+
+        apply_btn.on_click(_on_apply)
+
+        for w in [fov_select, sigma_slider, distance_slider, prominence_slider,
+                  trench_width_slider, shrink_scale_slider,
+                  trench_length_slider, trench_bottom_offset_slider]:
+            w.observe(_update, names="value")
+
+        controls = widgets.VBox([
+            fov_select, sigma_slider, distance_slider, prominence_slider,
+            trench_width_slider, shrink_scale_slider,
+            trench_length_slider, trench_bottom_offset_slider,
+            apply_btn, status_label,
+        ])
+        display(widgets.HBox([controls, output]))
+        _update()
 
     # ------------------------------------------------------------------
     # Checkpoint save / load

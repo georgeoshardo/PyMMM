@@ -77,8 +77,8 @@ class Extractor:
 
         # Determine output shape from first trench
         first = trench_table.iloc[0]
-        trench_h = first["y_bottom"] - first["y_top"]
-        trench_w = first["x_right"] - first["x_left"]
+        trench_h = int(first["y_bottom"] - first["y_top"])
+        trench_w = int(first["x_right"] - first["x_left"])
         n_trenches = len(trench_table)
         n_times = self.experiment.n_timepoints
 
