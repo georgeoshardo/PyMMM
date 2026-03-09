@@ -699,7 +699,9 @@ class Registrator:
     # ------------------------------------------------------------------
 
     def get_stabilized_data(
-        self, channel: Optional[Union[str, int]] = None
+        self,
+        channel: Optional[Union[str, int]] = None,
+        fov: Optional[Union[str, int]] = None,
     ) -> xr.DataArray:
         """Return lazy dask-backed DataArray of all warped frames.
 
@@ -707,11 +709,23 @@ class Registrator:
         ----------
         channel : str | int | None
             Channel to stabilise. ``None`` uses the registration channel.
+        fov : str | int | None
+            Restrict to a single FOV. Keeps the dask graph small.
         """
         if self._tmats is None:
             raise RuntimeError("Tmats not computed yet.")
 
         data = self.experiment.data
+        tmats = self._tmats
+
+        # Select FOV early to keep the dask graph small
+        if fov is not None:
+            fov_name = normalize_fov_arg(fov, self.experiment.fov_names)
+            if "P" in data.dims:
+                data = data.sel(P=fov_name)
+            if "P" in tmats.dims:
+                tmats = tmats.sel(P=fov_name)
+
         if channel is not None:
             ch = normalize_channel_arg(channel, self.experiment.channel_names)
             if self.experiment.has_channels:
@@ -738,7 +752,7 @@ class Registrator:
         stabilized = xr.apply_ufunc(
             _warp_frame,
             data,
-            self._tmats,
+            tmats,
             input_core_dims=[["Y", "X"], ["row", "col"]],
             output_core_dims=[["Y", "X"]],
             vectorize=True,

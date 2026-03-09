@@ -28,7 +28,11 @@ ipykernel = "*"
 ipywidgets = "*"
 datashader = "*"
 jupyter_bokeh = "*"
+cmake = "*"
 
 [tasks]
 test = "python -m pytest tests/ -v"
 notebook = "jupyter lab"
+
+[pypi-dependencies]
+omnipose = ">=1.1.4, <2"
