@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import List, Optional, Union
 
@@ -9,6 +10,11 @@ import nd2
 import numpy as np
 import xarray as xr
 
+from pymmm.metadata import (
+    SOURCE_METADATA_VERSION,
+    extract_acquisition_metadata,
+    slice_to_dict,
+)
 from pymmm._utils import (
     normalize_channel_arg,
     normalize_fov_arg,
@@ -42,6 +48,10 @@ class ND2Experiment:
         self._raw_data: xr.DataArray = nd2.imread(
             str(self.path), dask=True, xarray=True
         )
+        self._raw_fov_names = (
+            [str(v) for v in self._raw_data.coords["P"].values]
+            if "P" in self._raw_data.coords else ["single"]
+        )
 
         # Handle duplicate position names (common in ND2 files)
         if "P" in self._raw_data.coords:
@@ -66,6 +76,11 @@ class ND2Experiment:
         self._time_slice: Optional[slice] = None
         self._y_slice: Optional[slice] = None
         self._x_slice: Optional[slice] = None
+        self._source_acquisition_metadata = extract_acquisition_metadata(
+            self.path,
+            pixel_size_um=self._pixel_size_um,
+            time_interval_ms=self._time_interval_ms,
+        )
 
     # ------------------------------------------------------------------
     # Core data access
@@ -132,6 +147,34 @@ class ND2Experiment:
     @property
     def time_interval_ms(self) -> float:
         return self._time_interval_ms
+
+    @property
+    def source_metadata_version(self) -> int:
+        """Schema version for persisted source metadata bundles."""
+        return SOURCE_METADATA_VERSION
+
+    @property
+    def source_acquisition_metadata(self) -> dict:
+        """Full acquisition/configuration metadata extracted from the ND2."""
+        return copy.deepcopy(self._source_acquisition_metadata)
+
+    @property
+    def source_subset_metadata(self) -> dict:
+        """Pipeline-side subsetting and provenance derived from the experiment."""
+        discarded = list(dict.fromkeys(str(v) for v in self._discarded_fovs))
+        roi = {
+            "y": slice_to_dict(self._y_slice),
+            "x": slice_to_dict(self._x_slice),
+        }
+        return {
+            "raw_fov_names": list(self._raw_fov_names),
+            "active_fov_names": list(self.fov_names),
+            "discarded_fov_names": discarded,
+            "time_slice": slice_to_dict(self._time_slice),
+            "roi": roi,
+            "raw_timepoint_count": int(self._raw_data.sizes.get("T", 1)),
+            "active_timepoint_count": int(self.n_timepoints),
+        }
 
     # ------------------------------------------------------------------
     # Frame access

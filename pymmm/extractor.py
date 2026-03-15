@@ -16,6 +16,7 @@ import zarr.codecs
 from tqdm.auto import tqdm
 
 from pymmm.experiment import ND2Experiment
+from pymmm.metadata import build_store_metadata_attrs
 from pymmm.registrator import Registrator
 from pymmm.trench_detector import TrenchDetector
 
@@ -123,6 +124,35 @@ class Extractor:
             output_path = nd2_dir / f"{experiment.experiment_name}.trenches.zarr"
         self.output_path = Path(output_path)
 
+    def _write_store_metadata(
+        self,
+        store: zarr.Group,
+        *,
+        trench_h: int,
+        trench_w: int,
+        n_trenches: int,
+        n_times: int,
+        channel_names: list[str],
+        trench_mapping: list[dict],
+    ) -> None:
+        """Write output store attrs, including propagated ND2 metadata."""
+        exp = self.experiment
+        store.attrs["source_nd2"] = str(exp.path)
+        store.attrs["experiment_name"] = exp.experiment_name
+        store.attrs["pixel_size_um"] = exp.pixel_size_um
+        store.attrs["channel_names"] = channel_names
+        store.attrs["n_trenches"] = n_trenches
+        store.attrs["n_times"] = n_times
+        store.attrs["trench_height"] = int(trench_h)
+        store.attrs["trench_width"] = int(trench_w)
+        store.attrs["registration_params"] = {
+            "channel": self.registrator.channel,
+            "mode": str(self.registrator.mode),
+            "rotation": self.registrator.rotation,
+        }
+        store.attrs["trench_mapping"] = trench_mapping
+        store.attrs.update(build_store_metadata_attrs(exp))
+
     def extract(
         self,
         compressor: str = "zstd",
@@ -185,22 +215,16 @@ class Extractor:
             **codec_kwargs,
         )
 
-        # Write metadata
-        store.attrs["source_nd2"] = str(exp.path)
-        store.attrs["experiment_name"] = exp.experiment_name
-        store.attrs["pixel_size_um"] = exp.pixel_size_um
-        store.attrs["channel_names"] = channel_names
-        store.attrs["n_trenches"] = n_trenches
-        store.attrs["n_times"] = n_times
-        store.attrs["trench_height"] = int(trench_h)
-        store.attrs["trench_width"] = int(trench_w)
-        store.attrs["registration_params"] = {
-            "channel": self.registrator.channel,
-            "mode": str(self.registrator.mode),
-            "rotation": self.registrator.rotation,
-        }
         trench_mapping = trench_table.to_dict(orient="records")
-        store.attrs["trench_mapping"] = trench_mapping
+        self._write_store_metadata(
+            store,
+            trench_h=trench_h,
+            trench_w=trench_w,
+            n_trenches=n_trenches,
+            n_times=n_times,
+            channel_names=channel_names,
+            trench_mapping=trench_mapping,
+        )
 
         # ----------------------------------------------------------
         # Frame-level extraction parameters

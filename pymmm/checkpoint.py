@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import numpy as np
 import zarr
 
+from pymmm.metadata import build_store_metadata_attrs
+
 if TYPE_CHECKING:
     from pymmm.experiment import ND2Experiment
 
@@ -56,8 +58,9 @@ class CompanionStore:
         if "source_nd2" not in attrs:
             attrs["source_nd2"] = str(nd2_path)
             attrs["created"] = datetime.now().isoformat()
-            attrs["fov_names"] = list(experiment.fov_names)
-            attrs["channel_names"] = list(experiment.channel_names)
+        attrs["fov_names"] = list(experiment.fov_names)
+        attrs["channel_names"] = list(experiment.channel_names)
+        attrs.update(build_store_metadata_attrs(experiment))
 
         return store
 

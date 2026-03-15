@@ -37,14 +37,18 @@ def _try_get_dask_client():
         return None
 
 
-def _register_and_get_matrix(ref: np.ndarray, mov: np.ndarray) -> np.ndarray:
+def _register_and_get_matrix(
+    ref: np.ndarray,
+    mov: np.ndarray,
+    transformation: int = StackReg.TRANSLATION,
+) -> np.ndarray:
     """Register two 2-D images and return the 3×3 transformation matrix.
 
     A fresh ``StackReg`` instance is created per call for thread safety.
     """
     ref_sq = np.squeeze(ref)
     mov_sq = np.squeeze(mov)
-    sr = StackReg(StackReg.RIGID_BODY)
+    sr = StackReg(transformation)
     sr.register(ref_sq, mov_sq)
     return sr.get_matrix()
 
@@ -116,7 +120,7 @@ def _load_single_frame(
 
     Returns
     -------
-    np.ndarray
+        np.ndarray
         2D float64 array (Y, X).
     """
     import nd2
@@ -151,6 +155,7 @@ def _register_one_frame(
     time_idx: int,
     channel_idx: Optional[int],
     rotation: float,
+    transformation: int,
     roi: dict,
     ref_np: np.ndarray,
 ) -> np.ndarray:
@@ -161,7 +166,7 @@ def _register_one_frame(
     """
     img = _load_single_frame(nd2_path, fov_idx, time_idx, channel_idx, rotation)
     img_roi = _slice_roi(img, roi)
-    return _register_and_get_matrix(ref_np, img_roi)
+    return _register_and_get_matrix(ref_np, img_roi, transformation=transformation)
 
 
 _worker_ref_cache: dict[str, np.ndarray] = {}
@@ -173,6 +178,7 @@ def _register_one_frame_fileref(
     time_idx: int,
     channel_idx: Optional[int],
     rotation: float,
+    transformation: int,
     roi: dict,
     ref_path: str,
 ) -> np.ndarray:
@@ -190,7 +196,7 @@ def _register_one_frame_fileref(
     ref_np = _worker_ref_cache[ref_path]
     img = _load_single_frame(nd2_path, fov_idx, time_idx, channel_idx, rotation)
     img_roi = _slice_roi(img, roi)
-    return _register_and_get_matrix(ref_np, img_roi)
+    return _register_and_get_matrix(ref_np, img_roi, transformation=transformation)
 
 
 def _register_pair(
@@ -394,31 +400,32 @@ class Registrator:
             *within* each FOV.
 
         The chosen ``mode`` determines the registration strategy:
-        - ``"mean"`` — register each frame to temporal mean (RIGID_BODY)
+        - ``"mean"`` — register each frame to temporal mean (TRANSLATION)
         - ``"previous"`` — register to predecessor, cumulative (TRANSLATION)
-        - ``"first"`` / ``"last"`` / ``int`` — register to a fixed frame (RIGID_BODY)
+        - ``"first"`` / ``"last"`` / ``int`` — register to a fixed frame (TRANSLATION)
         """
         if self.mode == "previous":
-            self._compute_tmats_previous(n_jobs=n_jobs)
+            self._compute_tmats_previous(n_jobs=n_jobs, plot=plot)
         else:
-            self._compute_tmats_fixed_ref(n_jobs=n_jobs)
+            self._compute_tmats_fixed_ref(n_jobs=n_jobs, plot=plot)
 
-        if plot:
-            from pymmm._utils import get_diagnostics_dir
-            from pymmm.plotting import plot_drift_diagnostics
+    def _plot_fov_drift(self, fov: Any, fov_da: xr.DataArray, plot: bool) -> None:
+        """Persist drift diagnostics for one completed FOV immediately."""
+        if not plot:
+            return
 
-            diag_dir = get_diagnostics_dir(self.experiment.path)
-            for fov in self.experiment.fov_names:
-                if "P" in self._tmats.dims:
-                    mats = self._tmats.sel(P=fov)
-                else:
-                    mats = self._tmats
-                plot_drift_diagnostics(
-                    mats, fov_label=fov,
-                    save_path=str(diag_dir / f"drift_{fov}.png"),
-                )
+        from pymmm._utils import get_diagnostics_dir
+        from pymmm.plotting import plot_drift_diagnostics
 
-    def _compute_tmats_fixed_ref(self, n_jobs: int = -1) -> None:
+        fov_label = str(fov) if fov is not None else "single"
+        diag_dir = get_diagnostics_dir(self.experiment.path)
+        plot_drift_diagnostics(
+            fov_da,
+            fov_label=fov_label,
+            save_path=str(diag_dir / f"drift_{fov_label}.png"),
+        )
+
+    def _compute_tmats_fixed_ref(self, n_jobs: int = -1, plot: bool = False) -> None:
         """Register every frame to a fixed reference image.
 
         Sequential across FOVs, parallel across timepoints within each FOV
@@ -447,6 +454,7 @@ class Registrator:
         else:
             original_t_indices = list(range(exp._raw_data.sizes["T"]))
         n_times = len(original_t_indices)
+        transformation = StackReg.TRANSLATION
 
         max_workers = None if n_jobs == -1 else n_jobs
 
@@ -506,12 +514,14 @@ class Registrator:
                 tmats_list = [
                     _register_one_frame(
                         nd2_path, fov_idx, original_t_indices[t],
-                        channel_idx, self.rotation, roi, ref_np,
+                        channel_idx, self.rotation, transformation, roi, ref_np,
                     )
                     for t in range(n_times)
                 ]
                 del ref_np
-                parts.append(_wrap_da(fov, tmats_list))
+                fov_da = _wrap_da(fov, tmats_list)
+                parts.append(fov_da)
+                self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
         elif (client := _try_get_dask_client()) is not None:
             # Dask path — reuse the user's existing distributed cluster
             from dask.distributed import as_completed as dask_as_completed
@@ -527,7 +537,7 @@ class Registrator:
                     client.submit(
                         _register_one_frame, nd2_path, fov_idx,
                         original_t_indices[t], channel_idx,
-                        self.rotation, roi, ref_future,
+                        self.rotation, transformation, roi, ref_future,
                     ): t
                     for t in range(n_times)
                 }
@@ -540,7 +550,9 @@ class Registrator:
                     results[future_to_t[fut]] = fut.result()
 
                 del ref_future
-                parts.append(_wrap_da(fov, results))
+                fov_da = _wrap_da(fov, results)
+                parts.append(fov_da)
+                self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
         else:
             # PPE fallback — pool + tmpdir created once, reused across FOVs
             with tempfile.TemporaryDirectory(prefix="pymmm_reg_") as tmpdir, \
@@ -558,7 +570,7 @@ class Registrator:
                         pool.submit(
                             _register_one_frame_fileref, nd2_path, fov_idx,
                             original_t_indices[t], channel_idx,
-                            self.rotation, roi, ref_path,
+                            self.rotation, transformation, roi, ref_path,
                         ): t
                         for t in range(n_times)
                     }
@@ -571,14 +583,16 @@ class Registrator:
                         results[future_to_t[fut]] = fut.result()
 
                     os.unlink(ref_path)
-                    parts.append(_wrap_da(fov, results))
+                    fov_da = _wrap_da(fov, results)
+                    parts.append(fov_da)
+                    self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
 
         if "P" in reg_data.dims:
             self._tmats = xr.concat(parts, dim="P")
         else:
             self._tmats = parts[0]
 
-    def _compute_tmats_previous(self, n_jobs: int = -1) -> None:
+    def _compute_tmats_previous(self, n_jobs: int = -1, plot: bool = False) -> None:
         """Register each frame to its predecessor (cumulative product).
 
         Sequential across FOVs, parallel across consecutive frame pairs
@@ -639,7 +653,9 @@ class Registrator:
                     )
                     for t in range(n_times - 1)
                 ]
-                parts.append(_collect_pairs(fov, fov_idx, pair_mats))
+                fov_da = _collect_pairs(fov, fov_idx, pair_mats)
+                parts.append(fov_da)
+                self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
         elif (client := _try_get_dask_client()) is not None:
             # Dask path — no scatter needed, workers load their own frames
             from dask.distributed import as_completed as dask_as_completed
@@ -664,7 +680,9 @@ class Registrator:
                 ):
                     results[future_to_t[fut]] = fut.result()
 
-                parts.append(_collect_pairs(fov, fov_idx, results))
+                fov_da = _collect_pairs(fov, fov_idx, results)
+                parts.append(fov_da)
+                self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
         else:
             with ProcessPoolExecutor(max_workers=max_workers, mp_context=_mp_ctx) as pool:
                 for fov in tqdm(fov_names, desc="Registering FOVs"):
@@ -687,7 +705,9 @@ class Registrator:
                     ):
                         results[future_to_t[fut]] = fut.result()
 
-                    parts.append(_collect_pairs(fov, fov_idx, results))
+                    fov_da = _collect_pairs(fov, fov_idx, results)
+                    parts.append(fov_da)
+                    self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
 
         if "P" in reg_data.dims:
             self._tmats = xr.concat(parts, dim="P")
