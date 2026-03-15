@@ -5,18 +5,24 @@ from __future__ import annotations
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import dask
 import dask.array as da
+import numcodecs
 import numpy as np
 import xarray as xr
 import zarr
-import zarr.codecs
 from tqdm.auto import tqdm
 
 from pymmm.experiment import ND2Experiment
-from pymmm.metadata import build_store_metadata_attrs
+from pymmm.metadata import (
+    EXTRACTOR_STORE_VERSION,
+    build_acquisition_dataset,
+    build_events_dataset,
+    build_source_frames_dataset,
+    extract_source_frame_metadata,
+)
 from pymmm.registrator import Registrator
 from pymmm.trench_detector import TrenchDetector
 
@@ -124,34 +130,213 @@ class Extractor:
             output_path = nd2_dir / f"{experiment.experiment_name}.trenches.zarr"
         self.output_path = Path(output_path)
 
-    def _write_store_metadata(
-        self,
-        store: zarr.Group,
+    def _root_store_attrs(self) -> dict[str, Any]:
+        """Return the small root-attrs bundle for the final trench store."""
+        exp = self.experiment
+        return {
+            "extractor_store_version": EXTRACTOR_STORE_VERSION,
+            "layout": "xarray_trench_store_v1",
+            "source_metadata_version": int(exp.source_metadata_version),
+            "source_nd2": str(exp.path),
+            "experiment_name": exp.experiment_name,
+            "pixel_size_um": exp.pixel_size_um,
+            "registration_params": {
+                "channel": self.registrator.channel,
+                "mode": str(self.registrator.mode),
+                "rotation": self.registrator.rotation,
+            },
+            "source_subset_metadata": exp.source_subset_metadata,
+        }
+
+    @staticmethod
+    def _metadata_encoding(
+        dataset: xr.Dataset,
         *,
+        chunk_overrides: dict[str, tuple[int, ...]] | None = None,
+        compressor: Any | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        """Return xarray ``to_zarr`` encodings for the dataset variables."""
+        chunk_overrides = chunk_overrides or {}
+        encoding: dict[str, dict[str, Any]] = {}
+        for name in dataset.data_vars:
+            spec: dict[str, Any] = {}
+            if name in chunk_overrides:
+                spec["chunks"] = chunk_overrides[name]
+            if compressor is not None and dataset[name].dtype != object:
+                spec["compressor"] = compressor
+            if spec:
+                encoding[name] = spec
+        return encoding
+
+    def _build_root_dataset_template(
+        self,
+        *,
+        trench_table,
+        source_metadata: dict[str, Any],
         trench_h: int,
         trench_w: int,
-        n_trenches: int,
-        n_times: int,
         channel_names: list[str],
-        trench_mapping: list[dict],
-    ) -> None:
-        """Write output store attrs, including propagated ND2 metadata."""
-        exp = self.experiment
-        store.attrs["source_nd2"] = str(exp.path)
-        store.attrs["experiment_name"] = exp.experiment_name
-        store.attrs["pixel_size_um"] = exp.pixel_size_um
-        store.attrs["channel_names"] = channel_names
-        store.attrs["n_trenches"] = n_trenches
-        store.attrs["n_times"] = n_times
-        store.attrs["trench_height"] = int(trench_h)
-        store.attrs["trench_width"] = int(trench_w)
-        store.attrs["registration_params"] = {
-            "channel": self.registrator.channel,
-            "mode": str(self.registrator.mode),
-            "rotation": self.registrator.rotation,
+        data_shape: tuple[int, ...],
+        data_chunks: tuple[int, ...],
+        dtype: np.dtype,
+    ) -> xr.Dataset:
+        """Build the root xarray dataset template for the final trench store."""
+        fov_lookup = {
+            str(fov_name): idx
+            for idx, fov_name in enumerate(source_metadata["fov_names"])
         }
-        store.attrs["trench_mapping"] = trench_mapping
-        store.attrs.update(build_store_metadata_attrs(exp))
+        fov_index = np.asarray(
+            [fov_lookup[str(fov)] for fov in trench_table["fov"].tolist()],
+            dtype=np.int32,
+        )
+
+        return xr.Dataset(
+            data_vars={
+                "data": (
+                    ("Trench", "T", "C", "Y", "X"),
+                    da.empty(data_shape, chunks=data_chunks, dtype=dtype),
+                ),
+                "fov_name": (
+                    ("Trench",),
+                    np.asarray(trench_table["fov"].tolist(), dtype=object),
+                ),
+                "fov_index": (("Trench",), fov_index),
+                "original_p_index": (
+                    ("Trench",),
+                    source_metadata["original_p_index"][fov_index],
+                ),
+                "lane_index": (
+                    ("Trench",),
+                    trench_table["lane_index"].to_numpy(dtype=np.int32),
+                ),
+                "x_left": (("Trench",), trench_table["x_left"].to_numpy(dtype=np.int32)),
+                "x_right": (("Trench",), trench_table["x_right"].to_numpy(dtype=np.int32)),
+                "y_top": (("Trench",), trench_table["y_top"].to_numpy(dtype=np.int32)),
+                "y_bottom": (
+                    ("Trench",),
+                    trench_table["y_bottom"].to_numpy(dtype=np.int32),
+                ),
+                "orientation": (
+                    ("Trench",),
+                    trench_table["orientation"].to_numpy(dtype=np.int8),
+                ),
+                "needs_flip": (
+                    ("Trench",),
+                    trench_table["needs_flip"].to_numpy(dtype=bool),
+                ),
+                "source_seq_index": (
+                    ("Trench", "T"),
+                    source_metadata["source_seq_index"][fov_index],
+                ),
+                "relative_time_ms": (
+                    ("Trench", "T"),
+                    source_metadata["relative_time_ms"][fov_index],
+                ),
+                "absolute_julian_day_number": (
+                    ("Trench", "T"),
+                    source_metadata["absolute_julian_day_number"][fov_index],
+                ),
+                "pfs_offset": (
+                    ("Trench", "T"),
+                    source_metadata["pfs_offset"][fov_index],
+                ),
+                "stage_position_um": (
+                    ("Trench", "T", "Axis"),
+                    source_metadata["stage_position_um"][fov_index],
+                ),
+            },
+            coords={
+                "Trench": trench_table["trench_id"].to_numpy(dtype=np.int32),
+                "T": source_metadata["original_t_index"],
+                "C": np.asarray(channel_names, dtype=object),
+                "Y": np.arange(trench_h, dtype=np.int32),
+                "X": np.arange(trench_w, dtype=np.int32),
+                "Axis": np.asarray(["x", "y", "z"], dtype=object),
+            },
+            attrs=self._root_store_attrs(),
+        )
+
+    def _write_metadata_groups(
+        self,
+        *,
+        source_metadata: dict[str, Any],
+        compressor: Any | None,
+        n_times: int,
+    ) -> None:
+        """Write xarray-native subgroup datasets to the trench store."""
+        source_frames = build_source_frames_dataset(source_metadata)
+        source_frames.to_zarr(
+            str(self.output_path),
+            mode="a",
+            group="source_frames",
+            consolidated=False,
+            zarr_format=2,
+            encoding=self._metadata_encoding(
+                source_frames,
+                chunk_overrides={
+                    "original_p_index": (
+                        min(256, max(1, source_frames.sizes["FOV"])),
+                    ),
+                    "source_seq_index": (1, n_times),
+                    "relative_time_ms": (1, n_times),
+                    "absolute_julian_day_number": (1, n_times),
+                    "pfs_offset": (1, n_times),
+                    "stage_position_um": (1, n_times, 3),
+                    "position_name": (1, n_times),
+                    "frame_metadata_json": (1, n_times),
+                },
+                compressor=compressor,
+            ),
+        )
+
+        events = build_events_dataset(
+            source_metadata["frame_event_records"],
+            source_metadata["acquisition_event_records"],
+        )
+        event_chunks: dict[str, tuple[int, ...]] = {}
+        if "FrameEvent" in events.sizes:
+            frame_chunk = min(4096, max(1, events.sizes["FrameEvent"]))
+            event_chunks.update(
+                {
+                    name: (frame_chunk,)
+                    for name in events.data_vars
+                    if events[name].dims == ("FrameEvent",)
+                }
+            )
+        if "AcquisitionEvent" in events.sizes:
+            acquisition_chunk = min(4096, max(1, events.sizes["AcquisitionEvent"]))
+            event_chunks.update(
+                {
+                    name: (acquisition_chunk,)
+                    for name in events.data_vars
+                    if events[name].dims == ("AcquisitionEvent",)
+                }
+            )
+        events.to_zarr(
+            str(self.output_path),
+            mode="a",
+            group="events",
+            consolidated=False,
+            zarr_format=2,
+            encoding=self._metadata_encoding(
+                events,
+                chunk_overrides=event_chunks,
+                compressor=compressor,
+            ),
+        )
+
+        acquisition = build_acquisition_dataset(
+            self.experiment.source_acquisition_metadata,
+            channel_names=self.experiment.channel_names,
+        )
+        acquisition.to_zarr(
+            str(self.output_path),
+            mode="a",
+            group="acquisition",
+            consolidated=False,
+            zarr_format=2,
+            encoding=self._metadata_encoding(acquisition, compressor=compressor),
+        )
 
     def extract(
         self,
@@ -178,6 +363,14 @@ class Extractor:
         if len(trench_table) == 0:
             raise RuntimeError("No trenches to extract.")
 
+        trench_table = (
+            trench_table.sort_values("trench_id")
+            .reset_index(drop=True)
+            .assign(
+                _output_trench_index=lambda df: np.arange(len(df), dtype=np.int32),
+            )
+        )
+
         # Determine output shape from first trench
         first = trench_table.iloc[0]
         trench_h = int(first["y_bottom"] - first["y_top"])
@@ -187,55 +380,80 @@ class Extractor:
         n_times = exp.n_timepoints
 
         # Determine channels
-        has_channels = exp.has_channels
         channel_names = exp.channel_names
-        n_channels = len(channel_names) if has_channels else 1
+        n_channels = len(channel_names)
 
         # Create output zarr store
         if compressor == "zstd":
-            comp = [zarr.codecs.ZstdCodec(level=clevel)]
+            comp = numcodecs.Zstd(level=clevel)
         else:
             comp = None
 
-        if n_channels > 1:
-            shape = (n_trenches, n_times, n_channels, trench_h, trench_w)
-            chunks = (1, n_times, 1, trench_h, trench_w)
-        else:
-            shape = (n_trenches, n_times, trench_h, trench_w)
-            chunks = (1, n_times, trench_h, trench_w)
+        shape = (n_trenches, n_times, n_channels, trench_h, trench_w)
+        chunks = (1, n_times, 1, trench_h, trench_w)
 
-        dtype = exp.data.dtype
-        store = zarr.open_group(str(self.output_path), mode="w")
-        codec_kwargs = {"compressors": comp} if comp else {}
-        data_arr = store.create_array(
-            "data",
-            shape=shape,
-            chunks=chunks,
-            dtype=dtype,
-            **codec_kwargs,
-        )
-
-        trench_mapping = trench_table.to_dict(orient="records")
-        self._write_store_metadata(
-            store,
+        dtype = np.dtype(exp.data.dtype)
+        source_metadata = extract_source_frame_metadata(exp)
+        root_dataset = self._build_root_dataset_template(
+            trench_table=trench_table,
+            source_metadata=source_metadata,
             trench_h=trench_h,
             trench_w=trench_w,
-            n_trenches=n_trenches,
-            n_times=n_times,
             channel_names=channel_names,
-            trench_mapping=trench_mapping,
+            data_shape=shape,
+            data_chunks=chunks,
+            dtype=dtype,
         )
+        root_dataset.to_zarr(
+            str(self.output_path),
+            mode="w",
+            consolidated=False,
+            compute=False,
+            zarr_format=2,
+            encoding=self._metadata_encoding(
+                root_dataset,
+                chunk_overrides={
+                    "data": chunks,
+                    "fov_name": (min(4096, max(1, n_trenches)),),
+                    "fov_index": (min(4096, max(1, n_trenches)),),
+                    "original_p_index": (min(4096, max(1, n_trenches)),),
+                    "lane_index": (min(4096, max(1, n_trenches)),),
+                    "x_left": (min(4096, max(1, n_trenches)),),
+                    "x_right": (min(4096, max(1, n_trenches)),),
+                    "y_top": (min(4096, max(1, n_trenches)),),
+                    "y_bottom": (min(4096, max(1, n_trenches)),),
+                    "orientation": (min(4096, max(1, n_trenches)),),
+                    "needs_flip": (min(4096, max(1, n_trenches)),),
+                    "source_seq_index": (1, n_times),
+                    "relative_time_ms": (1, n_times),
+                    "absolute_julian_day_number": (1, n_times),
+                    "pfs_offset": (1, n_times),
+                    "stage_position_um": (1, n_times, 3),
+                },
+                compressor=comp,
+            ),
+        )
+        self._write_metadata_groups(
+            source_metadata=source_metadata,
+            compressor=comp,
+            n_times=n_times,
+        )
+
+        store = zarr.open_group(str(self.output_path), mode="r+")
+        data_arr = store["data"]
 
         # ----------------------------------------------------------
         # Frame-level extraction parameters
         # ----------------------------------------------------------
         nd2_path = str(exp.path)
         rotation = self.registrator.rotation
-        out_dtype = np.dtype(dtype)
+        out_dtype = dtype
         H, W = exp.data.sizes["Y"], exp.data.sizes["X"]
 
         # Map subsetted T indices → original file T indices
-        if exp._time_slice is not None:
+        if "T" not in exp._raw_data.dims:
+            original_t_indices = [0]
+        elif exp._time_slice is not None:
             n_raw_T = exp._raw_data.sizes["T"]
             original_t_indices = list(range(*exp._time_slice.indices(n_raw_T)))
         else:
@@ -268,7 +486,7 @@ class Extractor:
             pool = ProcessPoolExecutor(mp_context=_mp_ctx)
 
         try:
-            grouped = trench_table.groupby("fov")
+            grouped = trench_table.groupby("fov", sort=False)
             fov_iter = grouped
             if show_progress:
                 fov_iter = tqdm(grouped, desc="Extracting FOVs", total=len(grouped))
@@ -283,28 +501,10 @@ class Extractor:
                 else:
                     fov_tmats = tmats_da.values
 
-                if n_channels > 1:
-                    for c_idx, ch in enumerate(channel_names):
-                        ch_idx = exp.channel_names.index(ch)
-                        fov_data = self._warp_fov_frames(
-                            client, pool, nd2_path, fov_idx, n_times,
-                            original_t_indices, ch_idx, y_roi, x_roi,
-                            rotation, fov_tmats, out_dtype, H, W,
-                        )
-                        for _, row in fov_df.iterrows():
-                            crop = fov_data[
-                                :, row["y_top"]:row["y_bottom"],
-                                row["x_left"]:row["x_right"],
-                            ]
-                            if row["needs_flip"]:
-                                crop = crop[:, ::-1, :]
-                            data_arr[row["trench_id"], :, c_idx, :, :] = crop
-
-                        del fov_data
-                else:
+                for c_idx, ch in enumerate(channel_names):
                     ch_idx = (
-                        exp.channel_names.index(self.registrator.channel)
-                        if has_channels else None
+                        exp.channel_names.index(ch)
+                        if exp.has_channels else None
                     )
                     fov_data = self._warp_fov_frames(
                         client, pool, nd2_path, fov_idx, n_times,
@@ -318,13 +518,14 @@ class Extractor:
                         ]
                         if row["needs_flip"]:
                             crop = crop[:, ::-1, :]
-                        data_arr[row["trench_id"], :, :, :] = crop
+                        data_arr[int(row["_output_trench_index"]), :, c_idx, :, :] = crop
 
                     del fov_data
         finally:
             if pool is not None:
                 pool.shutdown(wait=True)
 
+        zarr.consolidate_metadata(str(self.output_path))
         print(f"Extraction complete: {self.output_path}")
         print(f"  Shape: {shape}, Chunks: {chunks}")
 
@@ -414,7 +615,7 @@ class Extractor:
         else:
             channels = [None]
 
-        grouped = table.groupby("fov")
+        grouped = table.groupby("fov", sort=False)
 
         def _build_channel_array(ch):
             """Build a (Trench, T, Y, X) dask array for one channel."""
@@ -450,7 +651,7 @@ class Extractor:
                 result_da,
                 dims=["Trench", "T", "C", "Y", "X"],
                 coords={
-                    "Trench": np.arange(len(table)),
+                    "Trench": table["trench_id"].to_numpy(dtype=np.int32),
                     "C": channel_names,
                     "Y": np.arange(trench_h),
                     "X": np.arange(trench_w),
@@ -462,7 +663,7 @@ class Extractor:
                 result_da,
                 dims=["Trench", "T", "Y", "X"],
                 coords={
-                    "Trench": np.arange(len(table)),
+                    "Trench": table["trench_id"].to_numpy(dtype=np.int32),
                     "Y": np.arange(trench_h),
                     "X": np.arange(trench_w),
                 },
@@ -516,26 +717,17 @@ class Extractor:
         trench_w = int(first["x_right"] - first["x_left"])
         n_trenches = len(table)
         n_times = self.experiment.n_timepoints
-        has_channels = self.experiment.has_channels
         channel_names = self.experiment.channel_names
-        n_channels = len(channel_names) if has_channels else 1
+        n_channels = len(channel_names)
         dtype = self.experiment.data.dtype
         pixel_um = self.experiment.pixel_size_um
 
-        if n_channels > 1:
-            shape = (n_trenches, n_times, n_channels, trench_h, trench_w)
-            chunks = (1, n_times, 1, trench_h, trench_w)
-            dim_str = (
-                f"Trench={n_trenches} × T={n_times} × C={n_channels} "
-                f"× Y={trench_h} × X={trench_w}"
-            )
-        else:
-            shape = (n_trenches, n_times, trench_h, trench_w)
-            chunks = (1, n_times, trench_h, trench_w)
-            dim_str = (
-                f"Trench={n_trenches} × T={n_times} "
-                f"× Y={trench_h} × X={trench_w}"
-            )
+        shape = (n_trenches, n_times, n_channels, trench_h, trench_w)
+        chunks = (1, n_times, 1, trench_h, trench_w)
+        dim_str = (
+            f"Trench={n_trenches} × T={n_times} × C={n_channels} "
+            f"× Y={trench_h} × X={trench_w}"
+        )
 
         size_bytes = float(np.prod(shape) * np.dtype(dtype).itemsize)
         for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -558,7 +750,6 @@ class Extractor:
             f"  Trench size: {trench_h} × {trench_w} px"
             f" ({trench_h * pixel_um:.1f} × {trench_w * pixel_um:.1f} µm)",
         ]
-        if n_channels > 1:
-            lines.append(f"  Channels: {', '.join(channel_names)}")
+        lines.append(f"  Channels: {', '.join(channel_names)}")
         lines.append(f"  Timepoints: {n_times}")
         return "\n".join(lines)
