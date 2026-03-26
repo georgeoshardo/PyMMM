@@ -246,6 +246,7 @@ class Registrator:
     mean_from : str
         ``"end"`` or ``"start"`` — which end of the timeseries to average.
     """
+    
 
     def __init__(
         self,
