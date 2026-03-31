@@ -113,13 +113,12 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# PyCharm bs
+# Editor settings
 .idea/
+.vscode/
 # pixi environments
 .pixi/*
 !.pixi/config.toml
 
 # git worktrees
 .worktrees/
-/.vscode
-/.vscode
