@@ -1,0 +1,93 @@
+{
+  "channels": [
+    {
+      "emission_lambda_nm": 705.0,
+      "excitation_lambda_nm": 640.0,
+      "index": 0,
+      "modality_flags": [
+        "brightfield",
+        "camera"
+      ],
+      "name": "PC",
+      "objective_magnification": 40.0,
+      "objective_na": 0.95,
+      "objective_name": "Plan Apo \u03bb 40x Ph2 DM",
+      "zoom_magnification": 1.5
+    },
+    {
+      "emission_lambda_nm": 475.0,
+      "excitation_lambda_nm": null,
+      "index": 1,
+      "modality_flags": [
+        "fluorescence",
+        "camera"
+      ],
+      "name": "CFP",
+      "objective_magnification": 40.0,
+      "objective_na": 0.95,
+      "objective_name": "Plan Apo \u03bb 40x Ph2 DM",
+      "zoom_magnification": 1.5
+    },
+    {
+      "emission_lambda_nm": 530.0,
+      "excitation_lambda_nm": null,
+      "index": 2,
+      "modality_flags": [
+        "fluorescence",
+        "camera"
+      ],
+      "name": "mVenus",
+      "objective_magnification": 40.0,
+      "objective_na": 0.95,
+      "objective_name": "Plan Apo \u03bb 40x Ph2 DM",
+      "zoom_magnification": 1.5
+    },
+    {
+      "emission_lambda_nm": 475.0,
+      "excitation_lambda_nm": null,
+      "index": 3,
+      "modality_flags": [
+        "fluorescence",
+        "camera"
+      ],
+      "name": "mCherry",
+      "objective_magnification": 40.0,
+      "objective_na": 0.95,
+      "objective_name": "Plan Apo \u03bb 40x Ph2 DM",
+      "zoom_magnification": 1.5
+    }
+  ],
+  "dtype": "uint16",
+  "event_count": 408,
+  "field_of_view_um": {
+    "height": 248.5320680921426,
+    "width": 248.5320680921426
+  },
+  "file_size_gb": 7.9114990234375,
+  "indexed_frame_event_count": 200,
+  "path": "/data/20260331_SB5_6_7_8_16/20260331.nd2",
+  "pixel_size_um": 0.107869821220548,
+  "position_count": 25,
+  "shape": [
+    8,
+    25,
+    4,
+    2304,
+    2304
+  ],
+  "sizes": {
+    "C": 4,
+    "P": 25,
+    "T": 8,
+    "X": 2304,
+    "Y": 2304
+  },
+  "time": {
+    "count": 8,
+    "duration_ms": 28800000.0,
+    "nominal_period_ms": 300000.0,
+    "period_avg_ms": 299992.7422921317,
+    "period_max_ms": 300061.10498046875,
+    "period_min_ms": 299883.4169921875
+  }
+}

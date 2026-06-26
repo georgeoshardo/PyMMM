@@ -1,0 +1,1 @@
+bash -lc cd\ /home/georgeos/GitHub/PyMMM\ \&\&\ export\ PYMMM_ITKWIDGETS_VIEWER_URL=\"\$\(grep\ -o\ \"http://127.0.0.1:37480/itkwidgets/index.html\?workspace=.\*\"\ logs/PyMMM_pymmm-itkwidgets_20260626_012121.log\ \|\ tail\ -n\ 1\)\"\ \&\&\ pixi\ run\ marimo\ edit\ notebooks/pymmm_itkwidgets_browser.py\ --port\ 2720\ --no-token 

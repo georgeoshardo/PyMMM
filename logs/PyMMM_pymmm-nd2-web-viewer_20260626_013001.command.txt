@@ -1,0 +1,1 @@
+pixi run python scripts/pymmm_nd2_web_viewer.py --nd2 /data/20260331_SB5_6_7_8_16/20260331.nd2 --port 2730 

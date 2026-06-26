@@ -1,0 +1,284 @@
+{
+  "attributes": {
+    "bits_per_component_in_memory": 16,
+    "bits_per_component_significant": 16,
+    "channel_count": 4,
+    "component_count": 4,
+    "compression_level": null,
+    "compression_type": null,
+    "height_px": 2304,
+    "sequence_count": 200,
+    "width_px": 2304
+  },
+  "channels": [
+    {
+      "axes_calibration_um": [
+        0.107869821220548,
+        0.107869821220548,
+        1.0
+      ],
+      "camera_transformation_matrix": [
+        -0.9999228391960905,
+        0.012422385198883152,
+        -0.012422385198883152,
+        -0.9999228391960905
+      ],
+      "emission_lambda_nm": 705.0,
+      "excitation_lambda_nm": 640.0,
+      "index": 0,
+      "modality_flags": [
+        "brightfield",
+        "camera"
+      ],
+      "name": "PC",
+      "objective_magnification": 40.0,
+      "objective_na": 0.95,
+      "objective_name": "Plan Apo \u03bb 40x Ph2 DM",
+      "zoom_magnification": 1.5
+    },
+    {
+      "axes_calibration_um": [
+        0.107869821220548,
+        0.107869821220548,
+        1.0
+      ],
+      "camera_transformation_matrix": [
+        -0.9999228391960905,
+        0.012422385198883152,
+        -0.012422385198883152,
+        -0.9999228391960905
+      ],
+      "emission_lambda_nm": 475.0,
+      "excitation_lambda_nm": null,
+      "index": 1,
+      "modality_flags": [
+        "fluorescence",
+        "camera"
+      ],
+      "name": "CFP",
+      "objective_magnification": 40.0,
+      "objective_na": 0.95,
+      "objective_name": "Plan Apo \u03bb 40x Ph2 DM",
+      "zoom_magnification": 1.5
+    },
+    {
+      "axes_calibration_um": [
+        0.107869821220548,
+        0.107869821220548,
+        1.0
+      ],
+      "camera_transformation_matrix": [
+        -0.9999228391960905,
+        0.012422385198883152,
+        -0.012422385198883152,
+        -0.9999228391960905
+      ],
+      "emission_lambda_nm": 530.0,
+      "excitation_lambda_nm": null,
+      "index": 2,
+      "modality_flags": [
+        "fluorescence",
+        "camera"
+      ],
+      "name": "mVenus",
+      "objective_magnification": 40.0,
+      "objective_na": 0.95,
+      "objective_name": "Plan Apo \u03bb 40x Ph2 DM",
+      "zoom_magnification": 1.5
+    },
+    {
+      "axes_calibration_um": [
+        0.107869821220548,
+        0.107869821220548,
+        1.0
+      ],
+      "camera_transformation_matrix": [
+        -0.9999228391960905,
+        0.012422385198883152,
+        -0.012422385198883152,
+        -0.9999228391960905
+      ],
+      "emission_lambda_nm": 475.0,
+      "excitation_lambda_nm": null,
+      "index": 3,
+      "modality_flags": [
+        "fluorescence",
+        "camera"
+      ],
+      "name": "mCherry",
+      "objective_magnification": 40.0,
+      "objective_na": 0.95,
+      "objective_name": "Plan Apo \u03bb 40x Ph2 DM",
+      "zoom_magnification": 1.5
+    }
+  ],
+  "dtype": "uint16",
+  "events": {
+    "count": 408,
+    "first_5": [
+      {
+        "Events": "Command Executed",
+        "Time [s]": 0.00042679989337921143
+      },
+      {
+        "Events": "Command Executed",
+        "Time [s]": 1.6679740998744965
+      },
+      {
+        "Exposure Time [ms]": 50.0,
+        "Index": 0,
+        "P Index": 0,
+        "PFS Offset": 17254,
+        "PFS Status": 1,
+        "Position Name": "",
+        "T Index": 0,
+        "Ti2 ZDrive [\u00b5m]": 5571.4400000000005,
+        "Time [s]": 1.8093475015163423,
+        "X Coord [\u00b5m]": 4555.6,
+        "Y Coord [\u00b5m]": -1019.2,
+        "Z Coord [\u00b5m]": 5571.4400000000005
+      },
+      {
+        "Events": "Command Executed",
+        "Time [s]": 3.4158259999752043
+      },
+      {
+        "Exposure Time [ms]": 50.0,
+        "Index": 1,
+        "P Index": 1,
+        "PFS Offset": 17254,
+        "PFS Status": 1,
+        "Position Name": "",
+        "T Index": 0,
+        "Ti2 ZDrive [\u00b5m]": 5571.06,
+        "Time [s]": 3.591838468313217,
+        "X Coord [\u00b5m]": 4298.900000000001,
+        "Y Coord [\u00b5m]": -1020.0,
+        "Z Coord [\u00b5m]": 5571.06
+      }
+    ],
+    "indexed_frame_event_count": 200
+  },
+  "field_of_view_um": {
+    "height_um": 248.5320680921426,
+    "width_um": 248.5320680921426
+  },
+  "file_size_gb": 7.9114990234375,
+  "is_rgb": false,
+  "path": "/data/20260331_SB5_6_7_8_16/20260331.nd2",
+  "positions": {
+    "count": 25,
+    "first_5": [
+      {
+        "index": 0,
+        "name": null,
+        "pfs_offset": 17254.0,
+        "x_um": 4555.5,
+        "y_um": -1019.2,
+        "z_um": 0.0
+      },
+      {
+        "index": 1,
+        "name": null,
+        "pfs_offset": 17254.0,
+        "x_um": 4298.8,
+        "y_um": -1020.0,
+        "z_um": 0.0
+      },
+      {
+        "index": 2,
+        "name": null,
+        "pfs_offset": 17254.0,
+        "x_um": 4045.5,
+        "y_um": -1017.7,
+        "z_um": 0.0
+      },
+      {
+        "index": 3,
+        "name": null,
+        "pfs_offset": 17254.0,
+        "x_um": 3793.5,
+        "y_um": -1014.8000000000001,
+        "z_um": 0.0
+      },
+      {
+        "index": 4,
+        "name": null,
+        "pfs_offset": 17254.0,
+        "x_um": 3541.9,
+        "y_um": -1010.1,
+        "z_um": 0.0
+      }
+    ],
+    "last_5": [
+      {
+        "index": 20,
+        "name": null,
+        "pfs_offset": 17254.0,
+        "x_um": -1302.5,
+        "y_um": -934.5,
+        "z_um": 0.0
+      },
+      {
+        "index": 21,
+        "name": null,
+        "pfs_offset": 17254.0,
+        "x_um": -1558.1000000000001,
+        "y_um": -929.5,
+        "z_um": 0.0
+      },
+      {
+        "index": 22,
+        "name": null,
+        "pfs_offset": 17254.0,
+        "x_um": -1811.0,
+        "y_um": -927.8000000000001,
+        "z_um": 0.0
+      },
+      {
+        "index": 23,
+        "name": null,
+        "pfs_offset": 17254.0,
+        "x_um": -2072.0,
+        "y_um": -923.5,
+        "z_um": 0.0
+      },
+      {
+        "index": 24,
+        "name": null,
+        "pfs_offset": 17254.0,
+        "x_um": -2325.7000000000003,
+        "y_um": -920.2,
+        "z_um": 0.0
+      }
+    ]
+  },
+  "shape": [
+    8,
+    25,
+    4,
+    2304,
+    2304
+  ],
+  "sizes": {
+    "C": 4,
+    "P": 25,
+    "T": 8,
+    "X": 2304,
+    "Y": 2304
+  },
+  "text_info_keys": [
+    "capturing",
+    "date",
+    "description",
+    "optics"
+  ],
+  "time": {
+    "count": 8,
+    "duration_ms": 28800000.0,
+    "nominal_period_ms": 300000.0,
+    "period_avg_ms": 299992.7422921317,
+    "period_max_ms": 300061.10498046875,
+    "period_min_ms": 299883.4169921875
+  }
+}

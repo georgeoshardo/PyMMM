@@ -1,0 +1,1 @@
+bash -lc cd\ /tmp/pymmm-itkwidgets-spike\ \&\&\ export\ BROWSER=echo\ COLUMNS=300\ \&\&\ pixi\ run\ python\ -m\ itkwidgets.standalone_server\ /tmp/pymmm-itkwidgets-preview/20260331_fov0_PC_tstack_256.ngff.zarr\ --reader\ ngff_zarr\ --view-mode\ z\ --browser\ --verbose 

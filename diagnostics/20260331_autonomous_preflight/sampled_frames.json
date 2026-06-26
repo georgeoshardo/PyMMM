@@ -1,0 +1,159 @@
+{
+  "mixed": [
+    {
+      "C": 2,
+      "P": 24,
+      "T": 3,
+      "channel_name": "mVenus"
+    },
+    {
+      "C": 3,
+      "P": 11,
+      "T": 2,
+      "channel_name": "mCherry"
+    },
+    {
+      "C": 2,
+      "P": 0,
+      "T": 6,
+      "channel_name": "mVenus"
+    },
+    {
+      "C": 3,
+      "P": 21,
+      "T": 7,
+      "channel_name": "mCherry"
+    },
+    {
+      "C": 0,
+      "P": 4,
+      "T": 1,
+      "channel_name": "PC"
+    },
+    {
+      "C": 3,
+      "P": 23,
+      "T": 3,
+      "channel_name": "mCherry"
+    },
+    {
+      "C": 2,
+      "P": 21,
+      "T": 2,
+      "channel_name": "mVenus"
+    },
+    {
+      "C": 2,
+      "P": 16,
+      "T": 7,
+      "channel_name": "mVenus"
+    },
+    {
+      "C": 0,
+      "P": 16,
+      "T": 6,
+      "channel_name": "PC"
+    },
+    {
+      "C": 3,
+      "P": 7,
+      "T": 0,
+      "channel_name": "mCherry"
+    },
+    {
+      "C": 1,
+      "P": 1,
+      "T": 2,
+      "channel_name": "CFP"
+    },
+    {
+      "C": 0,
+      "P": 8,
+      "T": 0,
+      "channel_name": "PC"
+    }
+  ],
+  "pc_only": [
+    {
+      "C": 0,
+      "P": 23,
+      "T": 1,
+      "channel_name": "PC"
+    },
+    {
+      "C": 0,
+      "P": 8,
+      "T": 0,
+      "channel_name": "PC"
+    },
+    {
+      "C": 0,
+      "P": 24,
+      "T": 6,
+      "channel_name": "PC"
+    },
+    {
+      "C": 0,
+      "P": 1,
+      "T": 7,
+      "channel_name": "PC"
+    },
+    {
+      "C": 0,
+      "P": 12,
+      "T": 5,
+      "channel_name": "PC"
+    },
+    {
+      "C": 0,
+      "P": 15,
+      "T": 2,
+      "channel_name": "PC"
+    },
+    {
+      "C": 0,
+      "P": 14,
+      "T": 6,
+      "channel_name": "PC"
+    },
+    {
+      "C": 0,
+      "P": 6,
+      "T": 2,
+      "channel_name": "PC"
+    },
+    {
+      "C": 0,
+      "P": 20,
+      "T": 2,
+      "channel_name": "PC"
+    }
+  ],
+  "same_position_all_channels": [
+    {
+      "C": 0,
+      "P": 0,
+      "T": 7,
+      "channel_name": "PC"
+    },
+    {
+      "C": 1,
+      "P": 0,
+      "T": 7,
+      "channel_name": "CFP"
+    },
+    {
+      "C": 2,
+      "P": 0,
+      "T": 7,
+      "channel_name": "mVenus"
+    },
+    {
+      "C": 3,
+      "P": 0,
+      "T": 7,
+      "channel_name": "mCherry"
+    }
+  ],
+  "seed": 20260331
+}

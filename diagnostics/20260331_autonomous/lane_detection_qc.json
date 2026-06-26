@@ -1,0 +1,43 @@
+{
+  "detection": {
+    "lane_distance": 300.0,
+    "lane_height": 5000.0,
+    "lane_orientation_window_um": 20.0,
+    "lane_sigma": 40.0,
+    "max_lanes_per_fov": 2,
+    "min_lanes_per_fov": 2
+  },
+  "qc": {
+    "counts_by_fov": {
+      "XYPos:0": 2,
+      "XYPos:1": 2,
+      "XYPos:10": 2,
+      "XYPos:11": 2,
+      "XYPos:12": 2,
+      "XYPos:13": 2,
+      "XYPos:14": 2,
+      "XYPos:15": 2,
+      "XYPos:16": 2,
+      "XYPos:17": 2,
+      "XYPos:18": 2,
+      "XYPos:19": 2,
+      "XYPos:2": 2,
+      "XYPos:20": 2,
+      "XYPos:21": 2,
+      "XYPos:22": 2,
+      "XYPos:23": 2,
+      "XYPos:24": 2,
+      "XYPos:3": 2,
+      "XYPos:4": 2,
+      "XYPos:5": 2,
+      "XYPos:6": 2,
+      "XYPos:7": 2,
+      "XYPos:8": 2,
+      "XYPos:9": 2
+    },
+    "failed_fovs": [],
+    "max_lanes_per_fov": 2,
+    "min_lanes_per_fov": 2,
+    "passed": true
+  }
+}

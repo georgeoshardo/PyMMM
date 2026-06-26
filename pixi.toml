@@ -38,3 +38,4 @@ notebook = "jupyter lab"
 
 [pypi-dependencies]
 omnipose = ">=1.1.4, <2"
+vizarr = { git = "https://github.com/hms-dbmi/vizarr.git", subdirectory = "python" }
