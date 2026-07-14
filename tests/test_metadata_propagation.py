@@ -258,9 +258,12 @@ def test_companion_store_persists_source_metadata(tmp_path):
         source_subset_metadata={"active_fov_names": ["XYPos:0"]},
     )
 
-    store = CompanionStore.for_experiment(experiment)
+    with zarr.config.set({"default_zarr_format": 2}):
+        store = CompanionStore.for_experiment(experiment)
     attrs = dict(zarr.open_group(str(store.path), mode="r").attrs)
 
+    assert (store.path / "zarr.json").exists()
+    assert not (store.path / ".zgroup").exists()
     assert attrs["source_metadata_version"] == SOURCE_METADATA_VERSION
     assert attrs["source_acquisition_metadata"]["structured"]["text_info"]["date"] == "today"
     assert attrs["source_subset_metadata"]["active_fov_names"] == ["XYPos:0"]
