@@ -30,6 +30,7 @@ datashader = "*"
 jupyter_bokeh = "*"
 cmake = "*"
 pytest = "*"
+napari = ">=0.7.1,<0.8"
 
 [tasks]
 test = "python -m pytest tests/ -v"
