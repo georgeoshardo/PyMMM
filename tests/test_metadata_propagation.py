@@ -385,10 +385,31 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
 
     extractor.extract(compressor="zstd", clevel=1, show_progress=False)
 
-    assert (output_path / ".zmetadata").exists()
+    assert (output_path / "zarr.json").exists()
+    assert not (output_path / ".zgroup").exists()
+    assert not (output_path / ".zmetadata").exists()
+    assert "consolidated_metadata" not in json.loads(
+        (output_path / "zarr.json").read_text()
+    )
 
-    root = xr.open_zarr(output_path, consolidated=True)
-    tree = xr.open_datatree(output_path, engine="zarr", consolidated=True)
+    zarr_root = zarr.open_group(output_path, mode="r", zarr_format=3)
+    assert zarr_root.metadata.zarr_format == 3
+    assert (
+        type(zarr_root["fov_name"].metadata.data_type).__name__
+        == "VariableLengthUTF8"
+    )
+    assert (
+        type(zarr_root["acquisition"]["raw_json"].metadata.data_type).__name__
+        == "VariableLengthUTF8"
+    )
+    data_codec = zarr_root["data"].metadata.codecs[-1]
+    assert isinstance(data_codec, zarr.codecs.BloscCodec)
+    assert data_codec.cname.value == "zstd"
+    assert data_codec.clevel == 1
+    assert data_codec.shuffle.value == "shuffle"
+
+    root = xr.open_zarr(output_path, consolidated=False)
+    tree = xr.open_datatree(output_path, engine="zarr", consolidated=False)
 
     assert root["data"].dims == ("Trench", "T", "C", "Y", "X")
     assert root["data"].shape == (2, 1, 2, 2, 2)
@@ -405,6 +426,7 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
     ]
     assert "trench_mapping" not in root.attrs
     assert "source_acquisition_metadata" not in root.attrs
+    assert root.attrs["extractor_store_version"] == 2
     assert root.attrs["source_subset_metadata"]["active_timepoint_count"] == 1
 
     np.testing.assert_array_equal(
