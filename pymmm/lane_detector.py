@@ -56,6 +56,7 @@ class LaneDetector:
             detection_channel, experiment.channel_names
         )
         self._lanes: Optional[Dict[str, List[LaneInfo]]] = None
+        self._detection_params: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Properties
@@ -174,6 +175,12 @@ class LaneDetector:
             lanes[fov] = fov_lanes
 
         self._lanes = lanes
+        self._detection_params = {
+            "sigma": sigma,
+            "distance": distance,
+            "height": height,
+            "orientation_window_um": orientation_window_um,
+        }
 
         print(
             f"Detected lanes: "
@@ -229,15 +236,16 @@ class LaneDetector:
     def interactive_detect_lanes(self) -> None:
         """Display an interactive widget for lane detection tuning.
 
-        Uses ipywidgets for controls and matplotlib for plots, which
-        work reliably in VSCode notebooks (Panel/Bokeh widgets suffer
-        from UnknownReferenceError in VSCode's jupyter_bokeh bridge).
+        Uses ipywidgets for controls, ndv for the registered image and
+        candidate-lane masks, and matplotlib for the intensity profile.
         """
         import ipywidgets as widgets
         import matplotlib.pyplot as plt
+        import ndv
         from IPython.display import display
 
         mean_images: Dict[str, np.ndarray] = {}
+        params = self._detection_params
 
         def _mean_image(fov: str) -> np.ndarray:
             if fov not in mean_images:
@@ -253,26 +261,54 @@ class LaneDetector:
             description="FOV",
         )
         sigma_slider = widgets.FloatSlider(
-            value=40, min=0, max=200, step=1, description="sigma",
+            value=params.get("sigma", 40), min=0, max=200, step=1,
+            description="sigma",
             continuous_update=False, style={"description_width": "initial"},
         )
         distance_slider = widgets.FloatSlider(
-            value=300, min=10, max=1000, step=10, description="distance",
+            value=params.get("distance", 300), min=10, max=1000, step=10,
+            description="distance",
             continuous_update=False, style={"description_width": "initial"},
         )
         height_slider = widgets.FloatSlider(
-            value=5000, min=0, max=50000, step=100, description="height",
+            value=params.get("height", 5000), min=0, max=50000, step=100,
+            description="height",
             continuous_update=False, style={"description_width": "initial"},
         )
         orientation_slider = widgets.FloatSlider(
-            value=20, min=1, max=100, step=1, description="orient. window (µm)",
+            value=params.get("orientation_window_um", 20),
+            min=1, max=100, step=1, description="orient. window (µm)",
             continuous_update=False, style={"description_width": "initial"},
         )
         apply_btn = widgets.Button(
             description="Apply to all FOVs", button_style="primary",
         )
+        preview_label = widgets.HTML(value="")
         status_label = widgets.HTML(value="")
         output = widgets.Output()
+
+        viewer_data = np.zeros(
+            (
+                3,
+                self.experiment.data.sizes["Y"],
+                self.experiment.data.sizes["X"],
+            ),
+            dtype=np.float32,
+        )
+        image_viewer = ndv.ArrayViewer(
+            viewer_data,
+            channel_axis=0,
+            channel_mode="composite",
+            luts={
+                0: {"name": self.channel, "cmap": "gray"},
+                1: {
+                    "name": "open down", "cmap": "red", "clims": (0, 1),
+                },
+                2: {
+                    "name": "open up", "cmap": "cyan", "clims": (0, 1),
+                },
+            },
+        )
 
         def _update(_change: Any = None) -> None:
             fov = fov_select.value
@@ -287,22 +323,22 @@ class LaneDetector:
             )
             n_lanes = len(fov_lanes)
 
+            viewer_data[0] = mean_img
+            viewer_data[1:].fill(0)
+            for lane in fov_lanes:
+                channel_idx = 1 if lane.orientation == 1 else 2
+                y_start = max(0, lane.y_center - 1)
+                y_stop = min(viewer_data.shape[1], lane.y_center + 2)
+                viewer_data[channel_idx, y_start:y_stop, :] = 1
+            image_viewer.data_wrapper.data_changed.emit()
+            preview_label.value = (
+                f"<b>{fov}</b> — {n_lanes} candidate "
+                f"lane{'s' if n_lanes != 1 else ''}"
+            )
+
             with output:
                 output.clear_output(wait=True)
-                fig, (ax_img, ax_prof) = plt.subplots(1, 2, figsize=(14, 5))
-
-                # Image + lane overlays
-                ax_img.imshow(mean_img, cmap="gray", aspect="auto")
-                for lane in fov_lanes:
-                    ori_label = "down" if lane.orientation == 1 else "up"
-                    ax_img.axhline(lane.y_center, color="red", lw=1.5)
-                    ax_img.text(
-                        5, lane.y_center - 5, ori_label,
-                        color="red", fontsize=9, va="bottom",
-                    )
-                ax_img.set_title(
-                    f"{n_lanes} lane{'s' if n_lanes != 1 else ''} in {fov}"
-                )
+                fig, ax_prof = plt.subplots(1, 1, figsize=(7, 4))
 
                 # Y-profile
                 xs = np.arange(len(y_profile))
@@ -345,7 +381,10 @@ class LaneDetector:
             height_slider, orientation_slider,
             apply_btn, status_label,
         ])
-        display(widgets.HBox([controls, output]))
+        image_and_profile = widgets.VBox([
+            preview_label, image_viewer.widget(), output,
+        ])
+        display(widgets.HBox([controls, image_and_profile]))
         _update()
 
     # ------------------------------------------------------------------
@@ -362,7 +401,7 @@ class LaneDetector:
         for fov, fov_lanes in self._lanes.items():
             lane_data[fov] = [asdict(li) for li in fov_lanes]
 
-        params = {"channel": self.channel}
+        params = {"channel": self.channel, **self._detection_params}
         self.store.save_lane_detection(lane_data, params)
         print(f"Lane detection saved to {self.store.path}")
 
@@ -386,6 +425,9 @@ class LaneDetector:
             store=store,
             detection_channel=params["channel"],
         )
+        det._detection_params = {
+            key: value for key, value in params.items() if key != "channel"
+        }
 
         # Reconstruct LaneInfo objects
         lanes: Dict[str, List[LaneInfo]] = {}

@@ -65,6 +65,7 @@ class TrenchDetector:
             detection_channel, experiment.channel_names
         )
         self._trenches: Optional[Dict[str, List[TrenchDefinition]]] = None
+        self._detection_params: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Properties
@@ -280,6 +281,20 @@ class TrenchDetector:
             trenches[fov] = fov_trenches
 
         self._trenches = trenches
+        self._detection_params = {
+            "sigma": sigma,
+            "distance": distance,
+            "prominence": prominence,
+            "height": height,
+            "trench_width": trench_width,
+            "shrink_scale": shrink_scale,
+            "trench_length": trench_length,
+            "trench_bottom_offset": trench_bottom_offset,
+            "lane_params": {
+                int(lane_idx): values.copy()
+                for lane_idx, values in (lane_params or {}).items()
+            },
+        }
         print(f"Detected {self.n_trenches} trenches across {len(trenches)} FOVs")
 
         if plot:
@@ -348,16 +363,16 @@ class TrenchDetector:
     def interactive_detect_trenches(self) -> None:
         """Display an interactive widget for trench detection tuning.
 
-        Uses ipywidgets for controls and matplotlib for plots, which
-        work reliably in VSCode notebooks.
+        Uses ipywidgets for controls, ndv for the registered image and
+        candidate-trench mask, and matplotlib for the intensity profiles.
         """
         import ipywidgets as widgets
         import matplotlib.pyplot as plt
-        from itertools import cycle
-        from matplotlib.patches import Rectangle
+        import ndv
         from IPython.display import display
 
         mean_images: Dict[str, np.ndarray] = {}
+        params = self._detection_params
 
         def _mean_image(fov: str) -> np.ndarray:
             if fov not in mean_images:
@@ -374,40 +389,72 @@ class TrenchDetector:
         )
         lane_controls = widgets.VBox()
         sigma_slider = widgets.FloatSlider(
-            value=4, min=0, max=50, step=0.5, description="sigma",
+            value=params.get("sigma", 4), min=0, max=50, step=0.5,
+            description="sigma",
             continuous_update=False, style={"description_width": "initial"},
         )
         distance_slider = widgets.FloatSlider(
-            value=100, min=1, max=500, step=1, description="distance",
+            value=params.get("distance", 100), min=1, max=500, step=1,
+            description="distance",
             continuous_update=False, style={"description_width": "initial"},
         )
         prominence_slider = widgets.FloatSlider(
-            value=10, min=0, max=500, step=1, description="prominence",
+            value=params.get("prominence", 10), min=0, max=500, step=1,
+            description="prominence",
             continuous_update=False, style={"description_width": "initial"},
         )
         trench_width_slider = widgets.IntSlider(
-            value=0, min=0, max=200, step=1, description="trench width (0=auto)",
+            value=params.get("trench_width") or 0,
+            min=0, max=200, step=1, description="trench width (0=auto)",
             continuous_update=False, style={"description_width": "initial"},
         )
         shrink_scale_slider = widgets.FloatSlider(
-            value=2.2, min=1.0, max=5.0, step=0.1, description="shrink scale",
+            value=params.get("shrink_scale", 2.2), min=1.0, max=5.0, step=0.1,
+            description="shrink scale",
             continuous_update=False, style={"description_width": "initial"},
         )
         trench_length_slider = widgets.IntSlider(
-            value=160, min=10, max=500, step=5, description="trench length",
+            value=params.get("trench_length", 160), min=10, max=500, step=5,
+            description="trench length",
             continuous_update=False, style={"description_width": "initial"},
         )
         trench_bottom_offset_slider = widgets.IntSlider(
-            value=50, min=-200, max=200, step=5, description="bottom offset",
+            value=params.get("trench_bottom_offset", 50),
+            min=-200, max=200, step=5, description="bottom offset",
             continuous_update=False, style={"description_width": "initial"},
         )
         apply_btn = widgets.Button(
             description="Apply to all FOVs", button_style="primary",
         )
+        preview_label = widgets.HTML(value="")
         status_label = widgets.HTML(value="")
         output = widgets.Output()
+        viewer_data = np.zeros(
+            (
+                2,
+                self.experiment.data.sizes["Y"],
+                self.experiment.data.sizes["X"],
+            ),
+            dtype=np.float32,
+        )
+        image_viewer = ndv.ArrayViewer(
+            viewer_data,
+            channel_axis=0,
+            channel_mode="composite",
+            luts={
+                0: {"name": self.channel, "cmap": "gray"},
+                1: {
+                    "name": "candidate trenches",
+                    "cmap": "red",
+                    "clims": (0, 1),
+                },
+            },
+        )
         lane_widget_state: Dict[int, Dict[str, widgets.Widget]] = {}
-        lane_override_values: Dict[int, Dict[str, Any]] = {}
+        lane_override_values: Dict[int, Dict[str, Any]] = {
+            int(lane_idx): values.copy()
+            for lane_idx, values in params.get("lane_params", {}).items()
+        }
         syncing_lane_widgets = False
         global_widget_names = {
             "sigma": sigma_slider,
@@ -445,7 +492,7 @@ class TrenchDetector:
                 "sigma": sigma_slider.value,
                 "distance": distance_slider.value,
                 "prominence": prominence_slider.value,
-                "height": 0,
+                "height": params.get("height", 0),
                 "trench_width": tw if tw > 0 else None,
                 "shrink_scale": shrink_scale_slider.value,
                 "trench_length": trench_length_slider.value,
@@ -634,7 +681,7 @@ class TrenchDetector:
                 sigma=sigma_slider.value,
                 distance=distance_slider.value,
                 prominence=prominence_slider.value,
-                height=0,
+                height=params.get("height", 0),
                 trench_width=trench_width,
                 shrink_scale=shrink_scale_slider.value,
                 trench_length=trench_length_slider.value,
@@ -644,48 +691,45 @@ class TrenchDetector:
             n_trenches = len(fov_trenches)
             n_lanes = len(lane_profiles)
 
+            viewer_data[0] = mean_img
+            trench_mask = viewer_data[1]
+            trench_mask.fill(0)
+            image_height, image_width = trench_mask.shape
+            for trench in fov_trenches:
+                y_start = max(0, trench.y_top)
+                y_stop = min(image_height, trench.y_bottom)
+                x_start = max(0, trench.x_left)
+                x_stop = min(image_width, trench.x_right)
+                if y_start >= y_stop or x_start >= x_stop:
+                    continue
+                trench_mask[y_start:min(y_start + 2, y_stop), x_start:x_stop] = 1
+                trench_mask[max(y_stop - 2, y_start):y_stop, x_start:x_stop] = 1
+                trench_mask[y_start:y_stop, x_start:min(x_start + 2, x_stop)] = 1
+                trench_mask[y_start:y_stop, max(x_stop - 2, x_start):x_stop] = 1
+            image_viewer.data_wrapper.data_changed.emit()
+            preview_label.value = (
+                f"<b>{fov}</b> — {n_trenches} candidate "
+                f"trench{'es' if n_trenches != 1 else ''}"
+            )
+
             with output:
                 output.clear_output(wait=True)
 
                 if n_lanes == 0:
-                    fig, ax_img = plt.subplots(1, 1, figsize=(14, 5))
-                    ax_img.imshow(mean_img, cmap="gray", aspect="auto")
-                    ax_img.set_title(f"0 trenches in {fov} (no lanes)")
+                    fig, ax = plt.subplots(1, 1, figsize=(7, 2))
+                    ax.text(0.5, 0.5, "No lane profiles", ha="center", va="center")
+                    ax.axis("off")
                 else:
-                    fig = plt.figure(figsize=(14, max(5, 3 * n_lanes)))
-                    gs = fig.add_gridspec(n_lanes, 2, width_ratios=[2, 1])
-
-                    # Image with trench rectangles (spans all rows on left)
-                    ax_img = fig.add_subplot(gs[:, 0])
-                    ax_img.imshow(mean_img, cmap="gray", aspect="auto")
-                    colors_list = [
-                        "red", "lime", "dodgerblue", "yellow",
-                        "orange", "purple", "cyan",
-                    ]
-                    for td, color in zip(fov_trenches, cycle(colors_list)):
-                        rect = Rectangle(
-                            (td.x_left, td.y_top),
-                            td.x_right - td.x_left,
-                            td.y_bottom - td.y_top,
-                            linewidth=1, edgecolor=color,
-                            facecolor=color, alpha=0.2,
-                        )
-                        ax_img.add_patch(rect)
-                        ax_img.text(
-                            (td.x_left + td.x_right) / 2, td.y_top - 3,
-                            str(td.trench_id), color=color, fontsize=7,
-                            ha="center", va="bottom",
-                        )
-                    ax_img.set_title(
-                        f"{n_trenches} trench{'es' if n_trenches != 1 else ''}"
-                        f" in {fov}"
+                    fig, axes = plt.subplots(
+                        n_lanes, 1,
+                        figsize=(7, max(3, 2.5 * n_lanes)),
+                        squeeze=False,
                     )
 
-                    # X-profiles per lane (stacked on right)
                     for i, (lane_idx, x_prof, x_smooth, peaks) in enumerate(
                         lane_profiles
                     ):
-                        ax = fig.add_subplot(gs[i, 1])
+                        ax = axes[i, 0]
                         xs = np.arange(len(x_prof))
                         ax.plot(xs, x_prof, color="grey", alpha=0.5, label="raw")
                         ax.plot(xs, x_smooth, color="blue", label="smoothed")
@@ -710,7 +754,7 @@ class TrenchDetector:
                 sigma=sigma_slider.value,
                 distance=distance_slider.value,
                 prominence=prominence_slider.value,
-                height=0,
+                height=params.get("height", 0),
                 trench_width=trench_width,
                 shrink_scale=shrink_scale_slider.value,
                 trench_length=trench_length_slider.value,
@@ -739,7 +783,10 @@ class TrenchDetector:
             lane_controls,
             apply_btn, status_label,
         ])
-        display(widgets.HBox([controls, output]))
+        image_and_profiles = widgets.VBox([
+            preview_label, image_viewer.widget(), output,
+        ])
+        display(widgets.HBox([controls, image_and_profiles]))
         _rebuild_lane_controls()
 
     # ------------------------------------------------------------------
@@ -755,7 +802,7 @@ class TrenchDetector:
         for fov, fov_trenches in self._trenches.items():
             trench_data[fov] = [asdict(td) for td in fov_trenches]
 
-        params = {"channel": self.channel}
+        params = {"channel": self.channel, **self._detection_params}
         self.store.save_trench_detection(trench_data, params)
         print(f"Trench detection saved to {self.store.path}")
 
@@ -781,6 +828,14 @@ class TrenchDetector:
             store=store,
             detection_channel=params["channel"],
         )
+        det._detection_params = {
+            key: value for key, value in params.items() if key != "channel"
+        }
+        if "lane_params" in det._detection_params:
+            det._detection_params["lane_params"] = {
+                int(lane_idx): values
+                for lane_idx, values in det._detection_params["lane_params"].items()
+            }
 
         # Reconstruct TrenchDefinition objects
         trenches: Dict[str, List[TrenchDefinition]] = {}
