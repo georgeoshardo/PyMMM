@@ -14,7 +14,7 @@ import numpy as np
 import xarray as xr
 
 SOURCE_METADATA_VERSION = 2
-EXTRACTOR_STORE_VERSION = 1
+EXTRACTOR_STORE_VERSION = 2
 
 _SELECTED_CUSTOM_DATA_KEYS = (
     "AcqTimeV1_0",
@@ -449,7 +449,9 @@ def build_acquisition_dataset(
             )
             dataset[var_name].attrs["source_key"] = str(key)
 
-    dataset["raw_json"] = xr.DataArray(_json_dumps(acquisition_metadata))
+    dataset["raw_json"] = xr.DataArray(
+        np.asarray(_json_dumps(acquisition_metadata), dtype=object)
+    )
     return dataset
 
 

@@ -23,20 +23,22 @@ class CompanionStore:
     Structure::
 
         experiment_name.pymmm.zarr/
-        ├── .zattrs               # source ND2 path, creation date, FOV/channel names
+        ├── zarr.json             # source ND2 path, creation date, FOV/channel names
         ├── registration/
         │   ├── tmats             # zarr array (n_FOVs, n_times, 3, 3) float64
         │   ├── mean_images       # zarr array (n_FOVs, Y, X) float64
-        │   └── .zattrs           # registration params
+        │   └── zarr.json         # registration params
         ├── lane_detection/
-        │   └── .zattrs           # params + per-FOV lane data as JSON
+        │   └── zarr.json         # params + per-FOV lane data as JSON
         └── trench_detection/
-            └── .zattrs           # params + trench table as JSON
+            └── zarr.json         # params + trench table as JSON
     """
 
     def __init__(self, path: str | Path, mode: str = "a") -> None:
         self.path = Path(path)
-        self._store = zarr.open_group(str(self.path), mode=mode)
+        self._store = zarr.open_group(
+            str(self.path), mode=mode, zarr_format=3,
+        )
 
     # ------------------------------------------------------------------
     # Factory
@@ -247,7 +249,9 @@ class CompanionStore:
                 print(f"No '{section}' section found — nothing to clear")
         else:
             shutil.rmtree(self.path)
-            self._store = zarr.open_group(str(self.path), mode="a")
+            self._store = zarr.open_group(
+                str(self.path), mode="a", zarr_format=3,
+            )
             print(f"Store reset: {self.path}")
 
     # ------------------------------------------------------------------

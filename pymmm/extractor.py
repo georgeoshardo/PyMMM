@@ -11,7 +11,6 @@ from typing import Any, Optional, Union
 
 import dask
 import dask.array as da
-import numcodecs
 import numpy as np
 import xarray as xr
 import zarr
@@ -193,6 +192,7 @@ class Extractor:
             "compressor": compressor,
             "clevel": clevel,
             "byte_shuffle": byte_shuffle,
+            "zarr_format": 3,
         }
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, default=str).encode()
@@ -203,7 +203,7 @@ class Extractor:
         dataset: xr.Dataset,
         *,
         chunk_overrides: dict[str, tuple[int, ...]] | None = None,
-        compressor: Any | None = None,
+        compressors: list[Any] | None = None,
     ) -> dict[str, dict[str, Any]]:
         """Return xarray ``to_zarr`` encodings for the dataset variables."""
         chunk_overrides = chunk_overrides or {}
@@ -212,8 +212,8 @@ class Extractor:
             spec: dict[str, Any] = {}
             if name in chunk_overrides:
                 spec["chunks"] = chunk_overrides[name]
-            if compressor is not None and dataset[name].dtype != object:
-                spec["compressor"] = compressor
+            if compressors is not None and dataset[name].dtype != object:
+                spec["compressors"] = compressors
             if spec:
                 encoding[name] = spec
         return encoding
@@ -310,7 +310,7 @@ class Extractor:
         self,
         *,
         source_metadata: dict[str, Any],
-        compressor: Any | None,
+        compressors: list[Any],
         n_times: int,
     ) -> None:
         """Write xarray-native subgroup datasets to the trench store."""
@@ -320,7 +320,7 @@ class Extractor:
             mode="a",
             group="source_frames",
             consolidated=False,
-            zarr_format=2,
+            zarr_format=3,
             encoding=self._metadata_encoding(
                 source_frames,
                 chunk_overrides={
@@ -335,7 +335,7 @@ class Extractor:
                     "position_name": (1, n_times),
                     "frame_metadata_json": (1, n_times),
                 },
-                compressor=compressor,
+                compressors=compressors,
             ),
         )
 
@@ -367,11 +367,11 @@ class Extractor:
             mode="a",
             group="events",
             consolidated=False,
-            zarr_format=2,
+            zarr_format=3,
             encoding=self._metadata_encoding(
                 events,
                 chunk_overrides=event_chunks,
-                compressor=compressor,
+                compressors=compressors,
             ),
         )
 
@@ -384,8 +384,10 @@ class Extractor:
             mode="a",
             group="acquisition",
             consolidated=False,
-            zarr_format=2,
-            encoding=self._metadata_encoding(acquisition, compressor=compressor),
+            zarr_format=3,
+            encoding=self._metadata_encoding(
+                acquisition, compressors=compressors,
+            ),
         )
 
     def extract(
@@ -461,9 +463,21 @@ class Extractor:
 
         # Create output zarr store
         if compressor == "zstd":
-            comp = numcodecs.Zstd(level=clevel)
+            metadata_compressors = [
+                zarr.codecs.BloscCodec(
+                    cname="zstd", clevel=clevel, shuffle="noshuffle",
+                )
+            ]
+            data_compressors = [
+                zarr.codecs.BloscCodec(
+                    cname="zstd",
+                    clevel=clevel,
+                    shuffle="shuffle" if byte_shuffle else "noshuffle",
+                )
+            ]
         else:
-            comp = None
+            metadata_compressors = []
+            data_compressors = []
 
         shape = (n_trenches, n_times, n_channels, trench_h, trench_w)
         chunks = (1, output_time_chunk, 1, trench_h, trench_w)
@@ -474,7 +488,9 @@ class Extractor:
         )
 
         if resume and self.output_path.exists():
-            store = zarr.open_group(str(self.output_path), mode="r+")
+            store = zarr.open_group(
+                str(self.output_path), mode="r+", zarr_format=3,
+            )
             if store.attrs.get("extraction_fingerprint") != fingerprint:
                 raise RuntimeError(
                     "Existing output is not compatible with this extraction. "
@@ -514,26 +530,25 @@ class Extractor:
                     "pfs_offset": (metadata_chunk, n_times),
                     "stage_position_um": (metadata_chunk, n_times, 3),
                 },
-                compressor=comp,
+                compressors=metadata_compressors,
             )
-            if byte_shuffle and np.issubdtype(dtype, np.integer):
-                root_encoding["data"]["filters"] = [
-                    numcodecs.Shuffle(elementsize=dtype.itemsize)
-                ]
+            root_encoding["data"]["compressors"] = data_compressors
             root_dataset.to_zarr(
                 str(self.output_path),
                 mode="w",
                 consolidated=False,
                 compute=False,
-                zarr_format=2,
+                zarr_format=3,
                 encoding=root_encoding,
             )
             self._write_metadata_groups(
                 source_metadata=source_metadata,
-                compressor=comp,
+                compressors=metadata_compressors,
                 n_times=n_times,
             )
-            store = zarr.open_group(str(self.output_path), mode="r+")
+            store = zarr.open_group(
+                str(self.output_path), mode="r+", zarr_format=3,
+            )
             store.attrs["extraction_fingerprint"] = fingerprint
             store.attrs["completed_fovs"] = []
             store.attrs["extraction_complete"] = False
@@ -677,7 +692,6 @@ class Extractor:
                 pool.shutdown(wait=True)
 
         store.attrs["extraction_complete"] = set(all_fovs).issubset(completed_fovs)
-        zarr.consolidate_metadata(str(self.output_path))
         print(f"Extraction complete: {self.output_path}")
         print(f"  Shape: {shape}, Chunks: {chunks}")
 
