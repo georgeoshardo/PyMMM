@@ -334,43 +334,6 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
         },
     )
 
-    def fake_warp_fov_frames(
-        client,
-        pool,
-        nd2_path,
-        fov_idx,
-        n_times,
-        original_t_indices,
-        ch_idx,
-        y_roi,
-        x_roi,
-        rotation,
-        fov_tmats,
-        out_dtype,
-        H,
-        W,
-    ) -> np.ndarray:
-        assert rotation == 0
-        result = np.empty((n_times, H, W), dtype=out_dtype)
-        with FakeND2File(Path(nd2_path)) as nd2_file:
-            for local_t, raw_t in enumerate(original_t_indices):
-                seq_index = int(np.ravel_multi_index((raw_t, fov_idx), (2, 2)))
-                frame = nd2_file.read_frame(seq_index)
-                if ch_idx is not None:
-                    frame = frame[ch_idx]
-                if y_roi is not None:
-                    frame = frame[y_roi[0]:y_roi[1]]
-                if x_roi is not None:
-                    frame = frame[:, x_roi[0]:x_roi[1]]
-                result[local_t] = frame.astype(out_dtype)
-        return result
-
-    monkeypatch.setattr(
-        Extractor,
-        "_warp_fov_frames",
-        staticmethod(fake_warp_fov_frames),
-    )
-
     experiment = ND2Experiment(nd2_path)
     experiment.select_fovs(["XYPos:1"]).select_times(1, 2)
     registrator = SimpleNamespace(

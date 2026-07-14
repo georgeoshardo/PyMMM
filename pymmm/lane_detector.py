@@ -237,12 +237,14 @@ class LaneDetector:
         import matplotlib.pyplot as plt
         from IPython.display import display
 
-        # Pre-cache mean images for all FOVs
         mean_images: Dict[str, np.ndarray] = {}
-        for fov in self.experiment.fov_names:
-            mean_images[fov] = self.registrator.get_registered_mean_of_timestack(
-                fov=fov, channel=self.channel
-            )
+
+        def _mean_image(fov: str) -> np.ndarray:
+            if fov not in mean_images:
+                mean_images[fov] = self.registrator.get_registered_mean_of_timestack(
+                    fov=fov, channel=self.channel
+                )
+            return mean_images[fov]
 
         # --- Widgets ---
         fov_select = widgets.Dropdown(
@@ -274,7 +276,7 @@ class LaneDetector:
 
         def _update(_change: Any = None) -> None:
             fov = fov_select.value
-            mean_img = mean_images[fov]
+            mean_img = _mean_image(fov)
             y_profile, y_profile_smooth, peaks, fov_lanes = self._detect_lanes_single_fov(
                 mean_img,
                 sigma_slider.value,

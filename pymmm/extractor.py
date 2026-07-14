@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -23,7 +25,11 @@ from pymmm.metadata import (
     build_source_frames_dataset,
     extract_source_frame_metadata,
 )
-from pymmm.registrator import Registrator
+from pymmm.registrator import (
+    TRANSFORM_CONVENTION,
+    Registrator,
+    _rotation_matrix,
+)
 from pymmm.trench_detector import TrenchDetector
 
 _mp_ctx = multiprocessing.get_context("spawn")
@@ -43,59 +49,59 @@ def _try_get_dask_client():
         return None
 
 
-def _load_crop_rotate_warp(
-    nd2_path, fov_idx, time_idx, channel_idx,
-    y_roi, x_roi, rotation, tmat, out_dtype,
+def _extract_frame_batch(
+    nd2_path, fov_idx, time_indices, y_roi, x_roi,
+    tmats, band_specs, trench_specs, image_width, out_dtype,
 ):
-    """Load one frame, crop ROI, rotate, warp.
-
-    Matches the ``get_stabilized_data()`` pipeline exactly:
-    raw frame → channel select → Y/X crop → rotate → warp → cast.
-    """
+    """Read all channels once per frame and return trench-sized crops."""
     import nd2
-    from skimage.transform import rotate as ski_rotate, warp as ski_warp
+    from skimage.transform import warp as ski_warp
+
+    n_times = len(time_indices)
+    n_trenches = len(trench_specs)
+    trench_h = trench_specs[0][1] - trench_specs[0][0]
+    trench_w = trench_specs[0][3] - trench_specs[0][2]
+    result = None
 
     with nd2.ND2File(nd2_path) as f:
         coord_axes = [k for k in f.sizes if k not in {"X", "Y", "C", "S"}]
         coord_shape = tuple(f.sizes[k] for k in coord_axes)
-        coord_map = {"T": time_idx, "P": fov_idx, "Z": 0}
-        coord_tuple = tuple(coord_map.get(ax, 0) for ax in coord_axes)
-        frame_idx = int(np.ravel_multi_index(coord_tuple, coord_shape))
-        frame = f.read_frame(frame_idx).copy()
+        for batch_t, time_idx in enumerate(time_indices):
+            coord_map = {"T": time_idx, "P": fov_idx, "Z": 0}
+            coord_tuple = tuple(coord_map.get(ax, 0) for ax in coord_axes)
+            frame_idx = int(np.ravel_multi_index(coord_tuple, coord_shape))
+            frame = f.read_frame(frame_idx)
+            if frame.ndim == 2:
+                frame = frame[np.newaxis, ...]
+            if y_roi is not None:
+                frame = frame[..., slice(*y_roi), :]
+            if x_roi is not None:
+                frame = frame[..., slice(*x_roi)]
 
-    if channel_idx is not None and frame.ndim == 3:
-        frame = frame[channel_idx]
+            if result is None:
+                result = np.empty(
+                    (n_times, n_trenches, frame.shape[0], trench_h, trench_w),
+                    dtype=out_dtype,
+                )
 
-    img = frame.astype(np.float64)
+            for channel_idx, image in enumerate(frame):
+                for y_top, y_bottom, band_trenches in band_specs:
+                    offset = np.eye(3)
+                    offset[1, 2] = y_top
+                    band = ski_warp(
+                        image,
+                        tmats[batch_t] @ offset,
+                        output_shape=(y_bottom - y_top, image_width),
+                        preserve_range=True,
+                        order=1,
+                    )
+                    for local_idx, x_left, x_right, needs_flip in band_trenches:
+                        crop = band[:, x_left:x_right]
+                        if needs_flip:
+                            crop = crop[::-1]
+                        result[batch_t, local_idx, channel_idx] = crop
 
-    # ROI crop (before rotation, matching experiment.data pipeline)
-    if y_roi is not None:
-        img = img[y_roi[0]:y_roi[1]]
-    if x_roi is not None:
-        img = img[:, x_roi[0]:x_roi[1]]
-
-    if rotation != 0.0:
-        img = ski_rotate(img, rotation, preserve_range=True)
-
-    warped = ski_warp(img, tmat, preserve_range=True, order=1)
-    return warped.astype(out_dtype)
-
-
-def _stabilize_fov(registrator, channel, fov):
-    """Compute the full stabilised (T, Y, X) array for one FOV (preview)."""
-    return (
-        registrator.get_stabilized_data(channel=channel, fov=fov)
-        .compute(scheduler="synchronous")
-        .values
-    )
-
-
-def _crop_from_fov_data(fov_data, y_top, y_bottom, x_left, x_right, needs_flip):
-    """Slice one trench from a pre-computed FOV numpy array (preview)."""
-    crop = fov_data[:, y_top:y_bottom, x_left:x_right]
-    if needs_flip:
-        crop = crop[:, ::-1, :]
-    return np.ascontiguousarray(crop)
+    return result
 
 
 class Extractor:
@@ -142,11 +148,55 @@ class Extractor:
             "pixel_size_um": exp.pixel_size_um,
             "registration_params": {
                 "channel": self.registrator.channel,
+                "backend": getattr(self.registrator, "backend", "stackreg"),
                 "mode": str(self.registrator.mode),
                 "rotation": self.registrator.rotation,
+                "transform_convention": TRANSFORM_CONVENTION,
             },
             "source_subset_metadata": exp.source_subset_metadata,
         }
+
+    def _extraction_fingerprint(
+        self,
+        trench_table,
+        shape: tuple[int, ...],
+        chunks: tuple[int, ...],
+        dtype: np.dtype,
+        compressor: str,
+        clevel: int,
+        byte_shuffle: bool,
+    ) -> str:
+        """Hash the source, geometry, transforms, and output layout."""
+        source_stat = self.experiment.path.stat()
+        trench_columns = [
+            "trench_id", "fov", "lane_index", "x_left", "x_right",
+            "y_top", "y_bottom", "orientation", "needs_flip",
+        ]
+        payload = {
+            "source": str(self.experiment.path.resolve()),
+            "source_size": source_stat.st_size,
+            "source_mtime_ns": source_stat.st_mtime_ns,
+            "subset": self.experiment.source_subset_metadata,
+            "channels": self.experiment.channel_names,
+            "trenches": trench_table[trench_columns].to_json(orient="records"),
+            "tmats": hashlib.sha256(
+                np.ascontiguousarray(self.registrator.tmats.values).tobytes()
+            ).hexdigest(),
+            "shape": shape,
+            "chunks": chunks,
+            "dtype": dtype.str,
+            "rotation": self.registrator.rotation,
+            "registration_backend": getattr(
+                self.registrator, "backend", "stackreg"
+            ),
+            "transform_convention": TRANSFORM_CONVENTION,
+            "compressor": compressor,
+            "clevel": clevel,
+            "byte_shuffle": byte_shuffle,
+        }
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, default=str).encode()
+        ).hexdigest()
 
     @staticmethod
     def _metadata_encoding(
@@ -341,14 +391,18 @@ class Extractor:
     def extract(
         self,
         compressor: str = "zstd",
-        clevel: int = 9,
+        clevel: int = 3,
         show_progress: bool = True,
+        byte_shuffle: bool = True,
+        batch_size: int = 4,
+        time_chunk: int | None = None,
+        resume: bool = True,
     ) -> None:
         """Extract all trenches and write to the output zarr store.
 
-        Uses per-frame ``client.submit()`` tasks (like ``compute_tmats``)
-        so each distributed worker only handles ~1 MB per task.  Falls back
-        to ``ProcessPoolExecutor`` when no distributed client is active.
+        Each task reads a short time batch and all channels with one ND2
+        handle. Translation and rotation are composed into one direct warp
+        for each lane band containing trenches.
 
         Parameters
         ----------
@@ -358,7 +412,19 @@ class Extractor:
             Compression level.
         show_progress : bool
             Show a tqdm progress bar.
+        byte_shuffle : bool
+            Apply byte shuffle before compression for integer image data.
+        batch_size : int
+            Consecutive timepoints handled by each worker task.
+        time_chunk : int | None
+            Output time chunk. ``None`` keeps one full trajectory per chunk.
+        resume : bool
+            Resume an interrupted compatible output store by completed FOV.
         """
+        if int(batch_size) != batch_size or batch_size < 1:
+            raise ValueError("batch_size must be a positive integer")
+        batch_size = int(batch_size)
+
         trench_table = self.trench_detector.get_trench_table()
         if len(trench_table) == 0:
             raise RuntimeError("No trenches to extract.")
@@ -375,9 +441,19 @@ class Extractor:
         first = trench_table.iloc[0]
         trench_h = int(first["y_bottom"] - first["y_top"])
         trench_w = int(first["x_right"] - first["x_left"])
+        heights = trench_table["y_bottom"] - trench_table["y_top"]
+        widths = trench_table["x_right"] - trench_table["x_left"]
+        if not (heights.eq(trench_h).all() and widths.eq(trench_w).all()):
+            raise ValueError("All trenches must have the same output shape.")
         n_trenches = len(trench_table)
         exp = self.experiment
         n_times = exp.n_timepoints
+        if time_chunk is None:
+            output_time_chunk = n_times
+        else:
+            if int(time_chunk) != time_chunk or time_chunk < 1:
+                raise ValueError("time_chunk must be a positive integer or None")
+            output_time_chunk = min(n_times, int(time_chunk))
 
         # Determine channels
         channel_names = exp.channel_names
@@ -390,27 +466,35 @@ class Extractor:
             comp = None
 
         shape = (n_trenches, n_times, n_channels, trench_h, trench_w)
-        chunks = (1, n_times, 1, trench_h, trench_w)
+        chunks = (1, output_time_chunk, 1, trench_h, trench_w)
 
         dtype = np.dtype(exp.data.dtype)
-        source_metadata = extract_source_frame_metadata(exp)
-        root_dataset = self._build_root_dataset_template(
-            trench_table=trench_table,
-            source_metadata=source_metadata,
-            trench_h=trench_h,
-            trench_w=trench_w,
-            channel_names=channel_names,
-            data_shape=shape,
-            data_chunks=chunks,
-            dtype=dtype,
+        fingerprint = self._extraction_fingerprint(
+            trench_table, shape, chunks, dtype, compressor, clevel, byte_shuffle,
         )
-        root_dataset.to_zarr(
-            str(self.output_path),
-            mode="w",
-            consolidated=False,
-            compute=False,
-            zarr_format=2,
-            encoding=self._metadata_encoding(
+
+        if resume and self.output_path.exists():
+            store = zarr.open_group(str(self.output_path), mode="r+")
+            if store.attrs.get("extraction_fingerprint") != fingerprint:
+                raise RuntimeError(
+                    "Existing output is not compatible with this extraction. "
+                    "Use resume=False or choose a new output path."
+                )
+            completed_fovs = set(store.attrs.get("completed_fovs", []))
+        else:
+            source_metadata = extract_source_frame_metadata(exp)
+            root_dataset = self._build_root_dataset_template(
+                trench_table=trench_table,
+                source_metadata=source_metadata,
+                trench_h=trench_h,
+                trench_w=trench_w,
+                channel_names=channel_names,
+                data_shape=shape,
+                data_chunks=chunks,
+                dtype=dtype,
+            )
+            metadata_chunk = min(128, max(1, n_trenches))
+            root_encoding = self._metadata_encoding(
                 root_dataset,
                 chunk_overrides={
                     "data": chunks,
@@ -424,31 +508,48 @@ class Extractor:
                     "y_bottom": (min(4096, max(1, n_trenches)),),
                     "orientation": (min(4096, max(1, n_trenches)),),
                     "needs_flip": (min(4096, max(1, n_trenches)),),
-                    "source_seq_index": (1, n_times),
-                    "relative_time_ms": (1, n_times),
-                    "absolute_julian_day_number": (1, n_times),
-                    "pfs_offset": (1, n_times),
-                    "stage_position_um": (1, n_times, 3),
+                    "source_seq_index": (metadata_chunk, n_times),
+                    "relative_time_ms": (metadata_chunk, n_times),
+                    "absolute_julian_day_number": (metadata_chunk, n_times),
+                    "pfs_offset": (metadata_chunk, n_times),
+                    "stage_position_um": (metadata_chunk, n_times, 3),
                 },
                 compressor=comp,
-            ),
-        )
-        self._write_metadata_groups(
-            source_metadata=source_metadata,
-            compressor=comp,
-            n_times=n_times,
-        )
+            )
+            if byte_shuffle and np.issubdtype(dtype, np.integer):
+                root_encoding["data"]["filters"] = [
+                    numcodecs.Shuffle(elementsize=dtype.itemsize)
+                ]
+            root_dataset.to_zarr(
+                str(self.output_path),
+                mode="w",
+                consolidated=False,
+                compute=False,
+                zarr_format=2,
+                encoding=root_encoding,
+            )
+            self._write_metadata_groups(
+                source_metadata=source_metadata,
+                compressor=comp,
+                n_times=n_times,
+            )
+            store = zarr.open_group(str(self.output_path), mode="r+")
+            store.attrs["extraction_fingerprint"] = fingerprint
+            store.attrs["completed_fovs"] = []
+            store.attrs["extraction_complete"] = False
+            completed_fovs = set()
 
-        store = zarr.open_group(str(self.output_path), mode="r+")
         data_arr = store["data"]
 
         # ----------------------------------------------------------
         # Frame-level extraction parameters
         # ----------------------------------------------------------
         nd2_path = str(exp.path)
-        rotation = self.registrator.rotation
-        out_dtype = dtype
-        H, W = exp.data.sizes["Y"], exp.data.sizes["X"]
+        image_height = exp.data.sizes["Y"]
+        image_width = exp.data.sizes["X"]
+        rotation_matrix = _rotation_matrix(
+            self.registrator.rotation, (image_height, image_width)
+        )
 
         # Map subsetted T indices → original file T indices
         if "T" not in exp._raw_data.dims:
@@ -467,26 +568,29 @@ class Extractor:
 
         # ROI slices (as tuples for pickling)
         y_roi = (
-            (exp._y_slice.start, exp._y_slice.stop)
+            (exp._y_slice.start, exp._y_slice.stop, exp._y_slice.step)
             if exp._y_slice is not None else None
         )
         x_roi = (
-            (exp._x_slice.start, exp._x_slice.stop)
+            (exp._x_slice.start, exp._x_slice.stop, exp._x_slice.step)
             if exp._x_slice is not None else None
         )
 
         tmats_da = self.registrator.tmats  # (P, T, row, col) or (T, row, col)
 
-        # ----------------------------------------------------------
-        # Distribute per-frame warp tasks
-        # ----------------------------------------------------------
+        grouped = list(trench_table.groupby("fov", sort=False))
+        all_fovs = [str(fov) for fov, _ in grouped]
+        grouped = [
+            (fov, fov_df) for fov, fov_df in grouped
+            if str(fov) not in completed_fovs
+        ]
+
         client = _try_get_dask_client()
         pool = None
-        if client is None:
+        if client is None and grouped and n_times > batch_size:
             pool = ProcessPoolExecutor(mp_context=_mp_ctx)
 
         try:
-            grouped = trench_table.groupby("fov", sort=False)
             fov_iter = grouped
             if show_progress:
                 fov_iter = tqdm(grouped, desc="Extracting FOVs", total=len(grouped))
@@ -500,75 +604,82 @@ class Extractor:
                     fov_tmats = tmats_da.sel(P=fov).values
                 else:
                     fov_tmats = tmats_da.values
+                fov_tmats = np.matmul(fov_tmats, rotation_matrix)
 
-                for c_idx, ch in enumerate(channel_names):
-                    ch_idx = (
-                        exp.channel_names.index(ch)
-                        if exp.has_channels else None
+                fov_df = fov_df.reset_index(drop=True)
+                trench_specs = [
+                    (
+                        int(row["y_top"]), int(row["y_bottom"]),
+                        int(row["x_left"]), int(row["x_right"]),
+                        bool(row["needs_flip"]),
                     )
-                    fov_data = self._warp_fov_frames(
-                        client, pool, nd2_path, fov_idx, n_times,
-                        original_t_indices, ch_idx, y_roi, x_roi,
-                        rotation, fov_tmats, out_dtype, H, W,
+                    for _, row in fov_df.iterrows()
+                ]
+                band_map = {}
+                for local_idx, (y_top, y_bottom, x_left, x_right, needs_flip) in enumerate(trench_specs):
+                    band_map.setdefault((y_top, y_bottom), []).append(
+                        (local_idx, x_left, x_right, needs_flip)
                     )
-                    for _, row in fov_df.iterrows():
-                        crop = fov_data[
-                            :, row["y_top"]:row["y_bottom"],
-                            row["x_left"]:row["x_right"],
-                        ]
-                        if row["needs_flip"]:
-                            crop = crop[:, ::-1, :]
-                        data_arr[int(row["_output_trench_index"]), :, c_idx, :, :] = crop
+                band_specs = [
+                    (y_top, y_bottom, band_trenches)
+                    for (y_top, y_bottom), band_trenches in band_map.items()
+                ]
+                fov_output = np.empty(
+                    (len(fov_df), n_times, n_channels, trench_h, trench_w),
+                    dtype=dtype,
+                )
 
-                    del fov_data
+                if client is None and pool is None:
+                    batch = _extract_frame_batch(
+                        nd2_path, fov_idx, original_t_indices,
+                        y_roi, x_roi, fov_tmats,
+                        band_specs, trench_specs, image_width, dtype,
+                    )
+                    fov_output[:] = batch.transpose(1, 0, 2, 3, 4)
+                else:
+                    future_to_start = {}
+                    for start in range(0, n_times, batch_size):
+                        stop = min(start + batch_size, n_times)
+                        args = (
+                            nd2_path, fov_idx, original_t_indices[start:stop],
+                            y_roi, x_roi, fov_tmats[start:stop],
+                            band_specs, trench_specs, image_width, dtype,
+                        )
+                        future = (
+                            client.submit(_extract_frame_batch, *args)
+                            if client is not None
+                            else pool.submit(_extract_frame_batch, *args)
+                        )
+                        future_to_start[future] = start
+
+                    if client is not None:
+                        from dask.distributed import as_completed as dask_as_completed
+                        completed = dask_as_completed(future_to_start)
+                    else:
+                        completed = as_completed(future_to_start)
+
+                    for future in completed:
+                        start = future_to_start[future]
+                        batch = future.result()
+                        stop = start + batch.shape[0]
+                        fov_output[:, start:stop] = batch.transpose(1, 0, 2, 3, 4)
+
+                for local_idx, (_, row) in enumerate(fov_df.iterrows()):
+                    output_idx = int(row["_output_trench_index"])
+                    data_arr[output_idx, :, :, :, :] = fov_output[local_idx]
+
+                completed_fovs.add(fov_str)
+                store.attrs["completed_fovs"] = [
+                    name for name in all_fovs if name in completed_fovs
+                ]
         finally:
             if pool is not None:
                 pool.shutdown(wait=True)
 
+        store.attrs["extraction_complete"] = set(all_fovs).issubset(completed_fovs)
         zarr.consolidate_metadata(str(self.output_path))
         print(f"Extraction complete: {self.output_path}")
         print(f"  Shape: {shape}, Chunks: {chunks}")
-
-    @staticmethod
-    def _warp_fov_frames(
-        client, pool, nd2_path, fov_idx, n_times,
-        original_t_indices, ch_idx, y_roi, x_roi,
-        rotation, fov_tmats, out_dtype, H, W,
-    ) -> np.ndarray:
-        """Warp all frames for one FOV/channel via distributed or PPE.
-
-        Each task opens the ND2 file, reads one frame via random access,
-        crops/rotates/warps it, and returns the result (~1 MB).  No worker
-        ever holds a full FOV stack.
-        """
-        fov_data = np.empty((n_times, H, W), dtype=out_dtype)
-
-        if client is not None:
-            from dask.distributed import as_completed as dask_as_completed
-
-            future_to_t = {
-                client.submit(
-                    _load_crop_rotate_warp,
-                    nd2_path, fov_idx, original_t_indices[t], ch_idx,
-                    y_roi, x_roi, rotation, fov_tmats[t], out_dtype,
-                ): t
-                for t in range(n_times)
-            }
-            for fut in dask_as_completed(future_to_t):
-                fov_data[future_to_t[fut]] = fut.result()
-        else:
-            future_to_t = {
-                pool.submit(
-                    _load_crop_rotate_warp,
-                    nd2_path, fov_idx, original_t_indices[t], ch_idx,
-                    y_roi, x_roi, rotation, fov_tmats[t], out_dtype,
-                ): t
-                for t in range(n_times)
-            }
-            for fut in as_completed(future_to_t):
-                fov_data[future_to_t[fut]] = fut.result()
-
-        return fov_data
 
     # ------------------------------------------------------------------
     # Preview
@@ -577,9 +688,10 @@ class Extractor:
     def preview(self, channel: Optional[Union[str, int]] = None) -> xr.DataArray:
         """Return a lazy dask-backed DataArray previewing the extraction output.
 
-        Uses ``dask.delayed`` per-FOV so the graph stays small (~N_FOVs +
-        N_trenches tasks) regardless of timepoint count. Each trench is one
-        chunk of shape ``(T, trench_h, trench_w)``.
+        Uses the same direct lane-band warp as :meth:`extract`, with one lazy
+        task per FOV and timepoint. Selecting a frame therefore reads one raw
+        frame and produces all trenches and channels for that FOV without
+        writing a zarr store.
 
         Use with hvplot for interactive browsing before committing to full
         extraction::
@@ -595,72 +707,105 @@ class Extractor:
             A specific channel to preview. ``None`` includes all channels
             (matching the output zarr layout).
         """
-        table = self.trench_detector.get_trench_table()
+        table = (
+            self.trench_detector.get_trench_table()
+            .sort_values("trench_id")
+            .reset_index(drop=True)
+        )
         if len(table) == 0:
             raise RuntimeError("No trenches to preview.")
 
         first = table.iloc[0]
         trench_h = int(first["y_bottom"] - first["y_top"])
         trench_w = int(first["x_right"] - first["x_left"])
-        n_times = self.experiment.n_timepoints
-        dtype = self.experiment.data.dtype
+        heights = table["y_bottom"] - table["y_top"]
+        widths = table["x_right"] - table["x_left"]
+        if not (heights.eq(trench_h).all() and widths.eq(trench_w).all()):
+            raise ValueError("All trenches must have the same output shape.")
 
-        has_channels = self.experiment.has_channels
-        channel_names = self.experiment.channel_names
+        exp = self.experiment
+        channel_names = exp.channel_names
+        n_channels = len(channel_names)
+        dtype = np.dtype(exp.data.dtype)
+        image_height = exp.data.sizes["Y"]
+        image_width = exp.data.sizes["X"]
+        rotation_matrix = _rotation_matrix(
+            self.registrator.rotation, (image_height, image_width)
+        )
 
-        if channel is not None:
-            channels = [channel]
-        elif has_channels and len(channel_names) > 1:
-            channels = channel_names
+        if "T" not in exp._raw_data.dims:
+            original_t_indices = [0]
+        elif exp._time_slice is not None:
+            n_raw_t = exp._raw_data.sizes["T"]
+            original_t_indices = list(range(*exp._time_slice.indices(n_raw_t)))
         else:
-            channels = [None]
+            original_t_indices = list(range(exp._raw_data.sizes["T"]))
 
-        grouped = table.groupby("fov", sort=False)
+        raw_fov_names = (
+            [str(v) for v in exp._raw_data.coords["P"].values]
+            if "P" in exp._raw_data.dims else []
+        )
+        y_roi = (
+            (exp._y_slice.start, exp._y_slice.stop, exp._y_slice.step)
+            if exp._y_slice is not None else None
+        )
+        x_roi = (
+            (exp._x_slice.start, exp._x_slice.stop, exp._x_slice.step)
+            if exp._x_slice is not None else None
+        )
 
-        def _build_channel_array(ch):
-            """Build a (Trench, T, Y, X) dask array for one channel."""
-            blocks = []
-            for fov, fov_df in grouped:
-                fov_delayed = dask.delayed(_stabilize_fov)(
-                    self.registrator, ch, fov,
+        fov_blocks = []
+        for fov, fov_df in table.groupby("fov", sort=False):
+            fov_idx = raw_fov_names.index(str(fov)) if raw_fov_names else 0
+            if "P" in self.registrator.tmats.dims:
+                fov_tmats = self.registrator.tmats.sel(P=fov).values
+            else:
+                fov_tmats = self.registrator.tmats.values
+            fov_tmats = np.matmul(fov_tmats, rotation_matrix)
+
+            fov_df = fov_df.reset_index(drop=True)
+            trench_specs = [
+                (
+                    int(row["y_top"]), int(row["y_bottom"]),
+                    int(row["x_left"]), int(row["x_right"]),
+                    bool(row["needs_flip"]),
                 )
-                for _, row in fov_df.iterrows():
-                    crop_delayed = dask.delayed(_crop_from_fov_data)(
-                        fov_delayed,
-                        int(row["y_top"]), int(row["y_bottom"]),
-                        int(row["x_left"]), int(row["x_right"]),
-                        bool(row["needs_flip"]),
-                    )
-                    blocks.append(
-                        da.from_delayed(
-                            crop_delayed,
-                            shape=(n_times, trench_h, trench_w),
-                            dtype=dtype,
-                        )
-                    )
-            return da.stack(blocks, axis=0)  # (Trench, T, Y, X)
-
-        if len(channels) > 1:
-            # (Trench, T, Y, X) per channel → insert C dim → concat
-            expanded = [
-                _build_channel_array(ch)[:, :, np.newaxis, :, :]
-                for ch in channels
+                for _, row in fov_df.iterrows()
             ]
-            result_da = da.concatenate(expanded, axis=2)
-            result = xr.DataArray(
-                result_da,
-                dims=["Trench", "T", "C", "Y", "X"],
-                coords={
-                    "Trench": table["trench_id"].to_numpy(dtype=np.int32),
-                    "C": channel_names,
-                    "Y": np.arange(trench_h),
-                    "X": np.arange(trench_w),
-                },
+            band_map = {}
+            for local_idx, spec in enumerate(trench_specs):
+                y_top, y_bottom, x_left, x_right, needs_flip = spec
+                band_map.setdefault((y_top, y_bottom), []).append(
+                    (local_idx, x_left, x_right, needs_flip)
+                )
+            band_specs = [
+                (y_top, y_bottom, band_trenches)
+                for (y_top, y_bottom), band_trenches in band_map.items()
+            ]
+
+            time_blocks = []
+            for time_idx, original_t in enumerate(original_t_indices):
+                delayed = dask.delayed(_extract_frame_batch)(
+                    str(exp.path), fov_idx, [original_t], y_roi, x_roi,
+                    fov_tmats[time_idx:time_idx + 1], band_specs,
+                    trench_specs, image_width, dtype,
+                )
+                block = da.from_delayed(
+                    delayed,
+                    shape=(1, len(fov_df), n_channels, trench_h, trench_w),
+                    dtype=dtype,
+                ).transpose(1, 0, 2, 3, 4)
+                time_blocks.append(block)
+            fov_blocks.append(da.concatenate(time_blocks, axis=1))
+
+        result_da = da.concatenate(fov_blocks, axis=0)
+        if channel is not None:
+            channel_idx = (
+                int(channel) if isinstance(channel, int)
+                else channel_names.index(str(channel))
             )
-        else:
-            result_da = _build_channel_array(channels[0])
-            result = xr.DataArray(
-                result_da,
+            return xr.DataArray(
+                result_da[:, :, channel_idx],
                 dims=["Trench", "T", "Y", "X"],
                 coords={
                     "Trench": table["trench_id"].to_numpy(dtype=np.int32),
@@ -669,7 +814,16 @@ class Extractor:
                 },
             )
 
-        return result
+        return xr.DataArray(
+            result_da,
+            dims=["Trench", "T", "C", "Y", "X"],
+            coords={
+                "Trench": table["trench_id"].to_numpy(dtype=np.int32),
+                "C": channel_names,
+                "Y": np.arange(trench_h),
+                "X": np.arange(trench_w),
+            },
+        )
 
     def extract_single_trench(
         self,

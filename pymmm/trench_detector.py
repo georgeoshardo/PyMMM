@@ -357,12 +357,14 @@ class TrenchDetector:
         from matplotlib.patches import Rectangle
         from IPython.display import display
 
-        # Pre-cache mean images for all FOVs
         mean_images: Dict[str, np.ndarray] = {}
-        for fov in self.experiment.fov_names:
-            mean_images[fov] = self.registrator.get_registered_mean_of_timestack(
-                fov=fov, channel=self.channel
-            )
+
+        def _mean_image(fov: str) -> np.ndarray:
+            if fov not in mean_images:
+                mean_images[fov] = self.registrator.get_registered_mean_of_timestack(
+                    fov=fov, channel=self.channel
+                )
+            return mean_images[fov]
 
         # --- Widgets ---
         fov_select = widgets.Dropdown(
@@ -406,6 +408,7 @@ class TrenchDetector:
         output = widgets.Output()
         lane_widget_state: Dict[int, Dict[str, widgets.Widget]] = {}
         lane_override_values: Dict[int, Dict[str, Any]] = {}
+        syncing_lane_widgets = False
         global_widget_names = {
             "sigma": sigma_slider,
             "distance": distance_slider,
@@ -485,6 +488,8 @@ class TrenchDetector:
 
         def _make_lane_observer(lane_idx: int, param_name: str):
             def _observer(change: Any) -> None:
+                if syncing_lane_widgets:
+                    return
                 value = _normalize_override_value(param_name, change["new"])
                 global_value = _normalize_override_value(
                     param_name, _global_widget_value(param_name)
@@ -501,16 +506,21 @@ class TrenchDetector:
             return _observer
 
         def _on_global_change(_change: Any = None) -> None:
-            for lane_idx, widgets_by_name in lane_widget_state.items():
-                lane_overrides = lane_override_values.get(lane_idx, {})
-                for param_name, widget in widgets_by_name.items():
-                    if param_name in lane_overrides:
-                        continue
-                    target_value = _normalize_widget_value(
-                        param_name, _global_widget_value(param_name)
-                    )
-                    if widget.value != target_value:
-                        widget.value = target_value
+            nonlocal syncing_lane_widgets
+            syncing_lane_widgets = True
+            try:
+                for lane_idx, widgets_by_name in lane_widget_state.items():
+                    lane_overrides = lane_override_values.get(lane_idx, {})
+                    for param_name, widget in widgets_by_name.items():
+                        if param_name in lane_overrides:
+                            continue
+                        target_value = _normalize_widget_value(
+                            param_name, _global_widget_value(param_name)
+                        )
+                        if widget.value != target_value:
+                            widget.value = target_value
+            finally:
+                syncing_lane_widgets = False
             _update()
 
         def _rebuild_lane_controls(_change: Any = None) -> None:
@@ -614,7 +624,7 @@ class TrenchDetector:
 
         def _update(_change: Any = None) -> None:
             fov = fov_select.value
-            mean_img = mean_images[fov]
+            mean_img = _mean_image(fov)
             tw = trench_width_slider.value
             trench_width = tw if tw > 0 else None
             lane_params = _lane_params_from_widgets()

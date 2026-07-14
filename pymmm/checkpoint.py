@@ -71,7 +71,7 @@ class CompanionStore:
     def save_registration(
         self,
         tmats: np.ndarray,
-        mean_images: np.ndarray,
+        mean_images: np.ndarray | None,
         params: Dict[str, Any],
     ) -> None:
         """Persist registration results.
@@ -80,12 +80,13 @@ class CompanionStore:
         ----------
         tmats : np.ndarray
             Transformation matrices, shape ``(n_fovs, n_times, 3, 3)``.
-        mean_images : np.ndarray
-            Mean reference images, shape ``(n_fovs, Y, X)``.
+        mean_images : np.ndarray | None
+            Optional mean reference images, shape ``(n_fovs, Y, X)``.
         params : dict
             Registration parameters for reproducibility.
         """
         grp = self._store.require_group("registration")
+        grp.attrs["complete"] = False
 
         # Overwrite arrays if they exist
         tmats_np = np.asarray(tmats, dtype="float64")
@@ -94,16 +95,18 @@ class CompanionStore:
         arr = grp.create_array("tmats", shape=tmats_np.shape, dtype="float64")
         arr[:] = tmats_np
 
-        mean_np = np.asarray(mean_images, dtype="float64")
         if "mean_images" in grp:
             del grp["mean_images"]
-        arr = grp.create_array("mean_images", shape=mean_np.shape, dtype="float64")
-        arr[:] = mean_np
+        if mean_images is not None and np.size(mean_images) > 0:
+            mean_np = np.asarray(mean_images, dtype="float64")
+            arr = grp.create_array("mean_images", shape=mean_np.shape, dtype="float64")
+            arr[:] = mean_np
 
         # Store params as JSON string in attrs
         grp.attrs["params"] = json.dumps(params, default=str)
+        grp.attrs["complete"] = True
 
-    def load_registration(self) -> Dict[str, Any]:
+    def load_registration(self, load_mean_images: bool = True) -> Dict[str, Any]:
         """Load registration checkpoint.
 
         Returns
@@ -115,13 +118,24 @@ class CompanionStore:
         grp = self._store["registration"]
         return {
             "tmats": np.array(grp["tmats"]),
-            "mean_images": np.array(grp["mean_images"]),
+            "mean_images": (
+                np.array(grp["mean_images"])
+                if load_mean_images and "mean_images" in grp else None
+            ),
             "params": json.loads(grp.attrs["params"]),
         }
 
+    def load_registration_params(self) -> Dict[str, Any]:
+        """Load registration parameters without reading image arrays."""
+        grp = self._store["registration"]
+        return json.loads(grp.attrs["params"])
+
     def has_registration(self) -> bool:
         """Check whether registration data is checkpointed."""
-        return "registration" in self._store and "tmats" in self._store["registration"]
+        if "registration" not in self._store:
+            return False
+        grp = self._store["registration"]
+        return "tmats" in grp and grp.attrs.get("complete", True)
 
     # ------------------------------------------------------------------
     # Lane detection
