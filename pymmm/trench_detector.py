@@ -101,8 +101,7 @@ class TrenchDetector:
         distance: float,
         prominence: float,
         height: float,
-        trench_width: Optional[int],
-        shrink_scale: float,
+        trench_width: int,
         trench_length: int,
         trench_bottom_offset: int,
         conv_filter: Optional[np.ndarray] = None,
@@ -135,14 +134,11 @@ class TrenchDetector:
             lane_distance = lane_override.get("distance", distance)
             lane_prominence = lane_override.get("prominence", prominence)
             lane_height = lane_override.get("height", height)
-            lane_trench_width = lane_override.get("trench_width", trench_width)
-            lane_shrink_scale = lane_override.get("shrink_scale", shrink_scale)
-            lane_trench_length = lane_override.get("trench_length", trench_length)
             lane_bottom_offset = lane_override.get(
                 "trench_bottom_offset", trench_bottom_offset
             )
 
-            crop_half = max(lane_trench_length, 100)
+            crop_half = max(trench_length, 100)
             y_start = max(0, lane_y - crop_half)
             y_end = min(img_height, lane_y + crop_half)
             lane_crop = mean_img[y_start:y_end, :]
@@ -171,23 +167,16 @@ class TrenchDetector:
             if len(peaks) == 0:
                 continue
 
-            if lane_trench_width is not None:
-                half_w = lane_trench_width // 2
-                x_lefts = peaks - half_w
-                x_rights = peaks + half_w
-            else:
-                spacing = np.mean(np.diff(peaks)) if len(peaks) > 1 else 100
-                half_w = int(round(spacing / lane_shrink_scale))
-                x_lefts = peaks - half_w
-                x_rights = peaks + half_w
+            x_lefts = peaks - trench_width // 2
+            x_rights = x_lefts + trench_width
 
             if orientation == 1:
-                y_top = lane_y - lane_bottom_offset - lane_trench_length
+                y_top = lane_y - lane_bottom_offset - trench_length
                 y_bottom = lane_y - lane_bottom_offset
                 needs_flip = False
             else:
                 y_top = lane_y + lane_bottom_offset
-                y_bottom = lane_y + lane_bottom_offset + lane_trench_length
+                y_bottom = lane_y + lane_bottom_offset + trench_length
                 needs_flip = True
 
             for x_left, x_right in zip(x_lefts, x_rights):
@@ -222,8 +211,7 @@ class TrenchDetector:
         distance: float = 100,
         prominence: float = 10,
         height: float = 0,
-        trench_width: Optional[int] = None,
-        shrink_scale: float = 2.2,
+        trench_width: int = 32,
         trench_length: int = 160,
         trench_bottom_offset: int = 50,
         conv_filter: Optional[np.ndarray] = None,
@@ -236,7 +224,7 @@ class TrenchDetector:
         1. Crop registered mean image to the lane's y-region.
         2. Average along Y → 1-D x-profile.
         3. ``find_peaks()`` → trench centre positions.
-        4. Compute x-boundaries from ``trench_width`` or peak spacing.
+        4. Compute x-boundaries from ``trench_width``.
         5. Compute y-boundaries from lane centre + orientation.
         6. Prune trenches extending beyond image edges.
         7. Assign global trench IDs.
@@ -251,10 +239,8 @@ class TrenchDetector:
             Minimum peak prominence.
         height : float
             Minimum peak height.
-        trench_width : int | None
-            Exact trench width in pixels. If ``None``, derived from peak spacing.
-        shrink_scale : float
-            When ``trench_width`` is None, boundary = spacing / shrink_scale.
+        trench_width : int
+            Exact trench width in pixels.
         trench_length : int
             Trench crop height in pixels.
         trench_bottom_offset : int
@@ -264,8 +250,23 @@ class TrenchDetector:
         plot : bool
             If ``True``, show overlay for the first FOV.
         lane_params : dict[int, dict[str, Any]] | None
-            Optional per-lane parameter overrides keyed by ``lane_index``.
+            Optional per-lane detection parameter overrides keyed by
+            ``lane_index``. Output width and length are always global.
         """
+        if trench_width <= 0:
+            raise ValueError("trench_width must be greater than zero.")
+        if trench_length <= 0:
+            raise ValueError("trench_length must be greater than zero.")
+
+        global_shape_parameters = {"trench_width", "trench_length", "shrink_scale"}
+        for lane_idx, overrides in (lane_params or {}).items():
+            invalid = global_shape_parameters.intersection(overrides)
+            if invalid:
+                names = ", ".join(sorted(invalid))
+                raise ValueError(
+                    f"Lane {lane_idx} cannot override global shape settings: {names}"
+                )
+
         trenches: Dict[str, List[TrenchDefinition]] = {}
         trench_counter = 0
 
@@ -275,7 +276,7 @@ class TrenchDetector:
             )
             fov_trenches, _, trench_counter = self._detect_trenches_single_fov(
                 mean_img, fov, sigma, distance, prominence, height,
-                trench_width, shrink_scale, trench_length, trench_bottom_offset,
+                trench_width, trench_length, trench_bottom_offset,
                 conv_filter, start_id=trench_counter, lane_params=lane_params,
             )
             trenches[fov] = fov_trenches
@@ -287,7 +288,6 @@ class TrenchDetector:
             "prominence": prominence,
             "height": height,
             "trench_width": trench_width,
-            "shrink_scale": shrink_scale,
             "trench_length": trench_length,
             "trench_bottom_offset": trench_bottom_offset,
             "lane_params": {
@@ -404,13 +404,8 @@ class TrenchDetector:
             continuous_update=False, style={"description_width": "initial"},
         )
         trench_width_slider = widgets.IntSlider(
-            value=params.get("trench_width") or 0,
-            min=0, max=200, step=1, description="trench width (0=auto)",
-            continuous_update=False, style={"description_width": "initial"},
-        )
-        shrink_scale_slider = widgets.FloatSlider(
-            value=params.get("shrink_scale", 2.2), min=1.0, max=5.0, step=0.1,
-            description="shrink scale",
+            value=params.get("trench_width") or 32,
+            min=1, max=200, step=1, description="trench width",
             continuous_update=False, style={"description_width": "initial"},
         )
         trench_length_slider = widgets.IntSlider(
@@ -451,8 +446,15 @@ class TrenchDetector:
             },
         )
         lane_widget_state: Dict[int, Dict[str, widgets.Widget]] = {}
+        safe_lane_parameters = {
+            "sigma", "distance", "prominence", "height", "trench_bottom_offset",
+        }
         lane_override_values: Dict[int, Dict[str, Any]] = {
-            int(lane_idx): values.copy()
+            int(lane_idx): {
+                key: value
+                for key, value in values.items()
+                if key in safe_lane_parameters
+            }
             for lane_idx, values in params.get("lane_params", {}).items()
         }
         syncing_lane_widgets = False
@@ -460,9 +462,6 @@ class TrenchDetector:
             "sigma": sigma_slider,
             "distance": distance_slider,
             "prominence": prominence_slider,
-            "trench_width": trench_width_slider,
-            "shrink_scale": shrink_scale_slider,
-            "trench_length": trench_length_slider,
             "trench_bottom_offset": trench_bottom_offset_slider,
         }
 
@@ -486,31 +485,8 @@ class TrenchDetector:
                 style={"description_width": "initial"},
             )
 
-        def _current_global_params() -> Dict[str, float | int | None]:
-            tw = trench_width_slider.value
-            return {
-                "sigma": sigma_slider.value,
-                "distance": distance_slider.value,
-                "prominence": prominence_slider.value,
-                "height": params.get("height", 0),
-                "trench_width": tw if tw > 0 else None,
-                "shrink_scale": shrink_scale_slider.value,
-                "trench_length": trench_length_slider.value,
-                "trench_bottom_offset": trench_bottom_offset_slider.value,
-            }
-
         def _global_widget_value(param_name: str) -> Any:
             return global_widget_names[param_name].value
-
-        def _normalize_override_value(param_name: str, value: Any) -> Any:
-            if param_name == "trench_width":
-                return None if value == 0 else value
-            return value
-
-        def _normalize_widget_value(param_name: str, value: Any) -> Any:
-            if param_name == "trench_width" and value is None:
-                return 0
-            return value
 
         def _lane_params_from_widgets() -> Dict[int, Dict[str, Any]]:
             lane_params = {
@@ -521,10 +497,8 @@ class TrenchDetector:
             for lane_idx, widgets_by_name in lane_widget_state.items():
                 lane_overrides = lane_params.setdefault(lane_idx, {})
                 for param_name, widget in widgets_by_name.items():
-                    value = _normalize_override_value(param_name, widget.value)
-                    global_value = _normalize_override_value(
-                        param_name, _global_widget_value(param_name)
-                    )
+                    value = widget.value
+                    global_value = _global_widget_value(param_name)
                     if value == global_value:
                         lane_overrides.pop(param_name, None)
                     else:
@@ -537,10 +511,8 @@ class TrenchDetector:
             def _observer(change: Any) -> None:
                 if syncing_lane_widgets:
                     return
-                value = _normalize_override_value(param_name, change["new"])
-                global_value = _normalize_override_value(
-                    param_name, _global_widget_value(param_name)
-                )
+                value = change["new"]
+                global_value = _global_widget_value(param_name)
                 lane_overrides = lane_override_values.setdefault(lane_idx, {})
                 if value == global_value:
                     lane_overrides.pop(param_name, None)
@@ -561,9 +533,7 @@ class TrenchDetector:
                     for param_name, widget in widgets_by_name.items():
                         if param_name in lane_overrides:
                             continue
-                        target_value = _normalize_widget_value(
-                            param_name, _global_widget_value(param_name)
-                        )
+                        target_value = _global_widget_value(param_name)
                         if widget.value != target_value:
                             widget.value = target_value
             finally:
@@ -582,66 +552,24 @@ class TrenchDetector:
                 lane_widgets = {
                     "sigma": _slider_row(
                         lane_idx, "sigma",
-                        _normalize_widget_value(
-                            "sigma",
-                            lane_overrides.get("sigma", sigma_slider.value),
-                        ),
+                        lane_overrides.get("sigma", sigma_slider.value),
                         0, 50, 0.5, is_float=True,
                     ),
                     "distance": _slider_row(
                         lane_idx, "distance",
-                        _normalize_widget_value(
-                            "distance",
-                            lane_overrides.get("distance", distance_slider.value),
-                        ),
+                        lane_overrides.get("distance", distance_slider.value),
                         1, 500, 1, is_float=True,
                     ),
                     "prominence": _slider_row(
                         lane_idx, "prominence",
-                        _normalize_widget_value(
-                            "prominence",
-                            lane_overrides.get("prominence", prominence_slider.value),
-                        ),
+                        lane_overrides.get("prominence", prominence_slider.value),
                         0, 500, 1, is_float=True,
-                    ),
-                    "trench_width": _slider_row(
-                        lane_idx, "trench width",
-                        _normalize_widget_value(
-                            "trench_width",
-                            lane_overrides.get(
-                                "trench_width", _current_global_params()["trench_width"]
-                            ),
-                        ),
-                        0, 200, 1,
-                    ),
-                    "shrink_scale": _slider_row(
-                        lane_idx, "shrink scale",
-                        _normalize_widget_value(
-                            "shrink_scale",
-                            lane_overrides.get(
-                                "shrink_scale", shrink_scale_slider.value
-                            ),
-                        ),
-                        1.0, 5.0, 0.1, is_float=True,
-                    ),
-                    "trench_length": _slider_row(
-                        lane_idx, "trench length",
-                        _normalize_widget_value(
-                            "trench_length",
-                            lane_overrides.get(
-                                "trench_length", trench_length_slider.value
-                            ),
-                        ),
-                        10, 500, 5,
                     ),
                     "trench_bottom_offset": _slider_row(
                         lane_idx, "bottom offset",
-                        _normalize_widget_value(
+                        lane_overrides.get(
                             "trench_bottom_offset",
-                            lane_overrides.get(
-                                "trench_bottom_offset",
-                                trench_bottom_offset_slider.value,
-                            ),
+                            trench_bottom_offset_slider.value,
                         ),
                         -200, 200, 5,
                     ),
@@ -672,8 +600,6 @@ class TrenchDetector:
         def _update(_change: Any = None) -> None:
             fov = fov_select.value
             mean_img = _mean_image(fov)
-            tw = trench_width_slider.value
-            trench_width = tw if tw > 0 else None
             lane_params = _lane_params_from_widgets()
 
             fov_trenches, lane_profiles, _ = self._detect_trenches_single_fov(
@@ -682,8 +608,7 @@ class TrenchDetector:
                 distance=distance_slider.value,
                 prominence=prominence_slider.value,
                 height=params.get("height", 0),
-                trench_width=trench_width,
-                shrink_scale=shrink_scale_slider.value,
+                trench_width=trench_width_slider.value,
                 trench_length=trench_length_slider.value,
                 trench_bottom_offset=trench_bottom_offset_slider.value,
                 lane_params=lane_params,
@@ -748,15 +673,12 @@ class TrenchDetector:
 
         def _on_apply(_btn: Any) -> None:
             status_label.value = "<b>Applying\u2026</b>"
-            tw = trench_width_slider.value
-            trench_width = tw if tw > 0 else None
             self.detect_trenches(
                 sigma=sigma_slider.value,
                 distance=distance_slider.value,
                 prominence=prominence_slider.value,
                 height=params.get("height", 0),
-                trench_width=trench_width,
-                shrink_scale=shrink_scale_slider.value,
+                trench_width=trench_width_slider.value,
                 trench_length=trench_length_slider.value,
                 trench_bottom_offset=trench_bottom_offset_slider.value,
                 lane_params=_lane_params_from_widgets(),
@@ -772,13 +694,13 @@ class TrenchDetector:
         fov_select.observe(_rebuild_lane_controls, names="value")
 
         for w in [sigma_slider, distance_slider, prominence_slider,
-                  trench_width_slider, shrink_scale_slider,
+                  trench_width_slider,
                   trench_length_slider, trench_bottom_offset_slider]:
             w.observe(_on_global_change, names="value")
 
         controls = widgets.VBox([
             fov_select, sigma_slider, distance_slider, prominence_slider,
-            trench_width_slider, shrink_scale_slider,
+            trench_width_slider,
             trench_length_slider, trench_bottom_offset_slider,
             lane_controls,
             apply_btn, status_label,
