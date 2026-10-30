@@ -137,8 +137,8 @@ class FakeND2File:
                 volume={"axesCalibration": [0.108, 0.108, 1.0]},
                 position=FakePosition(
                     stagePositionUm=FakeStagePosition(stage_x, stage_y, stage_z),
-                    pfsOffset=10.0 + p_idx,
-                    name=f"XYPos:{p_idx}",
+                    pfsOffset=None,
+                    name=None,
                 ),
                 time=FakeTimeStamp(abs_jdn, rel_time_ms),
             ),
@@ -149,8 +149,8 @@ class FakeND2File:
                 volume={"axesCalibration": [0.108, 0.108, 1.0]},
                 position=FakePosition(
                     stagePositionUm=FakeStagePosition(stage_x, stage_y, stage_z),
-                    pfsOffset=10.0 + p_idx,
-                    name=f"XYPos:{p_idx}",
+                    pfsOffset=None,
+                    name=None,
                 ),
                 time=FakeTimeStamp(abs_jdn, rel_time_ms),
             ),
@@ -166,13 +166,14 @@ class FakeND2File:
         assert orient == "records"
         return [
             {"Time [s]": 0.1, "Events": "Command Executed"},
-            {"Index": 0, "T Index": 0, "P Index": 0, "Position Name": "XYPos:0"},
+            # Like real ND2 files: PFS lives in the frame rows, not frame metadata.
+            {"Index": 0, "T Index": 0, "P Index": 0, "PFS Offset": 17390, "PFS Status": 1},
             {"Time [s]": 0.2, "Events": "Command Executed"},
-            {"Index": 1, "T Index": 0, "P Index": 1, "Position Name": "XYPos:1"},
+            {"Index": 1, "T Index": 0, "P Index": 1, "PFS Offset": 17398, "PFS Status": 1},
             {"Time [s]": 30.1, "Events": "Command Executed"},
-            {"Index": 2, "T Index": 1, "P Index": 0, "Position Name": "XYPos:0"},
+            {"Index": 2, "T Index": 1, "P Index": 0, "PFS Offset": 17406, "PFS Status": 1},
             {"Time [s]": 30.2, "Events": "Command Executed"},
-            {"Index": 3, "T Index": 1, "P Index": 1, "Position Name": "XYPos:1"},
+            {"Index": 3, "T Index": 1, "P Index": 1, "PFS Offset": 17414, "PFS Status": 0},
         ]
 
 
@@ -304,9 +305,11 @@ def test_extract_source_frame_metadata_tracks_subset(monkeypatch, tmp_path):
     assert exported["source_seq_index"].tolist() == [[3]]
     assert exported["relative_time_ms"].tolist() == [[30124.0]]
     assert exported["stage_position_um"].tolist() == [[[101.0, 201.0, 302.0]]]
-    assert exported["position_name"].tolist() == [["XYPos:1"]]
+    assert exported["pfs_offset"].tolist() == [[17414.0]]
+    assert exported["pfs_status"].tolist() == [[0.0]]
+    assert "position_name" not in exported
     assert "mCherry" in exported["frame_metadata_json"][0, 0]
-    assert len(exported["frame_event_records"]) == 1
+    assert "frame_event_records" not in exported
     assert len(exported["acquisition_event_records"]) == 4
 
 
@@ -467,13 +470,10 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
         .item()
         == 30124.0
     )
-    assert (
-        source_frames["position_name"]
-        .sel(FOV="XYPos:1", T=1)
-        .compute()
-        .item()
-        == "XYPos:1"
-    )
+    assert source_frames["pfs_offset"].sel(FOV="XYPos:1", T=1).item() == 17414.0
+    assert source_frames["pfs_status"].sel(FOV="XYPos:1", T=1).item() == 0.0
+    assert "position_name" not in source_frames
+    assert root["pfs_offset"].compute().values.tolist() == [[17414.0], [17414.0]]
     assert "mCherry" in (
         source_frames["frame_metadata_json"]
         .sel(FOV="XYPos:1", T=1)
@@ -482,9 +482,7 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
     )
 
     events = tree["events"].ds
-    assert events["frame_index"].compute().values.tolist() == [3]
-    assert events["frame_t_index"].compute().values.tolist() == [1]
-    assert events["frame_position_name"].compute().values.tolist() == ["XYPos:1"]
+    assert "FrameEvent" not in events.sizes
     assert events["acquisition_events"].compute().values.tolist() == [
         "Command Executed",
         "Command Executed",

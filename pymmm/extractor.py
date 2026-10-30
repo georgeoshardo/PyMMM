@@ -423,8 +423,8 @@ class Extractor:
                     "relative_time_ms": (1, n_times),
                     "absolute_julian_day_number": (1, n_times),
                     "pfs_offset": (1, n_times),
+                    "pfs_status": (1, n_times),
                     "stage_position_um": (1, n_times, 3),
-                    "position_name": (1, n_times),
                     "frame_metadata_json": (1, n_times),
                 },
                 compressors=compressors,
@@ -432,19 +432,9 @@ class Extractor:
         )
 
         events = build_events_dataset(
-            source_metadata["frame_event_records"],
             source_metadata["acquisition_event_records"],
         )
         event_chunks: dict[str, tuple[int, ...]] = {}
-        if "FrameEvent" in events.sizes:
-            frame_chunk = min(4096, max(1, events.sizes["FrameEvent"]))
-            event_chunks.update(
-                {
-                    name: (frame_chunk,)
-                    for name in events.data_vars
-                    if events[name].dims == ("FrameEvent",)
-                }
-            )
         if "AcquisitionEvent" in events.sizes:
             acquisition_chunk = min(4096, max(1, events.sizes["AcquisitionEvent"]))
             event_chunks.update(

@@ -123,7 +123,6 @@ def _extract_frame_scalars(frame_metadata: dict[str, Any]) -> dict[str, Any]:
         ),
         "stage_position_um": stage_xyz,
         "pfs_offset": float(pfs_offset) if pfs_offset is not None else np.nan,
-        "position_name": str(position.get("name") or ""),
     }
 
 
@@ -223,7 +222,7 @@ def extract_source_frame_metadata(experiment: Any) -> dict[str, Any]:
     absolute_julian_day_number = np.full((n_fovs, n_times), np.nan, dtype=np.float64)
     stage_position_um = np.full((n_fovs, n_times, 3), np.nan, dtype=np.float64)
     pfs_offset = np.full((n_fovs, n_times), np.nan, dtype=np.float64)
-    position_name = np.empty((n_fovs, n_times), dtype=object)
+    pfs_status = np.full((n_fovs, n_times), np.nan, dtype=np.float64)
     frame_metadata_json = np.empty((n_fovs, n_times), dtype=object)
 
     with nd2.ND2File(experiment.path) as nd2_file:
@@ -255,26 +254,29 @@ def extract_source_frame_metadata(experiment: Any) -> dict[str, Any]:
                 ]
                 stage_position_um[local_p, local_t] = scalars["stage_position_um"]
                 pfs_offset[local_p, local_t] = scalars["pfs_offset"]
-                position_name[local_p, local_t] = scalars["position_name"]
                 frame_metadata_json[local_p, local_t] = _json_dumps(frame_dict)
 
-        frame_event_records: list[dict[str, Any]] = []
+        # The ND2 event table has one row per frame plus non-frame acquisition
+        # events. Frame rows are the reliable source for PFS: frame metadata
+        # often reports pfsOffset as null.
         acquisition_event_records: list[dict[str, Any]] = []
         if not bool(nd2_file.is_legacy):
-            allowed_p = {int(idx) for idx in original_p_index.tolist()}
-            allowed_t = {int(idx) for idx in original_t_index.tolist()}
+            local_p_of = {int(raw): idx for idx, raw in enumerate(original_p_index.tolist())}
+            local_t_of = {int(raw): idx for idx, raw in enumerate(original_t_index.tolist())}
             for row in nd2_file.events(orient="records"):
                 row_dict = _to_builtin(row)
-                is_frame_row = "Index" in row_dict
-                if not is_frame_row:
+                if "Index" not in row_dict:
                     acquisition_event_records.append(row_dict)
                     continue
 
-                row_p = int(row_dict.get("P Index", 0))
-                row_t = int(row_dict.get("T Index", 0))
-                row_z = int(row_dict.get("Z Index", 0))
-                if row_p in allowed_p and row_t in allowed_t and row_z == 0:
-                    frame_event_records.append(row_dict)
+                local_p = local_p_of.get(int(row_dict.get("P Index", 0)))
+                local_t = local_t_of.get(int(row_dict.get("T Index", 0)))
+                if local_p is None or local_t is None or int(row_dict.get("Z Index", 0)) != 0:
+                    continue
+                for column, target in (("PFS Offset", pfs_offset), ("PFS Status", pfs_status)):
+                    value = _replace_nan_with_none(row_dict.get(column))
+                    if value is not None:
+                        target[local_p, local_t] = float(value)
 
     return {
         "fov_names": fov_names,
@@ -285,9 +287,8 @@ def extract_source_frame_metadata(experiment: Any) -> dict[str, Any]:
         "absolute_julian_day_number": absolute_julian_day_number,
         "stage_position_um": stage_position_um,
         "pfs_offset": pfs_offset,
-        "position_name": position_name,
+        "pfs_status": pfs_status,
         "frame_metadata_json": frame_metadata_json,
-        "frame_event_records": frame_event_records,
         "acquisition_event_records": acquisition_event_records,
     }
 
@@ -304,11 +305,11 @@ def build_source_frames_dataset(metadata: dict[str, Any]) -> xr.Dataset:
                 metadata["absolute_julian_day_number"],
             ),
             "pfs_offset": (("FOV", "T"), metadata["pfs_offset"]),
+            "pfs_status": (("FOV", "T"), metadata["pfs_status"]),
             "stage_position_um": (
                 ("FOV", "T", "Axis"),
                 metadata["stage_position_um"],
             ),
-            "position_name": (("FOV", "T"), metadata["position_name"]),
             "frame_metadata_json": (
                 ("FOV", "T"),
                 metadata["frame_metadata_json"],
@@ -353,23 +354,17 @@ def _records_to_dataset(
 
 
 def build_events_dataset(
-    frame_event_records: Sequence[Mapping[str, Any]],
     acquisition_event_records: Sequence[Mapping[str, Any]],
 ) -> xr.Dataset:
-    """Build the ``/events`` xarray dataset."""
+    """Build the ``/events`` xarray dataset of non-frame acquisition events.
+
+    Per-frame event columns are folded into ``/source_frames`` instead.
+    """
     dataset = xr.Dataset(
         attrs={
             "extractor_store_version": EXTRACTOR_STORE_VERSION,
             "layout": "events_v1",
         },
-    )
-    dataset = dataset.merge(
-        _records_to_dataset(
-            frame_event_records,
-            dim_name="FrameEvent",
-            var_prefix="frame",
-        ),
-        compat="override",
     )
     dataset = dataset.merge(
         _records_to_dataset(
