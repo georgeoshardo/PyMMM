@@ -217,6 +217,7 @@ class TrenchDetector:
         conv_filter: Optional[np.ndarray] = None,
         plot: bool = False,
         lane_params: Optional[Dict[int, Dict[str, Any]]] = None,
+        save_diagnostics: bool = True,
     ) -> None:
         """Detect trench x-positions in all FOVs and lanes.
 
@@ -248,10 +249,13 @@ class TrenchDetector:
         conv_filter : np.ndarray | None
             Optional convolution filter for noisy data.
         plot : bool
-            If ``True``, show overlay for the first FOV.
+            If ``True``, show the trench overlay for the first FOV.
         lane_params : dict[int, dict[str, Any]] | None
             Optional per-lane detection parameter overrides keyed by
             ``lane_index``. Output width and length are always global.
+        save_diagnostics : bool
+            Save a trench overlay for every FOV to the ``trenches``
+            diagnostics folder (see :meth:`save_diagnostics`).
         """
         if trench_width <= 0:
             raise ValueError("trench_width must be greater than zero.")
@@ -270,10 +274,9 @@ class TrenchDetector:
         trenches: Dict[str, List[TrenchDefinition]] = {}
         trench_counter = 0
 
+        mean_images = self.registrator.compute_registered_means(channel=self.channel)
         for fov in self.experiment.fov_names:
-            mean_img = self.registrator.get_registered_mean_of_timestack(
-                fov=fov, channel=self.channel
-            )
+            mean_img = mean_images[fov]
             fov_trenches, _, trench_counter = self._detect_trenches_single_fov(
                 mean_img, fov, sigma, distance, prominence, height,
                 trench_width, trench_length, trench_bottom_offset,
@@ -297,8 +300,10 @@ class TrenchDetector:
         }
         print(f"Detected {self.n_trenches} trenches across {len(trenches)} FOVs")
 
+        if save_diagnostics:
+            self.save_diagnostics()
         if plot:
-            self._plot_first_fov()
+            self.plot_fov(self.experiment.fov_names[0])
 
     # ------------------------------------------------------------------
     # Trench management
@@ -332,18 +337,33 @@ class TrenchDetector:
     # Plotting
     # ------------------------------------------------------------------
 
-    def _plot_first_fov(self) -> None:
-        """Plot trench overlay for the first FOV."""
+    def save_diagnostics(self) -> None:
+        """Save a trench overlay for every FOV to ``<experiment>_diagnostics/trenches/``."""
         from pymmm._utils import get_diagnostics_dir
+        from pymmm.plotting import plot_fov_with_trenches, save_figures
 
-        diag_dir = get_diagnostics_dir(self.experiment.path)
-        fov = self.experiment.fov_names[0]
-        self.plot_fov(fov, save_path=str(diag_dir / f"trenches_{fov}.png"))
+        diag_dir = get_diagnostics_dir(self.experiment.path, "trenches")
+        mean_images = self.registrator.compute_registered_means(
+            list(self._trenches), self.channel,
+        )
+        save_figures(plot_fov_with_trenches, [
+            {
+                "image": mean_images[fov],
+                "trench_definitions": fov_trenches,
+                "title": f"Trenches – {fov}",
+                "save_path": str(diag_dir / f"trenches_{fov}.png"),
+            }
+            for fov, fov_trenches in self._trenches.items()
+        ])
+        print(f"Trench diagnostics saved to {diag_dir}")
 
     def plot_fov(
-        self, fov: Union[int, str] = 0, save_path: Optional[str] = None,
+        self,
+        fov: Union[int, str] = 0,
+        save_path: Optional[str] = None,
+        show: bool = True,
     ) -> None:
-        """Plot trench overlay for any FOV."""
+        """Plot the trench overlay for any FOV."""
         from pymmm.plotting import plot_fov_with_trenches
 
         fov_name = normalize_fov_arg(fov, self.experiment.fov_names)
@@ -353,7 +373,7 @@ class TrenchDetector:
         fov_trenches = self._trenches.get(fov_name, [])
         plot_fov_with_trenches(
             mean_img, fov_trenches, title=f"Trenches – {fov_name}",
-            save_path=save_path,
+            save_path=save_path, show=show,
         )
 
     # ------------------------------------------------------------------
@@ -369,6 +389,8 @@ class TrenchDetector:
         import ipywidgets as widgets
         import matplotlib.pyplot as plt
         import ndv
+
+        from pymmm.plotting import NDV_CLIMS
         from IPython.display import display
 
         mean_images: Dict[str, np.ndarray] = {}
@@ -437,7 +459,7 @@ class TrenchDetector:
             channel_axis=0,
             channel_mode="composite",
             luts={
-                0: {"name": self.channel, "cmap": "gray"},
+                0: {"name": self.channel, "cmap": "gray", "clims": NDV_CLIMS},
                 1: {
                     "name": "candidate trenches",
                     "cmap": "red",

@@ -9,10 +9,16 @@ from typing import Any, List, Union
 import xarray as xr
 
 
-def get_diagnostics_dir(experiment_path: Path) -> Path:
-    """Return (and create) a diagnostics directory next to the data file."""
+def get_diagnostics_dir(experiment_path: Path, kind: str | None = None) -> Path:
+    """Return (and create) the diagnostics directory next to the data file.
+
+    ``kind`` selects a subfolder for one kind of diagnostic (``"drift"``,
+    ``"mean_images"``, ``"lanes"``, ``"trenches"``).
+    """
     diag_dir = experiment_path.parent / f"{experiment_path.stem}_diagnostics"
-    diag_dir.mkdir(exist_ok=True)
+    if kind is not None:
+        diag_dir = diag_dir / kind
+    diag_dir.mkdir(parents=True, exist_ok=True)
     return diag_dir
 
 

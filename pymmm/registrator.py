@@ -68,6 +68,42 @@ def _warp_frame(image: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     return warp(image, matrix, preserve_range=True, order=1)
 
 
+def _registered_mean(
+    nd2_path: str,
+    fov_idx: int,
+    time_indices: list[int],
+    channel_idx: Optional[int],
+    y_roi: Optional[tuple],
+    x_roi: Optional[tuple],
+    matrices: np.ndarray,
+) -> np.ndarray:
+    """Mean of registered frames for one FOV, read with a single ND2 handle.
+
+    Frames are cropped to the experiment ROI and warped exactly as
+    :meth:`Registrator.get_stabilized_data` does (cast back to the source
+    dtype), then averaged in float64.
+    """
+    import nd2
+
+    total = None
+    with nd2.ND2File(nd2_path) as f:
+        coord_axes = [k for k in f.sizes if k not in {"X", "Y", "C", "S"}]
+        coord_shape = tuple(f.sizes[k] for k in coord_axes)
+        for time_idx, matrix in zip(time_indices, matrices):
+            coord_map = {"T": time_idx, "P": fov_idx, "Z": 0}
+            coord_tuple = tuple(coord_map.get(ax, 0) for ax in coord_axes)
+            frame = f.read_frame(int(np.ravel_multi_index(coord_tuple, coord_shape)))
+            if channel_idx is not None and frame.ndim == 3:
+                frame = frame[channel_idx]
+            if y_roi is not None:
+                frame = frame[slice(*y_roi), :]
+            if x_roi is not None:
+                frame = frame[:, slice(*x_roi)]
+            warped = _warp_frame(frame, matrix).astype(frame.dtype)
+            total = warped.astype(np.float64) if total is None else total + warped
+    return total / len(time_indices)
+
+
 def _rotation_matrix(angle: float, image_shape: tuple[int, int]) -> np.ndarray:
     """Return the centre-aware inverse map used by ``skimage.rotate``."""
     height, width = image_shape
@@ -464,7 +500,7 @@ class Registrator:
             from pymmm._utils import get_diagnostics_dir
             from pymmm.plotting import plot_mean_image
 
-            diag_dir = get_diagnostics_dir(self.experiment.path)
+            diag_dir = get_diagnostics_dir(self.experiment.path, "mean_images")
             fov = self.experiment.fov_names[0]
             if "P" in self._mean_images.dims:
                 img = self._mean_images.sel(P=fov).values
@@ -512,7 +548,7 @@ class Registrator:
         from pymmm.plotting import plot_drift_diagnostics
 
         fov_label = str(fov) if fov is not None else "single"
-        diag_dir = get_diagnostics_dir(self.experiment.path)
+        diag_dir = get_diagnostics_dir(self.experiment.path, "drift")
         plot_drift_diagnostics(
             fov_da,
             fov_label=fov_label,
@@ -973,27 +1009,57 @@ class Registrator:
         ``mean_n_frames`` frames are averaged (taken from the ``mean_from``
         end of the timeseries), matching the reference used for registration.
         """
+        fov_name = normalize_fov_arg(fov, self.experiment.fov_names)
+        return self.compute_registered_means([fov_name], channel)[fov_name]
+
+    def compute_registered_means(
+        self,
+        fovs: Optional[List[Union[int, str]]] = None,
+        channel: Optional[Union[int, str]] = None,
+    ) -> Dict[str, np.ndarray]:
+        """Registered mean-of-timestack for several FOVs, computed together.
+
+        FOVs not yet cached are computed in parallel, one task per FOV that
+        reads its frames with a single ND2 handle: on the active distributed
+        cluster if there is one, otherwise in a thread pool. ``fovs=None``
+        means every FOV. Returns ``{fov_name: image}``.
+        """
         ch = channel if channel is not None else self.channel
         if isinstance(ch, int):
             ch = normalize_channel_arg(ch, self.experiment.channel_names)
-        fov_name = normalize_fov_arg(fov, self.experiment.fov_names)
-        cache_key = (fov_name, ch)
-
-        if cache_key in self._registered_mean_cache:
-            return self._registered_mean_cache[cache_key]
-
-        n = min(self.mean_n_frames, self.experiment.n_timepoints)
-        if self.mean_from == "end":
-            time_slice = slice(-n, None)
-        else:
-            time_slice = slice(0, n)
-        stack = self.get_stabilized_data(
-            channel=ch, fov=fov_name, time_slice=time_slice,
-        )
-
-        result = stack.mean(dim="T").compute().values
-        self._registered_mean_cache[cache_key] = result
-        return result
+        fov_names = [
+            normalize_fov_arg(fov, self.experiment.fov_names)
+            for fov in (fovs if fovs is not None else self.experiment.fov_names)
+        ]
+        missing = [f for f in fov_names if (f, ch) not in self._registered_mean_cache]
+        if missing:
+            exp = self.experiment
+            n = min(self.mean_n_frames, exp.n_timepoints)
+            time_slice = slice(-n, None) if self.mean_from == "end" else slice(0, n)
+            time_indices = exp.source_axes["original_t_index"][time_slice].tolist()
+            channel_idx = exp.channel_names.index(ch) if exp.has_channels else None
+            y_roi, x_roi = exp.source_roi
+            rotation_matrix = _rotation_matrix(
+                self.rotation, (exp.data.sizes["Y"], exp.data.sizes["X"])
+            )
+            tasks = []
+            for fov_name in missing:
+                tmats = self._tmats.sel(P=fov_name) if "P" in self._tmats.dims else self._tmats
+                matrices = np.matmul(tmats.isel(T=time_slice).values, rotation_matrix)
+                tasks.append((
+                    str(exp.path), exp.raw_fov_index(fov_name), time_indices,
+                    channel_idx, y_roi, x_roi, matrices,
+                ))
+            client = _try_get_dask_client()
+            if client is not None:
+                futures = [client.submit(_registered_mean, *task, pure=False) for task in tasks]
+                results = client.gather(futures)
+            else:
+                with ThreadPoolExecutor(max_workers=min(len(tasks), os.cpu_count() or 1)) as pool:
+                    results = list(pool.map(lambda task: _registered_mean(*task), tasks))
+            for fov_name, result in zip(missing, results):
+                self._registered_mean_cache[(fov_name, ch)] = result
+        return {f: self._registered_mean_cache[(f, ch)] for f in fov_names}
 
     # ------------------------------------------------------------------
     # Drift diagnostics shortcut

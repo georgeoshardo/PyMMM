@@ -151,6 +151,7 @@ class LaneDetector:
         orientation_window_um: float = 20.0,
         orientation: str = "auto",
         plot: bool = False,
+        save_diagnostics: bool = True,
     ) -> None:
         """Detect lane y-positions in all FOVs.
 
@@ -177,16 +178,18 @@ class LaneDetector:
             ``"down"`` forces every lane to have its trenches above it, opening
             down into the lane; ``"up"`` forces trenches below, opening up.
         plot : bool
-            If ``True``, show lane overlay for the first FOV.
+            If ``True``, show the lane overlay for the first FOV.
+        save_diagnostics : bool
+            Save a lane overlay for every FOV to the ``lanes`` diagnostics
+            folder (see :meth:`save_diagnostics`).
         """
         if orientation not in ("auto", *_FORCED_ORIENTATION):
             raise ValueError(f"orientation must be 'auto', 'down' or 'up', not {orientation!r}")
         lanes: Dict[str, List[LaneInfo]] = {}
 
+        mean_images = self.registrator.compute_registered_means(channel=self.channel)
         for fov in self.experiment.fov_names:
-            mean_img = self.registrator.get_registered_mean_of_timestack(
-                fov=fov, channel=self.channel
-            )
+            mean_img = mean_images[fov]
             _, _, _, fov_lanes = self._detect_lanes_single_fov(
                 mean_img, sigma, distance, height, orientation_window_um, fov,
                 orientation=orientation,
@@ -207,46 +210,51 @@ class LaneDetector:
             + ", ".join(f"{fov}: {len(ls)}" for fov, ls in lanes.items())
         )
 
+        if save_diagnostics:
+            self.save_diagnostics()
         if plot:
-            self._plot_first_fov()
+            self.plot_fov(self.experiment.fov_names[0])
 
-    def _plot_first_fov(self) -> None:
-        """Plot lane overlay for the first FOV."""
+    def save_diagnostics(self) -> None:
+        """Save a lane overlay for every FOV to ``<experiment>_diagnostics/lanes/``."""
         from pymmm._utils import get_diagnostics_dir
-        from pymmm.plotting import plot_fov_with_lanes
+        from pymmm.plotting import plot_fov_with_lanes, save_figures
 
-        diag_dir = get_diagnostics_dir(self.experiment.path)
-        fov = self.experiment.fov_names[0]
-        mean_img = self.registrator.get_registered_mean_of_timestack(
-            fov=fov, channel=self.channel
-        )
-        fov_lanes = self._lanes[fov]
-        y_positions = [l.y_center for l in fov_lanes]
-        orientations = [l.orientation for l in fov_lanes]
-        plot_fov_with_lanes(
-            mean_img,
-            y_positions,
-            orientations=orientations,
-            title=f"Lanes – {fov}",
-            save_path=str(diag_dir / f"lanes_{fov}.png"),
-        )
+        diag_dir = get_diagnostics_dir(self.experiment.path, "lanes")
+        mean_images = self.registrator.compute_registered_means(list(self.lanes), self.channel)
+        save_figures(plot_fov_with_lanes, [
+            {
+                "image": mean_images[fov],
+                "lane_y_positions": [l.y_center for l in fov_lanes],
+                "orientations": [l.orientation for l in fov_lanes],
+                "title": f"Lanes – {fov}",
+                "save_path": str(diag_dir / f"lanes_{fov}.png"),
+            }
+            for fov, fov_lanes in self.lanes.items()
+        ])
+        print(f"Lane diagnostics saved to {diag_dir}")
 
-    def plot_fov(self, fov: Union[int, str] = 0) -> None:
-        """Plot lane overlay for any FOV."""
+    def plot_fov(
+        self,
+        fov: Union[int, str] = 0,
+        save_path: Optional[str] = None,
+        show: bool = True,
+    ) -> None:
+        """Plot the lane overlay for any FOV."""
         from pymmm.plotting import plot_fov_with_lanes
 
         fov_name = normalize_fov_arg(fov, self.experiment.fov_names)
         mean_img = self.registrator.get_registered_mean_of_timestack(
             fov=fov_name, channel=self.channel
         )
-        fov_lanes = self._lanes[fov_name]
-        y_positions = [l.y_center for l in fov_lanes]
-        orientations = [l.orientation for l in fov_lanes]
+        fov_lanes = self.lanes[fov_name]
         plot_fov_with_lanes(
             mean_img,
-            y_positions,
-            orientations=orientations,
+            [l.y_center for l in fov_lanes],
+            orientations=[l.orientation for l in fov_lanes],
             title=f"Lanes – {fov_name}",
+            save_path=save_path,
+            show=show,
         )
 
     # ------------------------------------------------------------------
@@ -262,6 +270,8 @@ class LaneDetector:
         import ipywidgets as widgets
         import matplotlib.pyplot as plt
         import ndv
+
+        from pymmm.plotting import NDV_CLIMS
         from IPython.display import display
 
         mean_images: Dict[str, np.ndarray] = {}
@@ -331,7 +341,7 @@ class LaneDetector:
             channel_axis=0,
             channel_mode="composite",
             luts={
-                0: {"name": self.channel, "cmap": "gray"},
+                0: {"name": self.channel, "cmap": "gray", "clims": NDV_CLIMS},
                 1: {
                     "name": "open down", "cmap": "red", "clims": (0, 1),
                 },

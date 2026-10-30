@@ -11,11 +11,69 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 import matplotlib.pyplot as plt
 import numpy as np
 
+CONTRAST_PERCENTILES = (5.0, 95.0)
+"""Lower/upper intensity percentiles that set the contrast of every PyMMM
+image: saved diagnostics and the ndv viewers."""
+
+NDV_CLIMS = {
+    "clim_type": "percentile",
+    "min_percentile": CONTRAST_PERCENTILES[0],
+    "max_percentile": CONTRAST_PERCENTILES[1],
+}
+"""ndv LUT ``clims`` policy implementing :data:`CONTRAST_PERCENTILES`."""
+
+
+def contrast_limits(image: np.ndarray) -> Tuple[float, float]:
+    """``(vmin, vmax)`` for displaying ``image`` at :data:`CONTRAST_PERCENTILES`."""
+    vmin, vmax = np.nanpercentile(np.asarray(image), CONTRAST_PERCENTILES)
+    return float(vmin), float(vmax)
+
+
+def _save_figure(plot_func, kwargs: dict) -> str:
+    plot_func(**kwargs, show=False)
+    return kwargs["save_path"]
+
+
+def save_figures(plot_func, jobs: List[dict]) -> None:
+    """Render and save one figure per job without showing them.
+
+    Each job is the keyword arguments for ``plot_func`` and must include
+    ``save_path``. Figures are rendered on the active dask distributed
+    cluster when there is one (each worker is its own process, so matplotlib
+    runs safely in parallel), otherwise one after another.
+    """
+    try:
+        from dask.distributed import get_client
+        client = get_client()
+    except (ImportError, ValueError):
+        client = None
+    if client is None:
+        for kwargs in jobs:
+            _save_figure(plot_func, kwargs)
+        return
+    # Scatter the jobs first: they carry full-size images, which are too large
+    # to embed in the task graph.
+    job_futures = client.scatter(jobs, hash=False)
+    client.gather([
+        client.submit(_save_figure, plot_func, job, pure=False) for job in job_futures
+    ])
+
+
+def _finish(fig, save_path: Optional[str], show: bool) -> None:
+    """Save a figure if asked, then show it or release it."""
+    if save_path:
+        fig.savefig(save_path)
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
 
 def plot_drift_diagnostics(
     tmats: "xr.DataArray",
     fov_label: str = "",
     save_path: Optional[str] = None,
+    show: bool = True,
 ) -> None:
     """3-panel drift diagnostic: spatial trace, X drift vs time, Y drift vs time.
 
@@ -27,6 +85,8 @@ def plot_drift_diagnostics(
         Label for the plot title.
     save_path : str | None
         If given, save the figure to this path.
+    show : bool
+        Show the figure in the notebook; ``False`` only saves it.
     """
     # Extract translations
     vals = tmats.values if hasattr(tmats, "values") else np.asarray(tmats)
@@ -69,25 +129,23 @@ def plot_drift_diagnostics(
     axs[2].grid(True, linestyle="--", alpha=0.5)
 
     plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path)
-    plt.show()
+    _finish(fig, save_path, show)
 
 
 def plot_mean_image(
     image: np.ndarray,
     title: str = "Mean image",
     save_path: Optional[str] = None,
+    show: bool = True,
 ) -> None:
     """Display a single image with a greyscale colormap."""
     fig, ax = plt.subplots(figsize=(10, 10))
-    ax.imshow(image, cmap="Greys_r")
+    vmin, vmax = contrast_limits(image)
+    ax.imshow(image, cmap="Greys_r", vmin=vmin, vmax=vmax)
     ax.set_title(title)
     ax.grid(which="both", color="w", linestyle="-", linewidth=0.5, alpha=0.3)
     plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path)
-    plt.show()
+    _finish(fig, save_path, show)
 
 
 def plot_1d_profile_with_peaks(
@@ -97,6 +155,7 @@ def plot_1d_profile_with_peaks(
     xlabel: str = "Position (px)",
     ylabel: str = "Intensity",
     save_path: Optional[str] = None,
+    show: bool = True,
 ) -> None:
     """Plot a 1-D profile with peak markers."""
     fig, ax = plt.subplots(figsize=(12, 4))
@@ -107,9 +166,7 @@ def plot_1d_profile_with_peaks(
     ax.set_ylabel(ylabel)
     ax.legend()
     plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path)
-    plt.show()
+    _finish(fig, save_path, show)
 
 
 def plot_fov_with_lanes(
@@ -118,6 +175,7 @@ def plot_fov_with_lanes(
     orientations: Optional[List[int]] = None,
     title: str = "",
     save_path: Optional[str] = None,
+    show: bool = True,
 ) -> None:
     """Show an image with horizontal lines at lane y-positions.
 
@@ -128,18 +186,21 @@ def plot_fov_with_lanes(
     lane_y_positions : list[float]
         Y-coordinates of lane centres.
     orientations : list[int] | None
-        ``+1`` or ``-1`` per lane. If given, annotated on the plot.
+        ``+1`` or ``-1`` per lane. If given, lanes are drawn red (trenches
+        above, opening down) or cyan (trenches below, opening up), as in the
+        lane widget.
     title : str
         Plot title.
     """
     fig, ax = plt.subplots(figsize=(14, 8))
-    ax.imshow(image, cmap="Greys_r")
+    vmin, vmax = contrast_limits(image)
+    ax.imshow(image, cmap="Greys_r", vmin=vmin, vmax=vmax)
     for i, y in enumerate(lane_y_positions):
-        color = "r"
+        color = "cyan" if orientations is not None and orientations[i] == -1 else "red"
         ax.axhline(y, color=color, lw=1.5, alpha=0.8)
         label = f"Lane {i}"
         if orientations is not None:
-            label += f" (ori={orientations[i]:+d})"
+            label += " (open down)" if orientations[i] == 1 else " (open up)"
         ax.text(
             image.shape[1] * 0.02,
             y - 10,
@@ -151,9 +212,7 @@ def plot_fov_with_lanes(
     ax.set_title(title)
     ax.set_axis_off()
     plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path)
-    plt.show()
+    _finish(fig, save_path, show)
 
 
 def plot_fov_with_trenches(
@@ -161,6 +220,7 @@ def plot_fov_with_trenches(
     trench_definitions: list,
     title: str = "",
     save_path: Optional[str] = None,
+    show: bool = True,
 ) -> None:
     """Show an image with coloured rectangles for trench boundaries.
 
@@ -174,7 +234,8 @@ def plot_fov_with_trenches(
     """
     colors = cycle(["red", "green", "blue", "yellow", "orange", "purple", "cyan"])
     fig, ax = plt.subplots(figsize=(14, 8))
-    ax.imshow(image, cmap="Greys_r")
+    vmin, vmax = contrast_limits(image)
+    ax.imshow(image, cmap="Greys_r", vmin=vmin, vmax=vmax)
 
     for td, color in zip(trench_definitions, colors):
         ax.axvspan(td.x_left, td.x_right, alpha=0.1, color=color)
@@ -195,9 +256,7 @@ def plot_fov_with_trenches(
     ax.set_title(title)
     ax.set_axis_off()
     plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path)
-    plt.show()
+    _finish(fig, save_path, show)
 
 
 def plot_fov_grid(
@@ -226,7 +285,8 @@ def plot_fov_grid(
 
     for i, (fov, img) in enumerate(images.items()):
         ax = axes_flat[i]
-        ax.imshow(img, cmap="Greys_r")
+        vmin, vmax = contrast_limits(img)
+        ax.imshow(img, cmap="Greys_r", vmin=vmin, vmax=vmax)
         ax.set_title(fov)
         ax.set_axis_off()
 
@@ -273,8 +333,9 @@ def plot_trench_preview(
     indices = np.linspace(0, total_t - 1, n_frames, dtype=int)
 
     fig, axes = plt.subplots(1, n_frames, figsize=(2 * n_frames, 6))
+    vmin, vmax = contrast_limits(trench_stack[indices])
     for ax, idx in zip(axes, indices):
-        ax.imshow(trench_stack[idx], cmap="Greys_r")
+        ax.imshow(trench_stack[idx], cmap="Greys_r", vmin=vmin, vmax=vmax)
         ax.set_title(f"t={idx}")
         ax.set_axis_off()
 

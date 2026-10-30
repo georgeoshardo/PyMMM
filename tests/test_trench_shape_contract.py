@@ -14,7 +14,8 @@ def _make_detector() -> TrenchDetector:
     image = np.ones((200, 160), dtype=np.float32)
     experiment = SimpleNamespace(channel_names=["PC"], fov_names=["f0"])
     registrator = SimpleNamespace(
-        get_registered_mean_of_timestack=lambda fov, channel: image
+        get_registered_mean_of_timestack=lambda fov, channel: image,
+        compute_registered_means=lambda channel: {"f0": image},
     )
     lane_detector = SimpleNamespace(
         lanes={"f0": [LaneInfo(100, 1, "f0", 0)]}
@@ -39,6 +40,7 @@ def test_explicit_trench_width_is_exact(monkeypatch, trench_width: int) -> None:
         trench_width=trench_width,
         trench_length=60,
         trench_bottom_offset=10,
+        save_diagnostics=False,
     )
 
     trenches = detector.trenches["f0"]
