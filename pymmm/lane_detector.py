@@ -370,9 +370,13 @@ class LaneDetector:
             viewer_data[1:].fill(0)
             for lane in fov_lanes:
                 channel_idx = 1 if lane.orientation == 1 else 2
-                y_start = max(0, lane.y_center - 1)
-                y_stop = min(viewer_data.shape[1], lane.y_center + 2)
+                y_start = max(0, lane.y_center - 2)
+                y_stop = min(viewer_data.shape[1], lane.y_center + 3)
                 viewer_data[channel_idx, y_start:y_stop, :] = 1
+            # Lanes sit on the bright feeding channel, which the percentile
+            # contrast saturates; the composite view adds colours, so blank the
+            # image under the lines to keep them visible.
+            viewer_data[0][viewer_data[1:].any(axis=0)] = mean_img.min()
             image_viewer.data_wrapper.data_changed.emit()
             preview_label.value = (
                 f"<b>{fov}</b> — {n_lanes} candidate "

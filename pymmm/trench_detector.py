@@ -431,7 +431,8 @@ class TrenchDetector:
             continuous_update=False, style={"description_width": "initial"},
         )
         trench_length_slider = widgets.IntSlider(
-            value=params.get("trench_length", 160), min=10, max=500, step=5,
+            value=params.get("trench_length", 160), min=10,
+            max=self.experiment.data.sizes["Y"], step=5,
             description="trench length",
             continuous_update=False, style={"description_width": "initial"},
         )
@@ -653,6 +654,9 @@ class TrenchDetector:
                 trench_mask[max(y_stop - 2, y_start):y_stop, x_start:x_stop] = 1
                 trench_mask[y_start:y_stop, x_start:min(x_start + 2, x_stop)] = 1
                 trench_mask[y_start:y_stop, max(x_stop - 2, x_start):x_stop] = 1
+            # Blank the image under the outlines so they stay visible where the
+            # percentile contrast saturates (e.g. the feeding channel).
+            viewer_data[0][trench_mask > 0] = mean_img.min()
             image_viewer.data_wrapper.data_changed.emit()
             preview_label.value = (
                 f"<b>{fov}</b> — {n_trenches} candidate "
