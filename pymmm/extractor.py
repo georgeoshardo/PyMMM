@@ -103,6 +103,31 @@ def _extract_frame_batch(
     return result
 
 
+_ROOT_ATTRS = {
+    "data": {"long_name": "trench image crops"},
+    "fov_name": {"long_name": "field of view the trench was cut from"},
+    "fov_index": {"long_name": "index into the FOV dimension of /source_frames and /registration"},
+    "lane_index": {"long_name": "lane the trench belongs to within its FOV"},
+    "x_left": {"units": "pixel", "long_name": "trench left edge in the registered FOV"},
+    "x_right": {"units": "pixel", "long_name": "trench right edge in the registered FOV"},
+    "y_top": {"units": "pixel", "long_name": "trench top edge in the registered FOV"},
+    "y_bottom": {"units": "pixel", "long_name": "trench bottom edge in the registered FOV"},
+    "orientation": {"long_name": "trench opening direction (1 = opens downward, -1 = upward)"},
+    "needs_flip": {"long_name": "crop was flipped vertically so trenches share one orientation"},
+    "Trench": {"long_name": "trench id"},
+    "T": {"long_name": "frame index (original ND2 T index); times are in /source_frames"},
+    "C": {"long_name": "channel"},
+    "Y": {"units": "pixel", "long_name": "row within the trench crop"},
+    "X": {"units": "pixel", "long_name": "column within the trench crop"},
+}
+
+
+def _annotate_root_dataset(dataset: xr.Dataset) -> xr.Dataset:
+    for name, attrs in _ROOT_ATTRS.items():
+        dataset[name].attrs.update(attrs)
+    return dataset
+
+
 class Extractor:
     """Crop trenches from the lazy stabilised DataArray and write to zarr.
 
@@ -147,14 +172,6 @@ class Extractor:
             "source_file_size_bytes": int(source_stat.st_size),
             "source_mtime_ns": int(source_stat.st_mtime_ns),
             "experiment_name": exp.experiment_name,
-            "pixel_size_um": exp.pixel_size_um,
-            "registration_params": {
-                "channel": self.registrator.channel,
-                "backend": getattr(self.registrator, "backend", "stackreg"),
-                "mode": str(self.registrator.mode),
-                "rotation": self.registrator.rotation,
-                "transform_convention": TRANSFORM_CONVENTION,
-            },
             "source_subset_metadata": exp.source_subset_metadata,
         }
 
@@ -257,12 +274,18 @@ class Extractor:
         else:
             tmats = tmats_da.transpose("T", "row", "col").values[np.newaxis]
         tmats = np.asarray(tmats, dtype=np.float64)
-        shift_px = np.stack([tmats[..., 1, 2], tmats[..., 0, 2]], axis=-1)
+        shift = np.stack([tmats[..., 1, 2], tmats[..., 0, 2]], axis=-1)
 
         return xr.Dataset(
             data_vars={
-                "tmats": (("FOV", "T", "Row", "Col"), tmats),
-                "shift_px": (("FOV", "T", "ShiftAxis"), shift_px),
+                "tmats": (
+                    ("FOV", "T", "Row", "Col"), tmats,
+                    {"long_name": "registration transform, before rotation (3x3 affine)"},
+                ),
+                "shift": (
+                    ("FOV", "T", "ShiftAxis"), shift,
+                    {"units": "pixel", "long_name": "registration translation"},
+                ),
             },
             coords={
                 "FOV": np.asarray(fov_names, dtype=object),
@@ -276,7 +299,7 @@ class Extractor:
                 "layout": "registration_v1",
                 "description": (
                     "Registration transforms per FOV and timepoint, before rotation. "
-                    "shift_px is the translation part of tmats (y = [1, 2], x = [0, 2])."
+                    "shift is the translation part of tmats (y = [1, 2], x = [0, 2])."
                 ),
                 "channel": reg.channel,
                 "backend": getattr(reg, "backend", "stackreg"),
@@ -371,7 +394,7 @@ class Extractor:
                 "X": np.arange(trench_w, dtype=np.int32),
             },
             attrs=self._root_store_attrs(),
-        )
+        ).pipe(_annotate_root_dataset)
 
     def _write_metadata_groups(
         self,
@@ -395,11 +418,11 @@ class Extractor:
                         min(256, max(1, source_frames.sizes["FOV"])),
                     ),
                     "source_seq_index": (1, n_times),
-                    "relative_time_ms": (1, n_times),
-                    "absolute_julian_day_number": (1, n_times),
+                    "relative_time": (1, n_times),
+                    "julian_date": (1, n_times),
                     "pfs_offset": (1, n_times),
                     "pfs_status": (1, n_times),
-                    "stage_position_um": (1, n_times, 3),
+                    "stage_position": (1, n_times, 3),
                 },
                 compressors=compressors,
             ),

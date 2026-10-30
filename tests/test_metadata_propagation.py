@@ -331,8 +331,8 @@ def test_extract_source_frame_metadata_tracks_subset(monkeypatch, tmp_path):
     assert exported["original_p_index"].tolist() == [1]
     assert exported["original_t_index"].tolist() == [1]
     assert exported["source_seq_index"].tolist() == [[3]]
-    assert exported["relative_time_ms"].tolist() == [[30124.0]]
-    assert exported["stage_position_um"].tolist() == [[[101.0, 201.0, 302.0]]]
+    assert exported["relative_time"].tolist() == [[30124.0]]
+    assert exported["stage_position"].tolist() == [[[101.0, 201.0, 302.0]]]
     assert exported["pfs_offset"].tolist() == [[17414.0]]
     assert exported["pfs_status"].tolist() == [[0.0]]
     assert "position_name" not in exported
@@ -447,10 +447,13 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
     assert root["fov_name"].compute().values.tolist() == ["XYPos:1", "XYPos:1"]
     assert root["fov_index"].compute().values.tolist() == [0, 0]
     per_fov = {
-        "original_p_index", "source_seq_index", "relative_time_ms",
-        "absolute_julian_day_number", "pfs_offset", "stage_position_um",
+        "original_p_index", "source_seq_index", "relative_time",
+        "julian_date", "pfs_offset", "stage_position",
     }
     assert not per_fov & set(root.data_vars)
+    assert root["x_left"].attrs["units"] == "pixel"
+    assert "registration_params" not in root.attrs
+    assert "pixel_size_um" not in root.attrs
     assert "trench_mapping" not in root.attrs
     assert "source_acquisition_metadata" not in root.attrs
     assert root.attrs["extractor_store_version"] == 3
@@ -482,12 +485,12 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
     np.testing.assert_array_equal(
         registration["tmats"].sel(FOV="XYPos:1", T=1).values, np.eye(3),
     )
-    assert registration["shift_px"].sel(FOV="XYPos:1", T=1).values.tolist() == [0.0, 0.0]
+    assert registration["shift"].sel(FOV="XYPos:1", T=1).values.tolist() == [0.0, 0.0]
     assert registration.attrs["mode"] == "first"
 
     source_frames = tree["source_frames"].ds
     assert (
-        source_frames["relative_time_ms"]
+        source_frames["relative_time"]
         .sel(FOV="XYPos:1", T=1)
         .compute()
         .item()
@@ -496,6 +499,8 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
     assert source_frames["pfs_offset"].sel(FOV="XYPos:1", T=1).item() == 17414.0
     assert source_frames["pfs_status"].sel(FOV="XYPos:1", T=1).item() == 0.0
     assert "position_name" not in source_frames
+    assert source_frames["relative_time"].attrs["units"] == "millisecond"
+    assert source_frames["stage_position"].attrs["units"] == "micrometer"
     assert source_frames["frame_metadata_json"].dims == ("FOV",)
     assert "mCherry" in source_frames["frame_metadata_json"].sel(FOV="XYPos:1").item()
 
@@ -562,6 +567,6 @@ def test_registration_dataset_stores_per_fov_shifts():
         {"fov_names": ["XYPos:1"], "original_t_index": np.asarray([5, 6, 7])}
     )
 
-    assert registration["shift_px"].sel(FOV="XYPos:1", T=7).values.tolist() == [-2.0, 4.5]
-    assert registration["shift_px"].sel(FOV="XYPos:1", T=5).values.tolist() == [0.0, 0.0]
+    assert registration["shift"].sel(FOV="XYPos:1", T=7).values.tolist() == [-2.0, 4.5]
+    assert registration["shift"].sel(FOV="XYPos:1", T=5).values.tolist() == [0.0, 0.0]
     assert json.loads(registration.attrs["roi"]) == {"y": [250, 860]}

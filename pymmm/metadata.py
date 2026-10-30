@@ -102,19 +102,19 @@ def _extract_frame_scalars(frame_metadata: dict[str, Any]) -> dict[str, Any]:
     else:
         stage_xyz = (np.nan, np.nan, np.nan)
 
-    relative_time_ms = time.get("relativeTimeMs")
-    absolute_julian_day_number = time.get("absoluteJulianDayNumber")
+    relative_time = time.get("relativeTimeMs")
+    julian_date = time.get("absoluteJulianDayNumber")
     pfs_offset = position.get("pfsOffset")
 
     return {
-        "relative_time_ms": (
-            float(relative_time_ms) if relative_time_ms is not None else np.nan
+        "relative_time": (
+            float(relative_time) if relative_time is not None else np.nan
         ),
-        "absolute_julian_day_number": (
-            float(absolute_julian_day_number)
-            if absolute_julian_day_number is not None else np.nan
+        "julian_date": (
+            float(julian_date)
+            if julian_date is not None else np.nan
         ),
-        "stage_position_um": stage_xyz,
+        "stage_position": stage_xyz,
         "pfs_offset": float(pfs_offset) if pfs_offset is not None else np.nan,
     }
 
@@ -219,9 +219,9 @@ def extract_source_frame_metadata(experiment: Any) -> dict[str, Any]:
     n_fovs = len(fov_names)
     n_times = len(original_t_index)
     source_seq_index = np.empty((n_fovs, n_times), dtype=np.int64)
-    relative_time_ms = np.full((n_fovs, n_times), np.nan, dtype=np.float64)
-    absolute_julian_day_number = np.full((n_fovs, n_times), np.nan, dtype=np.float64)
-    stage_position_um = np.full((n_fovs, n_times, 3), np.nan, dtype=np.float64)
+    relative_time = np.full((n_fovs, n_times), np.nan, dtype=np.float64)
+    julian_date = np.full((n_fovs, n_times), np.nan, dtype=np.float64)
+    stage_position = np.full((n_fovs, n_times, 3), np.nan, dtype=np.float64)
     pfs_offset = np.full((n_fovs, n_times), np.nan, dtype=np.float64)
     pfs_status = np.full((n_fovs, n_times), np.nan, dtype=np.float64)
     frame_metadata_json = np.empty((n_fovs,), dtype=object)
@@ -250,11 +250,11 @@ def extract_source_frame_metadata(experiment: Any) -> dict[str, Any]:
                 scalars = _extract_frame_scalars(frame_dict)
 
                 source_seq_index[local_p, local_t] = seq_index
-                relative_time_ms[local_p, local_t] = scalars["relative_time_ms"]
-                absolute_julian_day_number[local_p, local_t] = scalars[
-                    "absolute_julian_day_number"
+                relative_time[local_p, local_t] = scalars["relative_time"]
+                julian_date[local_p, local_t] = scalars[
+                    "julian_date"
                 ]
-                stage_position_um[local_p, local_t] = scalars["stage_position_um"]
+                stage_position[local_p, local_t] = scalars["stage_position"]
                 pfs_offset[local_p, local_t] = scalars["pfs_offset"]
 
                 static_json = _json_dumps(_static_frame_metadata(frame_dict))
@@ -299,9 +299,9 @@ def extract_source_frame_metadata(experiment: Any) -> dict[str, Any]:
         "original_p_index": original_p_index,
         "original_t_index": original_t_index,
         "source_seq_index": source_seq_index,
-        "relative_time_ms": relative_time_ms,
-        "absolute_julian_day_number": absolute_julian_day_number,
-        "stage_position_um": stage_position_um,
+        "relative_time": relative_time,
+        "julian_date": julian_date,
+        "stage_position": stage_position,
         "pfs_offset": pfs_offset,
         "pfs_status": pfs_status,
         "frame_metadata_json": frame_metadata_json,
@@ -309,22 +309,38 @@ def extract_source_frame_metadata(experiment: Any) -> dict[str, Any]:
     }
 
 
+SOURCE_FRAME_ATTRS = {
+    "original_p_index": {"long_name": "FOV (P) index in the source ND2"},
+    "source_seq_index": {"long_name": "frame sequence index in the source ND2"},
+    "relative_time": {
+        "units": "millisecond", "long_name": "acquisition time since experiment start",
+    },
+    "julian_date": {"units": "day", "long_name": "absolute acquisition time as Julian date"},
+    "pfs_offset": {"long_name": "Nikon Perfect Focus System offset (device units)"},
+    "pfs_status": {"long_name": "Nikon Perfect Focus System status (1 = in focus)"},
+    "stage_position": {"units": "micrometer", "long_name": "stage position"},
+    "frame_metadata_json": {
+        "long_name": "ND2 frame metadata without per-frame time, stage and PFS fields, as JSON",
+    },
+}
+
+
 def build_source_frames_dataset(metadata: dict[str, Any]) -> xr.Dataset:
     """Build the normalized ``/source_frames`` xarray dataset."""
-    return xr.Dataset(
+    dataset = xr.Dataset(
         data_vars={
             "original_p_index": (("FOV",), metadata["original_p_index"]),
             "source_seq_index": (("FOV", "T"), metadata["source_seq_index"]),
-            "relative_time_ms": (("FOV", "T"), metadata["relative_time_ms"]),
-            "absolute_julian_day_number": (
+            "relative_time": (("FOV", "T"), metadata["relative_time"]),
+            "julian_date": (
                 ("FOV", "T"),
-                metadata["absolute_julian_day_number"],
+                metadata["julian_date"],
             ),
             "pfs_offset": (("FOV", "T"), metadata["pfs_offset"]),
             "pfs_status": (("FOV", "T"), metadata["pfs_status"]),
-            "stage_position_um": (
+            "stage_position": (
                 ("FOV", "T", "Axis"),
-                metadata["stage_position_um"],
+                metadata["stage_position"],
             ),
             "frame_metadata_json": (("FOV",), metadata["frame_metadata_json"]),
         },
@@ -338,6 +354,25 @@ def build_source_frames_dataset(metadata: dict[str, Any]) -> xr.Dataset:
             "layout": "source_frames_v1",
         },
     )
+    for name, attrs in SOURCE_FRAME_ATTRS.items():
+        dataset[name].attrs.update(attrs)
+    dataset["FOV"].attrs["long_name"] = "field of view name"
+    dataset["T"].attrs["long_name"] = "frame index (original ND2 T index)"
+    dataset["Axis"].attrs["long_name"] = "stage axis"
+    return dataset
+
+
+_UNIT_NAMES = {"s": "second", "ms": "millisecond", "µm": "micrometer", "μm": "micrometer",
+               "um": "micrometer", "nm": "nanometer", "°c": "degree_Celsius"}
+
+
+def _split_unit(column: str) -> tuple[str, str | None]:
+    """Split an ND2 column name like ``"Time [s]"`` into ``("Time", "second")``."""
+    match = re.fullmatch(r"\s*(.*?)\s*\[(.+?)\]\s*", str(column))
+    if not match:
+        return str(column), None
+    base, unit = match.groups()
+    return base, _UNIT_NAMES.get(unit.lower(), unit)
 
 
 def _records_to_dataset(
@@ -356,12 +391,15 @@ def _records_to_dataset(
     columns = sorted({str(key) for record in records for key in record.keys()})
     for column in columns:
         values = [_replace_nan_with_none(record.get(column)) for record in records]
-        var_name = f"{var_prefix}_{_normalize_name(column)}"
+        base, unit = _split_unit(column)
+        var_name = f"{var_prefix}_{_normalize_name(base)}"
         dataset[var_name] = xr.DataArray(
             _values_to_array(values),
             dims=(dim_name,),
         )
         dataset[var_name].attrs["source_column"] = str(column)
+        if unit:
+            dataset[var_name].attrs["units"] = unit
 
     return dataset
 
