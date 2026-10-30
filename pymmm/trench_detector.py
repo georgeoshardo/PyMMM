@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import convolve, find_peaks
+from scipy.stats import theilslopes
 
 from pymmm._utils import normalize_channel_arg, normalize_fov_arg
 from pymmm.checkpoint import CompanionStore
@@ -30,6 +31,174 @@ class TrenchDefinition:
     y_bottom: int
     orientation: int  # +1 or -1
     needs_flip: bool  # True if orientation == -1
+
+
+# ======================================================================
+# Periodic trench detection
+# ======================================================================
+#
+# Side-trench devices give each trench a double or triple peak in the
+# x-profile (two walls, plus a central channel that is bright when empty and
+# dark when full of cells), so the tallest peak is often a wall. Two
+# properties are robust instead: trenches are equally spaced (lithography),
+# and each trench's profile is mirror-symmetric about its centre whatever is
+# inside it. The pitch comes from the profile's autocorrelation, the phase
+# from all trenches' symmetry at once, and each centre is then refined
+# locally and regularised by a straight-line fit.
+
+
+def estimate_pitch(
+    profile: np.ndarray,
+    min_pitch: float,
+    max_pitch: float,
+    feature_scale: float = 32,
+) -> float:
+    """Dominant spacing of a periodic profile, from its autocorrelation.
+
+    The autocorrelation is taken of the profile's structure envelope: the
+    magnitude of its detail finer than ``feature_scale`` (the trench width).
+    A trench's centre is a bright bump when empty and a dark dip when full of
+    cells; in the raw profile those cancel between neighbours, in the
+    envelope they look alike.
+
+    Among the autocorrelation peaks with lags in ``[min_pitch, max_pitch]``,
+    takes the shortest one at least ``0.8`` times as strong as the strongest:
+    multiples of the true pitch correlate almost as well (and better when,
+    say, every other trench holds cells), so the strongest alone can be a
+    multiple. The lag is refined to sub-pixel precision with a parabola.
+    """
+    detail = profile - gaussian_filter1d(profile, max(feature_scale, 1))
+    envelope = gaussian_filter1d(np.abs(detail), 3)
+    centred = envelope - envelope.mean()
+    autocorr = np.correlate(centred, centred, "full")[len(centred) - 1:]
+    autocorr = autocorr / autocorr[0] if autocorr[0] > 0 else autocorr
+    lo = max(1, int(np.floor(min_pitch)))
+    hi = min(len(autocorr) - 1, int(np.ceil(max_pitch)) + 1)
+    if hi - lo < 1:
+        raise ValueError("Pitch search range is empty for this profile length.")
+    peaks, _ = find_peaks(autocorr[lo - 1:hi + 1])
+    peaks = peaks + lo - 1
+    peaks = peaks[(peaks >= lo) & (peaks < hi)]
+    if len(peaks):
+        strong = peaks[autocorr[peaks] >= 0.8 * autocorr[peaks].max()]
+        lag = int(strong.min())
+    else:
+        lag = lo + int(np.argmax(autocorr[lo:hi]))
+    if 0 < lag < len(autocorr) - 1:
+        a, b, c = autocorr[lag - 1:lag + 2]
+        denominator = a - 2 * b + c
+        if denominator != 0:
+            return float(lag + 0.5 * (a - c) / denominator)
+    return float(lag)
+
+
+def mirror_symmetry(profile: np.ndarray, half_window: int) -> np.ndarray:
+    """Score how mirror-symmetric ``profile`` is about every position.
+
+    The score is the covariance between the ``half_window`` samples left of x
+    and the mirrored samples right of x, after removing the slow background,
+    normalised to a maximum of 1. Covariance (not correlation) rewards
+    symmetric *structure*, so flat background between trenches scores near
+    zero. Positions within ``half_window`` of the ends are NaN.
+    """
+    from numpy.lib.stride_tricks import sliding_window_view
+
+    detail = profile - gaussian_filter1d(profile, 3 * half_window)
+    windows = sliding_window_view(detail, 2 * half_window + 1)
+    left = windows[:, :half_window][:, ::-1]
+    right = windows[:, half_window + 1:]
+    score = np.full(len(profile), np.nan)
+    score[half_window:len(profile) - half_window] = (left * right).mean(axis=1)
+    peak = np.nanmax(score)
+    return score / peak if peak > 0 else score
+
+
+def periodic_trench_centres(
+    profile: np.ndarray,
+    trench_width: int,
+    expected_pitch: float = 0,
+    min_symmetry: float = 0.1,
+) -> Dict[str, Any]:
+    """Trench centres on a lane's x-profile from periodicity and symmetry.
+
+    Parameters
+    ----------
+    profile : np.ndarray
+        Lane x-profile (mean over the trench bodies).
+    trench_width : int
+        Crop width; also the smallest pitch considered.
+    expected_pitch : float
+        Approximate trench spacing in pixels to search around (±20%), or 0
+        to search every spacing from ``trench_width`` to half the profile.
+    min_symmetry : float
+        Drop centres whose symmetry score is below this (0-1); catches crops
+        placed where a trench is missing or blocked.
+
+    Returns
+    -------
+    dict
+        ``centres`` (float x positions), ``symmetry`` (score per x),
+        ``pitch`` (pixels).
+    """
+    n = len(profile)
+    if expected_pitch > 0:
+        min_pitch, max_pitch = 0.8 * expected_pitch, 1.2 * expected_pitch
+    else:
+        min_pitch, max_pitch = max(trench_width, 3), n / 2
+    empty = {"centres": np.array([]), "symmetry": np.full(n, np.nan), "pitch": np.nan}
+    if max_pitch <= min_pitch or n < 3 * min_pitch:
+        return empty
+    pitch = estimate_pitch(profile, min_pitch, max_pitch, feature_scale=trench_width)
+
+    half_window = max(2, int(pitch / 3))
+    if 2 * half_window + 1 > n:
+        return empty
+    symmetry = mirror_symmetry(profile, half_window)
+
+    # Phase shared by all trenches: circular mean of x (mod pitch) weighted by
+    # strongly symmetric positions.
+    xs = np.arange(n)
+    valid = ~np.isnan(symmetry)
+    weights = np.clip(symmetry[valid], 0, None) ** 4
+    angles = 2 * np.pi * xs[valid] / pitch
+    phase = (np.angle(np.sum(weights * np.exp(1j * angles))) % (2 * np.pi)) * pitch / (2 * np.pi)
+
+    # Refine each lattice site to the local symmetry maximum, then fit a line
+    # through the refined centres (absorbs small scale/rotation errors). Only
+    # convincingly symmetric sites enter the fit, and Theil-Sen keeps a stray
+    # site (missing or blocked trench) from tilting it.
+    radius = max(1, int(pitch / 6))
+    sites, refined = [], []
+    for k, centre in enumerate(np.arange(phase, n, pitch)):
+        lo, hi = int(max(half_window, centre - radius)), int(min(n - half_window, centre + radius + 1))
+        if hi - lo < 3:
+            continue
+        best = lo + int(np.nanargmax(symmetry[lo:hi]))
+        if symmetry[best] >= max(min_symmetry, 0.2):
+            sites.append(k)
+            refined.append(best)
+    if len(refined) >= 2:
+        slope, intercept, _, _ = theilslopes(refined, sites)
+    elif refined:
+        slope, intercept = pitch, refined[0] - pitch * sites[0]
+    else:
+        return {**empty, "symmetry": symmetry, "pitch": pitch}
+    k = np.arange(np.ceil(-intercept / slope), np.floor((n - 1 - intercept) / slope) + 1)
+    centres = intercept + slope * k
+
+    # Score each centre by the best symmetry within a couple of pixels (the
+    # symmetry peak is sharp). Near the ends the symmetry window runs off the
+    # profile, so the score is unknown there; keep those centres and let the
+    # crop bounds decide.
+    tolerance = max(2, int(pitch / 30))
+    keep = []
+    for i in np.round(centres).astype(int):
+        if i - tolerance < half_window or i + tolerance >= n - half_window:
+            keep.append(True)
+        else:
+            keep.append(np.nanmax(symmetry[i - tolerance:i + tolerance + 1]) >= min_symmetry)
+    centres = centres[np.asarray(keep, dtype=bool)]
+    return {"centres": centres, "symmetry": symmetry, "pitch": float(slope)}
 
 
 class TrenchDetector:
@@ -107,14 +276,19 @@ class TrenchDetector:
         conv_filter: Optional[np.ndarray] = None,
         start_id: int = 0,
         lane_params: Optional[Dict[int, Dict[str, Any]]] = None,
+        method: str = "peaks",
+        expected_pitch: float = 0,
+        min_symmetry: float = 0.1,
     ) -> tuple:
         """Run trench detection on a single FOV.
 
         Returns
         -------
         fov_trenches : list[TrenchDefinition]
-        lane_profiles : list[tuple[int, np.ndarray, np.ndarray, np.ndarray]]
-            Per-lane ``(lane_index, x_profile, x_profile_smooth, peaks)``.
+        lane_profiles : list[dict]
+            Per lane: ``lane_index``, ``profile`` (raw x-profile), ``smooth``,
+            ``centres`` (trench centre x positions), and for the periodic
+            method ``symmetry`` and ``pitch``.
         next_id : int
             Next available trench ID counter.
         """
@@ -138,12 +312,21 @@ class TrenchDetector:
                 "trench_bottom_offset", trench_bottom_offset
             )
 
-            crop_half = max(trench_length, 100)
-            y_start = max(0, lane_y - crop_half)
-            y_end = min(img_height, lane_y + crop_half)
-            lane_crop = mean_img[y_start:y_end, :]
+            if orientation == 1:
+                y_top = lane_y - lane_bottom_offset - trench_length
+                y_bottom = lane_y - lane_bottom_offset
+                needs_flip = False
+            else:
+                y_top = lane_y + lane_bottom_offset
+                y_bottom = lane_y + lane_bottom_offset + trench_length
+                needs_flip = True
 
-            x_profile = lane_crop.mean(axis=0)
+            # Profile over the trench bodies only: the rows that will be
+            # cropped, not the feeding channel or the far side of the lane.
+            profile_rows = mean_img[max(0, y_top):min(img_height, y_bottom), :]
+            if profile_rows.shape[0] == 0:
+                continue
+            x_profile = profile_rows.mean(axis=0)
 
             if lane_sigma > 0:
                 x_profile_smooth = gaussian_filter1d(x_profile, lane_sigma)
@@ -155,29 +338,37 @@ class TrenchDetector:
                     convolve(x_profile_smooth, conv_filter) / conv_filter.sum()
                 )
 
-            peaks, _ = find_peaks(
-                x_profile_smooth,
-                distance=lane_distance,
-                height=lane_height,
-                prominence=lane_prominence,
-            )
+            lane_profile = {
+                "lane_index": lane_idx,
+                "profile": x_profile,
+                "smooth": x_profile_smooth,
+            }
+            if method == "periodic":
+                result = periodic_trench_centres(
+                    x_profile_smooth, trench_width,
+                    expected_pitch=lane_override.get("expected_pitch", expected_pitch),
+                    min_symmetry=lane_override.get("min_symmetry", min_symmetry),
+                )
+                centres = result["centres"]
+                lane_profile.update(symmetry=result["symmetry"], pitch=result["pitch"])
+            else:
+                centres, _ = find_peaks(
+                    x_profile_smooth,
+                    distance=lane_distance,
+                    height=lane_height,
+                    prominence=lane_prominence,
+                )
+            lane_profile["centres"] = np.asarray(centres)
+            lane_profiles.append(lane_profile)
 
-            lane_profiles.append((lane_idx, x_profile, x_profile_smooth, peaks))
-
-            if len(peaks) == 0:
+            if len(centres) == 0:
                 continue
 
-            x_lefts = peaks - trench_width // 2
-            x_rights = x_lefts + trench_width
-
-            if orientation == 1:
-                y_top = lane_y - lane_bottom_offset - trench_length
-                y_bottom = lane_y - lane_bottom_offset
-                needs_flip = False
+            if method == "periodic":
+                x_lefts = np.floor(centres - trench_width / 2 + 0.5).astype(int)
             else:
-                y_top = lane_y + lane_bottom_offset
-                y_bottom = lane_y + lane_bottom_offset + trench_length
-                needs_flip = True
+                x_lefts = centres - trench_width // 2
+            x_rights = x_lefts + trench_width
 
             for x_left, x_right in zip(x_lefts, x_rights):
                 x_left = int(x_left)
@@ -218,17 +409,24 @@ class TrenchDetector:
         plot: bool = False,
         lane_params: Optional[Dict[int, Dict[str, Any]]] = None,
         save_diagnostics: bool = True,
+        method: str = "peaks",
+        expected_pitch: float = 0,
+        min_symmetry: float = 0.1,
     ) -> None:
         """Detect trench x-positions in all FOVs and lanes.
 
         Algorithm per FOV per lane:
-        1. Crop registered mean image to the lane's y-region.
-        2. Average along Y → 1-D x-profile.
-        3. ``find_peaks()`` → trench centre positions.
+        1. Compute y-boundaries from lane centre, orientation, bottom offset
+           and trench length.
+        2. Average the registered mean image over those rows (the trench
+           bodies) → 1-D x-profile.
+        3. Trench centres: ``method="peaks"`` takes ``find_peaks()`` maxima;
+           ``method="periodic"`` uses the trench spacing and mirror symmetry
+           (see :func:`periodic_trench_centres`), which is robust for
+           side-trench devices whose trenches give double or triple peaks.
         4. Compute x-boundaries from ``trench_width``.
-        5. Compute y-boundaries from lane centre + orientation.
-        6. Prune trenches extending beyond image edges.
-        7. Assign global trench IDs.
+        5. Prune trenches extending beyond image edges.
+        6. Assign global trench IDs.
 
         Parameters
         ----------
@@ -256,7 +454,19 @@ class TrenchDetector:
         save_diagnostics : bool
             Save a trench overlay for every FOV to the ``trenches``
             diagnostics folder (see :meth:`save_diagnostics`).
+        method : {"peaks", "periodic"}
+            How trench centres are found (see step 3). ``distance``,
+            ``prominence`` and ``height`` apply to ``"peaks"`` only;
+            ``expected_pitch`` and ``min_symmetry`` to ``"periodic"`` only.
+        expected_pitch : float
+            Periodic method: approximate trench spacing in pixels (searched
+            ±20%), or 0 to estimate it from the profile.
+        min_symmetry : float
+            Periodic method: drop centres whose symmetry score (0-1) is lower,
+            e.g. where a trench is missing.
         """
+        if method not in ("peaks", "periodic"):
+            raise ValueError(f"method must be 'peaks' or 'periodic', not {method!r}")
         if trench_width <= 0:
             raise ValueError("trench_width must be greater than zero.")
         if trench_length <= 0:
@@ -281,6 +491,7 @@ class TrenchDetector:
                 mean_img, fov, sigma, distance, prominence, height,
                 trench_width, trench_length, trench_bottom_offset,
                 conv_filter, start_id=trench_counter, lane_params=lane_params,
+                method=method, expected_pitch=expected_pitch, min_symmetry=min_symmetry,
             )
             trenches[fov] = fov_trenches
 
@@ -293,6 +504,9 @@ class TrenchDetector:
             "trench_width": trench_width,
             "trench_length": trench_length,
             "trench_bottom_offset": trench_bottom_offset,
+            "method": method,
+            "expected_pitch": expected_pitch,
+            "min_symmetry": min_symmetry,
             "lane_params": {
                 int(lane_idx): values.copy()
                 for lane_idx, values in (lane_params or {}).items()
@@ -410,6 +624,26 @@ class TrenchDetector:
             description="FOV",
         )
         lane_controls = widgets.VBox()
+        method_select = widgets.Dropdown(
+            options=[
+                ("peaks (tallest maxima)", "peaks"),
+                ("periodic (spacing + symmetry)", "periodic"),
+            ],
+            value=params.get("method", "peaks"),
+            description="method",
+            style={"description_width": "initial"},
+        )
+        pitch_slider = widgets.FloatSlider(
+            value=params.get("expected_pitch", 0), min=0,
+            max=self.experiment.data.sizes["X"] / 2, step=1,
+            description="expected pitch (0 = auto)",
+            continuous_update=False, style={"description_width": "initial"},
+        )
+        symmetry_slider = widgets.FloatSlider(
+            value=params.get("min_symmetry", 0.1), min=0, max=1, step=0.05,
+            description="min symmetry",
+            continuous_update=False, style={"description_width": "initial"},
+        )
         sigma_slider = widgets.FloatSlider(
             value=params.get("sigma", 4), min=0, max=50, step=0.5,
             description="sigma",
@@ -620,7 +854,15 @@ class TrenchDetector:
 
             _update()
 
+        def _sync_method_controls() -> None:
+            periodic = method_select.value == "periodic"
+            for widget in (distance_slider, prominence_slider):
+                widget.disabled = periodic
+            for widget in (pitch_slider, symmetry_slider):
+                widget.disabled = not periodic
+
         def _update(_change: Any = None) -> None:
+            _sync_method_controls()
             fov = fov_select.value
             mean_img = _mean_image(fov)
             lane_params = _lane_params_from_widgets()
@@ -635,6 +877,9 @@ class TrenchDetector:
                 trench_length=trench_length_slider.value,
                 trench_bottom_offset=trench_bottom_offset_slider.value,
                 lane_params=lane_params,
+                method=method_select.value,
+                expected_pitch=pitch_slider.value,
+                min_symmetry=symmetry_slider.value,
             )
             n_trenches = len(fov_trenches)
             n_lanes = len(lane_profiles)
@@ -677,22 +922,37 @@ class TrenchDetector:
                         squeeze=False,
                     )
 
-                    for i, (lane_idx, x_prof, x_smooth, peaks) in enumerate(
-                        lane_profiles
-                    ):
+                    for i, lane_profile in enumerate(lane_profiles):
                         ax = axes[i, 0]
+                        x_prof, x_smooth = lane_profile["profile"], lane_profile["smooth"]
+                        centres = lane_profile["centres"]
                         xs = np.arange(len(x_prof))
                         ax.plot(xs, x_prof, color="grey", alpha=0.5, label="raw")
                         ax.plot(xs, x_smooth, color="blue", label="smoothed")
-                        if len(peaks) > 0:
+                        title = f"Lane {lane_profile['lane_index']} x-profile (trench bodies)"
+                        if "symmetry" in lane_profile:
+                            for centre in centres:
+                                ax.axvline(centre, color="red", lw=1, alpha=0.8)
+                            ax_sym = ax.twinx()
+                            ax_sym.plot(
+                                xs, lane_profile["symmetry"], color="tab:green",
+                                alpha=0.6, lw=1, label="symmetry",
+                            )
+                            ax_sym.axhline(
+                                symmetry_slider.value, color="tab:green", ls="--", lw=1,
+                            )
+                            ax_sym.set_ylim(-1, 1.05)
+                            ax_sym.set_ylabel("symmetry", color="tab:green")
+                            title += f", pitch {lane_profile['pitch']:.1f} px"
+                        elif len(centres) > 0:
                             ax.plot(
-                                peaks, x_smooth[peaks], "rv",
+                                centres, x_smooth[centres], "rv",
                                 markersize=8, label="peaks",
-                        )
+                            )
                         ax.set_xlabel("x pixel")
                         ax.set_ylabel("intensity")
-                        ax.set_title(f"Lane {lane_idx} x-profile")
-                        ax.legend(fontsize=8)
+                        ax.set_title(title)
+                        ax.legend(fontsize=8, loc="upper left")
 
                 fig.tight_layout()
                 plt.show()
@@ -708,6 +968,9 @@ class TrenchDetector:
                 trench_length=trench_length_slider.value,
                 trench_bottom_offset=trench_bottom_offset_slider.value,
                 lane_params=_lane_params_from_widgets(),
+                method=method_select.value,
+                expected_pitch=pitch_slider.value,
+                min_symmetry=symmetry_slider.value,
             )
             total = self.n_trenches
             status_label.value = (
@@ -721,11 +984,14 @@ class TrenchDetector:
 
         for w in [sigma_slider, distance_slider, prominence_slider,
                   trench_width_slider,
-                  trench_length_slider, trench_bottom_offset_slider]:
+                  trench_length_slider, trench_bottom_offset_slider,
+                  method_select, pitch_slider, symmetry_slider]:
             w.observe(_on_global_change, names="value")
 
         controls = widgets.VBox([
-            fov_select, sigma_slider, distance_slider, prominence_slider,
+            fov_select, method_select, sigma_slider,
+            distance_slider, prominence_slider,
+            pitch_slider, symmetry_slider,
             trench_width_slider,
             trench_length_slider, trench_bottom_offset_slider,
             lane_controls,
