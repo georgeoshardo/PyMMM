@@ -14,7 +14,7 @@ import numpy as np
 import xarray as xr
 
 SOURCE_METADATA_VERSION = 2
-EXTRACTOR_STORE_VERSION = 2
+EXTRACTOR_STORE_VERSION = 3
 
 _SELECTED_CUSTOM_DATA_KEYS = (
     "AcqTimeV1_0",

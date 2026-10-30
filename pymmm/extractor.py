@@ -19,6 +19,7 @@ from tqdm.auto import tqdm
 from pymmm.experiment import ND2Experiment
 from pymmm.metadata import (
     EXTRACTOR_STORE_VERSION,
+    _exported_source_axes,
     build_acquisition_dataset,
     build_events_dataset,
     build_source_frames_dataset,
@@ -178,9 +179,6 @@ class Extractor:
             "subset": self.experiment.source_subset_metadata,
             "channels": self.experiment.channel_names,
             "trenches": trench_table[trench_columns].to_json(orient="records"),
-            "tmats": hashlib.sha256(
-                np.ascontiguousarray(self.registrator.tmats.values).tobytes()
-            ).hexdigest(),
             "shape": shape,
             "chunks": chunks,
             "dtype": dtype.str,
@@ -197,6 +195,54 @@ class Extractor:
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, default=str).encode()
         ).hexdigest()
+
+    def _build_registration_dataset(
+        self, source_metadata: dict[str, Any],
+    ) -> xr.Dataset:
+        """Build the per-FOV ``/registration`` dataset of transforms used for extraction."""
+        reg = self.registrator
+        tmats_da = reg.tmats
+        fov_names = [str(f) for f in source_metadata["fov_names"]]
+        if "P" in tmats_da.dims:
+            tmats = np.stack([
+                tmats_da.sel(P=fov).transpose("T", "row", "col").values
+                for fov in fov_names
+            ])
+        else:
+            tmats = tmats_da.transpose("T", "row", "col").values[np.newaxis]
+        tmats = np.asarray(tmats, dtype=np.float64)
+        shift_px = np.stack([tmats[..., 1, 2], tmats[..., 0, 2]], axis=-1)
+
+        return xr.Dataset(
+            data_vars={
+                "tmats": (("FOV", "T", "Row", "Col"), tmats),
+                "shift_px": (("FOV", "T", "ShiftAxis"), shift_px),
+            },
+            coords={
+                "FOV": np.asarray(fov_names, dtype=object),
+                "T": source_metadata["original_t_index"],
+                "Row": [0, 1, 2],
+                "Col": [0, 1, 2],
+                "ShiftAxis": np.asarray(["y", "x"], dtype=object),
+            },
+            attrs={
+                "extractor_store_version": EXTRACTOR_STORE_VERSION,
+                "layout": "registration_v1",
+                "description": (
+                    "Registration transforms per FOV and timepoint, before rotation. "
+                    "shift_px is the translation part of tmats (y = [1, 2], x = [0, 2])."
+                ),
+                "channel": reg.channel,
+                "backend": getattr(reg, "backend", "stackreg"),
+                "mode": str(reg.mode),
+                "rotation": reg.rotation,
+                "roi": json.dumps(getattr(reg, "roi", None) or {}, default=str),
+                "mean_n_frames": getattr(reg, "mean_n_frames", None),
+                "mean_from": getattr(reg, "mean_from", None),
+                "downsample": getattr(reg, "downsample", None),
+                "transform_convention": TRANSFORM_CONVENTION,
+            },
+        )
 
     @staticmethod
     def _metadata_encoding(
@@ -375,6 +421,18 @@ class Extractor:
             ),
         )
 
+        registration = self._build_registration_dataset(source_metadata)
+        registration.to_zarr(
+            str(self.output_path),
+            mode="a",
+            group="registration",
+            consolidated=False,
+            zarr_format=3,
+            encoding=self._metadata_encoding(
+                registration, compressors=compressors,
+            ),
+        )
+
         acquisition = build_acquisition_dataset(
             self.experiment.source_acquisition_metadata,
             channel_names=self.experiment.channel_names,
@@ -495,6 +553,15 @@ class Extractor:
                 raise RuntimeError(
                     "Existing output is not compatible with this extraction. "
                     "Use resume=False or choose a new output path."
+                )
+            stored_tmats = store["registration"]["tmats"][:]
+            current_tmats = self._build_registration_dataset(
+                _exported_source_axes(exp)
+            )["tmats"].values
+            if not np.array_equal(stored_tmats, current_tmats):
+                raise RuntimeError(
+                    "Existing output was extracted with different registration "
+                    "transforms. Use resume=False or choose a new output path."
                 )
             completed_fovs = set(store.attrs.get("completed_fovs", []))
         else:

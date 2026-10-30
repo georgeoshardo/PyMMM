@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+import pytest
 import xarray as xr
 import zarr
 
@@ -404,9 +405,9 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
     )
     data_codec = zarr_root["data"].metadata.codecs[-1]
     assert isinstance(data_codec, zarr.codecs.BloscCodec)
-    assert data_codec.cname.value == "zstd"
+    assert getattr(data_codec.cname, "value", data_codec.cname) == "zstd"
     assert data_codec.clevel == 1
-    assert data_codec.shuffle.value == "shuffle"
+    assert getattr(data_codec.shuffle, "value", data_codec.shuffle) == "shuffle"
 
     root = xr.open_zarr(output_path, consolidated=False)
     tree = xr.open_datatree(output_path, engine="zarr", consolidated=False)
@@ -426,7 +427,7 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
     ]
     assert "trench_mapping" not in root.attrs
     assert "source_acquisition_metadata" not in root.attrs
-    assert root.attrs["extractor_store_version"] == 2
+    assert root.attrs["extractor_store_version"] == 3
     assert root.attrs["source_subset_metadata"]["active_timepoint_count"] == 1
 
     np.testing.assert_array_equal(
@@ -442,7 +443,18 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
         np.asarray([[118, 119], [114, 115]], dtype=np.uint16),
     )
 
-    assert set(tree.children) == {"acquisition", "events", "source_frames"}
+    assert set(tree.children) == {"acquisition", "events", "registration", "source_frames"}
+    assert "tmats" not in json.dumps(dict(root.attrs))
+
+    registration = tree["registration"].ds
+    assert registration["tmats"].dims == ("FOV", "T", "Row", "Col")
+    assert registration.coords["FOV"].values.tolist() == ["XYPos:1"]
+    assert registration.coords["T"].values.tolist() == [1]
+    np.testing.assert_array_equal(
+        registration["tmats"].sel(FOV="XYPos:1", T=1).values, np.eye(3),
+    )
+    assert registration["shift_px"].sel(FOV="XYPos:1", T=1).values.tolist() == [0.0, 0.0]
+    assert registration.attrs["mode"] == "first"
 
     source_frames = tree["source_frames"].ds
     assert (
@@ -481,3 +493,41 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
     assert acquisition.attrs["text_info"]["optics"] == "40x"
     assert acquisition.coords["C"].values.tolist() == ["PC", "mCherry"]
     assert acquisition["raw_json"].compute().item().startswith("{")
+
+    # Resuming with the same transforms is a no-op; different transforms are refused.
+    extractor.extract(compressor="zstd", clevel=1, show_progress=False)
+    shifted = np.eye(3, dtype=np.float64)
+    shifted[1, 2] = 1.0
+    registrator.tmats = registrator.tmats.copy(data=shifted[np.newaxis, np.newaxis])
+    with pytest.raises(RuntimeError, match="different registration transforms"):
+        extractor.extract(compressor="zstd", clevel=1, show_progress=False)
+
+
+def test_registration_dataset_stores_per_fov_shifts():
+    tmats = np.tile(np.eye(3), (2, 3, 1, 1))
+    tmats[1, 2, 0, 2] = 4.5   # x shift, XYPos:1, third timepoint
+    tmats[1, 2, 1, 2] = -2.0  # y shift
+    registrator = SimpleNamespace(
+        channel="PC",
+        mode="first",
+        rotation=0,
+        roi={"y": (250, 860)},
+        tmats=xr.DataArray(
+            tmats,
+            dims=("P", "T", "row", "col"),
+            coords={"P": ["XYPos:0", "XYPos:1"], "T": [0.0, 1.0, 2.0]},
+        ),
+    )
+    extractor = Extractor(
+        SimpleNamespace(path=Path("source.nd2"), experiment_name="source"),
+        registrator,
+        SimpleNamespace(),
+    )
+
+    registration = extractor._build_registration_dataset(
+        {"fov_names": ["XYPos:1"], "original_t_index": np.asarray([5, 6, 7])}
+    )
+
+    assert registration["shift_px"].sel(FOV="XYPos:1", T=7).values.tolist() == [-2.0, 4.5]
+    assert registration["shift_px"].sel(FOV="XYPos:1", T=5).values.tolist() == [0.0, 0.0]
+    assert json.loads(registration.attrs["roi"]) == {"y": [250, 860]}
