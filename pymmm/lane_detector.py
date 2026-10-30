@@ -16,6 +16,11 @@ from pymmm.experiment import ND2Experiment
 from pymmm.registrator import Registrator
 
 
+# Forced lane orientations: "down" = trenches above the lane opening down into
+# it (+1), "up" = trenches below the lane opening up into it (-1).
+_FORCED_ORIENTATION = {"down": 1, "up": -1}
+
+
 @dataclass
 class LaneInfo:
     """Describes one feeding lane detected in a FOV."""
@@ -85,6 +90,7 @@ class LaneDetector:
         height: float,
         orientation_window_um: float,
         fov: str,
+        orientation: str = "auto",
     ) -> tuple:
         """Run lane detection on a single FOV mean image.
 
@@ -121,12 +127,15 @@ class LaneDetector:
             mean_above = y_profile[above_start:above_end].mean()
             mean_below = y_profile[below_start:below_end].mean()
 
-            orientation = 1 if mean_above > mean_below else -1
+            if orientation == "auto":
+                lane_orientation = 1 if mean_above > mean_below else -1
+            else:
+                lane_orientation = _FORCED_ORIENTATION[orientation]
 
             fov_lanes.append(
                 LaneInfo(
                     y_center=int(peak_y),
-                    orientation=orientation,
+                    orientation=lane_orientation,
                     fov=fov,
                     lane_index=lane_idx,
                 )
@@ -140,6 +149,7 @@ class LaneDetector:
         distance: float = 300,
         height: float = 5000,
         orientation_window_um: float = 20.0,
+        orientation: str = "auto",
         plot: bool = False,
     ) -> None:
         """Detect lane y-positions in all FOVs.
@@ -149,7 +159,8 @@ class LaneDetector:
         2. Average along X → 1-D y-profile.
         3. Gaussian smoothing.
         4. ``find_peaks()`` → lane centre positions.
-        5. Orientation detection: compare mean intensity above vs below each peak.
+        5. Orientation: compare mean intensity above vs below each peak, or
+           use the forced ``orientation``.
 
         Parameters
         ----------
@@ -161,9 +172,15 @@ class LaneDetector:
             Minimum peak height.
         orientation_window_um : float
             Window size (in µm) above/below peak for orientation detection.
+        orientation : {"auto", "down", "up"}
+            ``"auto"`` infers each lane's orientation from intensity.
+            ``"down"`` forces every lane to have its trenches above it, opening
+            down into the lane; ``"up"`` forces trenches below, opening up.
         plot : bool
             If ``True``, show lane overlay for the first FOV.
         """
+        if orientation not in ("auto", *_FORCED_ORIENTATION):
+            raise ValueError(f"orientation must be 'auto', 'down' or 'up', not {orientation!r}")
         lanes: Dict[str, List[LaneInfo]] = {}
 
         for fov in self.experiment.fov_names:
@@ -171,7 +188,8 @@ class LaneDetector:
                 fov=fov, channel=self.channel
             )
             _, _, _, fov_lanes = self._detect_lanes_single_fov(
-                mean_img, sigma, distance, height, orientation_window_um, fov
+                mean_img, sigma, distance, height, orientation_window_um, fov,
+                orientation=orientation,
             )
             lanes[fov] = fov_lanes
 
@@ -181,6 +199,7 @@ class LaneDetector:
             "distance": distance,
             "height": height,
             "orientation_window_um": orientation_window_um,
+            "orientation": orientation,
         }
 
         print(
@@ -281,6 +300,17 @@ class LaneDetector:
             min=1, max=100, step=1, description="orient. window (µm)",
             continuous_update=False, style={"description_width": "initial"},
         )
+        orientation_select = widgets.Dropdown(
+            options=[
+                ("auto (compare brightness)", "auto"),
+                ("trenches above lane, open down (red)", "down"),
+                ("trenches below lane, open up (cyan)", "up"),
+            ],
+            value=params.get("orientation", "auto"),
+            description="orientation",
+            style={"description_width": "initial"},
+        )
+        orientation_slider.disabled = orientation_select.value != "auto"
         apply_btn = widgets.Button(
             description="Apply to all FOVs", button_style="primary",
         )
@@ -321,7 +351,9 @@ class LaneDetector:
                 height_slider.value,
                 orientation_slider.value,
                 fov,
+                orientation=orientation_select.value,
             )
+            orientation_slider.disabled = orientation_select.value != "auto"
             n_lanes = len(fov_lanes)
 
             viewer_data[0] = mean_img
@@ -365,6 +397,7 @@ class LaneDetector:
                 distance=distance_slider.value,
                 height=height_slider.value,
                 orientation_window_um=orientation_slider.value,
+                orientation=orientation_select.value,
             )
             total = sum(len(v) for v in self._lanes.values())
             status_label.value = (
@@ -374,12 +407,12 @@ class LaneDetector:
         apply_btn.on_click(_on_apply)
 
         for w in [fov_select, sigma_slider, distance_slider,
-                  height_slider, orientation_slider]:
+                  height_slider, orientation_slider, orientation_select]:
             w.observe(_update, names="value")
 
         controls = widgets.VBox([
             fov_select, sigma_slider, distance_slider,
-            height_slider, orientation_slider,
+            height_slider, orientation_select, orientation_slider,
             apply_btn, status_label,
         ])
         image_and_profile = widgets.VBox([
