@@ -586,12 +586,3 @@ def slice_to_dict(value: slice | None) -> dict[str, int | None] | None:
         "stop": value.stop,
         "step": value.step,
     }
-
-
-def build_store_metadata_attrs(experiment: Any) -> dict[str, Any]:
-    """Return the metadata attrs that should be written to zarr stores."""
-    return {
-        "source_metadata_version": int(experiment.source_metadata_version),
-        "source_acquisition_metadata": experiment.source_acquisition_metadata,
-        "source_subset_metadata": experiment.source_subset_metadata,
-    }

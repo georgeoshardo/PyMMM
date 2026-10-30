@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
+import pandas as pd
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 
@@ -396,13 +397,15 @@ class LaneDetector:
         if self._lanes is None:
             raise RuntimeError("Nothing to save — run detect_lanes() first.")
 
-        # Serialise LaneInfo dataclasses to dicts
-        lane_data: Dict[str, list] = {}
-        for fov, fov_lanes in self._lanes.items():
-            lane_data[fov] = [asdict(li) for li in fov_lanes]
-
+        lanes = pd.DataFrame(
+            [asdict(li) for fov_lanes in self._lanes.values() for li in fov_lanes],
+            columns=[f.name for f in fields(LaneInfo)],
+        )
         params = {"channel": self.channel, **self._detection_params}
-        self.store.save_lane_detection(lane_data, params)
+        self.store.save_lane_detection(
+            lanes, list(self._lanes), params,
+            source_subset_metadata=self.experiment.source_subset_metadata,
+        )
         print(f"Lane detection saved to {self.store.path}")
 
     @classmethod
@@ -429,11 +432,12 @@ class LaneDetector:
             key: value for key, value in params.items() if key != "channel"
         }
 
-        # Reconstruct LaneInfo objects
-        lanes: Dict[str, List[LaneInfo]] = {}
-        for fov, lane_dicts in data["lane_data"].items():
-            lanes[fov] = [LaneInfo(**d) for d in lane_dicts]
-
+        lanes: Dict[str, List[LaneInfo]] = {fov: [] for fov in data["fov_names"]}
+        for row in data["lanes"].itertuples(index=False):
+            lanes[str(row.fov)].append(LaneInfo(
+                y_center=int(row.y_center), orientation=int(row.orientation),
+                fov=str(row.fov), lane_index=int(row.lane_index),
+            ))
         det._lanes = lanes
         return det
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
@@ -720,12 +720,15 @@ class TrenchDetector:
         if self._trenches is None:
             raise RuntimeError("Nothing to save — run detect_trenches() first.")
 
-        trench_data: Dict[str, list] = {}
-        for fov, fov_trenches in self._trenches.items():
-            trench_data[fov] = [asdict(td) for td in fov_trenches]
-
+        trenches = pd.DataFrame(
+            [asdict(td) for fov_trenches in self._trenches.values() for td in fov_trenches],
+            columns=[f.name for f in fields(TrenchDefinition)],
+        )
         params = {"channel": self.channel, **self._detection_params}
-        self.store.save_trench_detection(trench_data, params)
+        self.store.save_trench_detection(
+            trenches, list(self._trenches), params,
+            source_subset_metadata=self.experiment.source_subset_metadata,
+        )
         print(f"Trench detection saved to {self.store.path}")
 
     @classmethod
@@ -759,11 +762,15 @@ class TrenchDetector:
                 for lane_idx, values in det._detection_params["lane_params"].items()
             }
 
-        # Reconstruct TrenchDefinition objects
-        trenches: Dict[str, List[TrenchDefinition]] = {}
-        for fov, trench_dicts in data["trench_data"].items():
-            trenches[fov] = [TrenchDefinition(**d) for d in trench_dicts]
-
+        trenches: Dict[str, List[TrenchDefinition]] = {fov: [] for fov in data["fov_names"]}
+        for row in data["trenches"].itertuples(index=False):
+            trenches[str(row.fov)].append(TrenchDefinition(
+                trench_id=int(row.trench_id), fov=str(row.fov),
+                lane_index=int(row.lane_index), x_left=int(row.x_left),
+                x_right=int(row.x_right), y_top=int(row.y_top),
+                y_bottom=int(row.y_bottom), orientation=int(row.orientation),
+                needs_flip=bool(row.needs_flip),
+            ))
         det._trenches = trenches
         return det
 

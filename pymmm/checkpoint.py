@@ -3,35 +3,61 @@
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import numpy as np
+import pandas as pd
+import xarray as xr
 import zarr
-
-from pymmm.metadata import build_store_metadata_attrs
 
 if TYPE_CHECKING:
     from pymmm.experiment import ND2Experiment
 
+_SECTIONS = ("registration", "lane_detection", "trench_detection")
+
+_LANE_COLUMNS = {
+    "fov": {"long_name": "field of view"},
+    "lane_index": {"long_name": "lane index within its FOV"},
+    "y_center": {"units": "pixel", "long_name": "lane centre row in the registered FOV"},
+    "orientation": {"long_name": "trench opening direction (1 = opens downward, -1 = upward)"},
+}
+_TRENCH_COLUMNS = {
+    "fov": {"long_name": "field of view"},
+    "lane_index": {"long_name": "lane the trench belongs to within its FOV"},
+    "x_left": {"units": "pixel", "long_name": "trench left edge in the registered FOV"},
+    "x_right": {"units": "pixel", "long_name": "trench right edge in the registered FOV"},
+    "y_top": {"units": "pixel", "long_name": "trench top edge in the registered FOV"},
+    "y_bottom": {"units": "pixel", "long_name": "trench bottom edge in the registered FOV"},
+    "orientation": {"long_name": "trench opening direction (1 = opens downward, -1 = upward)"},
+    "needs_flip": {"long_name": "crop is flipped vertically so trenches share one orientation"},
+}
+
+
+def _json_native(value: Any) -> Any:
+    """Normalise a value to plain JSON types (tuples become lists, etc.)."""
+    return json.loads(json.dumps(value, default=str))
+
 
 class CompanionStore:
     """Manages a companion ``.pymmm.zarr`` store for persisting intermediate
-    pipeline results (registration matrices, lane/trench definitions, etc.).
+    pipeline results (registration matrices, lane/trench definitions).
+
+    Each section is an xarray dataset written with ``to_zarr``. Its attrs hold
+    the parameters that produced it as native JSON, the experiment subset it
+    was computed on, and a ``complete`` flag set only after all of it is
+    written. Root attrs identify the source ND2 and are written once, when the
+    store is created.
 
     Structure::
 
         experiment_name.pymmm.zarr/
-        ├── zarr.json             # source ND2 path, creation date, FOV/channel names
-        ├── registration/
-        │   ├── tmats             # zarr array (n_FOVs, n_times, 3, 3) float64
-        │   ├── mean_images       # zarr array (n_FOVs, Y, X) float64
-        │   └── zarr.json         # registration params
-        ├── lane_detection/
-        │   └── zarr.json         # params + per-FOV lane data as JSON
-        └── trench_detection/
-            └── zarr.json         # params + trench table as JSON
+        ├── zarr.json             # source ND2 identity, creation time
+        ├── registration/         # tmats (P, T, row, col), mean_images (P, Y, X)
+        ├── lane_detection/       # Lane-indexed table: fov, lane_index, y_center, orientation
+        └── trench_detection/     # Trench-indexed table: fov, lane_index, edges, orientation
     """
 
     def __init__(self, path: str | Path, mode: str = "a") -> None:
@@ -55,16 +81,56 @@ class CompanionStore:
         store_path = nd2_path.parent / f"{experiment.experiment_name}.pymmm.zarr"
         store = cls(store_path, mode="a")
 
-        # Write global attrs on first creation
         attrs = store._store.attrs
-        if "source_nd2" not in attrs:
-            attrs["source_nd2"] = str(nd2_path)
-            attrs["created"] = datetime.now().isoformat()
-        attrs["fov_names"] = list(experiment.fov_names)
-        attrs["channel_names"] = list(experiment.channel_names)
-        attrs.update(build_store_metadata_attrs(experiment))
-
+        if "created" not in attrs:
+            source_stat = nd2_path.stat()
+            attrs.update({
+                "layout": "pymmm_companion",
+                "source_nd2": str(nd2_path),
+                "source_file_size_bytes": int(source_stat.st_size),
+                "source_mtime_ns": int(source_stat.st_mtime_ns),
+                "created": datetime.now().astimezone().isoformat(),
+            })
         return store
+
+    # ------------------------------------------------------------------
+    # Section I/O
+    # ------------------------------------------------------------------
+
+    def _write_section(
+        self,
+        name: str,
+        dataset: xr.Dataset,
+        params: Dict[str, Any],
+        source_subset_metadata: Dict[str, Any] | None,
+        extra_attrs: Dict[str, Any] | None = None,
+    ) -> None:
+        if name in self._store:
+            del self._store[name]
+        dataset = dataset.copy()
+        dataset.attrs = _json_native({
+            "layout": name,
+            "params": params,
+            "source_subset_metadata": source_subset_metadata,
+            "written": datetime.now().astimezone().isoformat(),
+            **(extra_attrs or {}),
+            "complete": False,
+        })
+        dataset.to_zarr(
+            str(self.path), group=name, mode="a", consolidated=False, zarr_format=3,
+        )
+        self._store = zarr.open_group(str(self.path), mode="a", zarr_format=3)
+        self._store[name].attrs["complete"] = True
+
+    def _open_section(self, name: str) -> xr.Dataset:
+        return xr.open_zarr(str(self.path), group=name, consolidated=False)
+
+    def _has_section(self, name: str) -> bool:
+        return name in self._store and bool(self._store[name].attrs.get("complete"))
+
+    def section_attrs(self, name: str) -> Dict[str, Any]:
+        """Return a section's attrs (params, subset, written, complete)."""
+        return dict(self._store[name].attrs)
 
     # ------------------------------------------------------------------
     # Registration
@@ -72,41 +138,30 @@ class CompanionStore:
 
     def save_registration(
         self,
-        tmats: np.ndarray,
-        mean_images: np.ndarray | None,
+        tmats: xr.DataArray,
+        mean_images: xr.DataArray | None,
         params: Dict[str, Any],
+        source_subset_metadata: Dict[str, Any] | None = None,
     ) -> None:
         """Persist registration results.
 
         Parameters
         ----------
-        tmats : np.ndarray
-            Transformation matrices, shape ``(n_fovs, n_times, 3, 3)``.
-        mean_images : np.ndarray | None
-            Optional mean reference images, shape ``(n_fovs, Y, X)``.
+        tmats : xr.DataArray
+            Transformation matrices with dims ``(P, T, row, col)``.
+        mean_images : xr.DataArray | None
+            Optional mean reference images with dims ``(P, Y, X)``.
         params : dict
             Registration parameters for reproducibility.
+        source_subset_metadata : dict | None
+            The experiment subset the registration was computed on.
         """
-        grp = self._store.require_group("registration")
-        grp.attrs["complete"] = False
-
-        # Overwrite arrays if they exist
-        tmats_np = np.asarray(tmats, dtype="float64")
-        if "tmats" in grp:
-            del grp["tmats"]
-        arr = grp.create_array("tmats", shape=tmats_np.shape, dtype="float64")
-        arr[:] = tmats_np
-
-        if "mean_images" in grp:
-            del grp["mean_images"]
-        if mean_images is not None and np.size(mean_images) > 0:
-            mean_np = np.asarray(mean_images, dtype="float64")
-            arr = grp.create_array("mean_images", shape=mean_np.shape, dtype="float64")
-            arr[:] = mean_np
-
-        # Store params as JSON string in attrs
-        grp.attrs["params"] = json.dumps(params, default=str)
-        grp.attrs["complete"] = True
+        data_vars = {"tmats": tmats.astype("float64")}
+        if mean_images is not None and mean_images.size > 0:
+            data_vars["mean_images"] = mean_images.astype("float64")
+        dataset = xr.Dataset(data_vars)
+        dataset["tmats"].attrs["long_name"] = "registration transform (3x3 affine)"
+        self._write_section("registration", dataset, params, source_subset_metadata)
 
     def load_registration(self, load_mean_images: bool = True) -> Dict[str, Any]:
         """Load registration checkpoint.
@@ -114,52 +169,88 @@ class CompanionStore:
         Returns
         -------
         dict
-            Keys: ``"tmats"`` (np.ndarray), ``"mean_images"`` (np.ndarray),
-            ``"params"`` (dict).
+            Keys: ``"tmats"`` (xr.DataArray), ``"mean_images"``
+            (xr.DataArray or None), ``"params"`` (dict).
         """
-        grp = self._store["registration"]
+        dataset = self._open_section("registration")
+        mean_images = None
+        if load_mean_images and "mean_images" in dataset:
+            mean_images = dataset["mean_images"].load()
         return {
-            "tmats": np.array(grp["tmats"]),
-            "mean_images": (
-                np.array(grp["mean_images"])
-                if load_mean_images and "mean_images" in grp else None
-            ),
-            "params": json.loads(grp.attrs["params"]),
+            "tmats": dataset["tmats"].load(),
+            "mean_images": mean_images,
+            "params": dataset.attrs["params"],
         }
 
     def load_registration_params(self) -> Dict[str, Any]:
         """Load registration parameters without reading image arrays."""
-        grp = self._store["registration"]
-        return json.loads(grp.attrs["params"])
+        return self.section_attrs("registration")["params"]
 
     def has_registration(self) -> bool:
         """Check whether registration data is checkpointed."""
-        if "registration" not in self._store:
-            return False
-        grp = self._store["registration"]
-        return "tmats" in grp and grp.attrs.get("complete", True)
+        return self._has_section("registration")
 
     # ------------------------------------------------------------------
-    # Lane detection
+    # Lane and trench detection
     # ------------------------------------------------------------------
+
+    def _save_table(
+        self,
+        name: str,
+        dim: str,
+        table: pd.DataFrame,
+        columns: Dict[str, Dict[str, str]],
+        fov_names: list[str],
+        params: Dict[str, Any],
+        source_subset_metadata: Dict[str, Any] | None,
+        index: np.ndarray | None = None,
+    ) -> None:
+        data_vars = {}
+        for column, attrs in columns.items():
+            values = table[column].to_numpy()
+            if column == "fov":
+                values = np.asarray([str(v) for v in values], dtype=object)
+            data_vars[column] = xr.DataArray(values, dims=(dim,), attrs=attrs)
+        coords = {dim: index if index is not None else np.arange(len(table), dtype=np.int32)}
+        self._write_section(
+            name, xr.Dataset(data_vars, coords=coords), params,
+            source_subset_metadata, extra_attrs={"fov_names": fov_names},
+        )
+
+    def _load_table(self, name: str, dim: str) -> tuple[pd.DataFrame, Dict[str, Any]]:
+        dataset = self._open_section(name).load()
+        table = dataset.to_dataframe().reset_index()
+        if dim == "Lane":
+            table = table.drop(columns=dim)
+        else:
+            table = table.rename(columns={dim: "trench_id"})
+        return table, dict(dataset.attrs)
 
     def save_lane_detection(
         self,
-        lane_data: Dict[str, Any],
+        lanes: pd.DataFrame,
+        fov_names: list[str],
         params: Dict[str, Any],
+        source_subset_metadata: Dict[str, Any] | None = None,
     ) -> None:
         """Persist lane detection results.
 
         Parameters
         ----------
-        lane_data : dict
-            Per-FOV lane information (serialisable to JSON).
+        lanes : pd.DataFrame
+            One row per lane with columns ``fov``, ``lane_index``,
+            ``y_center`` and ``orientation``.
+        fov_names : list[str]
+            FOVs that were processed, including any with no lanes.
         params : dict
             Detection parameters.
+        source_subset_metadata : dict | None
+            The experiment subset the lanes were detected on.
         """
-        grp = self._store.require_group("lane_detection")
-        grp.attrs["lane_data"] = json.dumps(lane_data, default=str)
-        grp.attrs["params"] = json.dumps(params, default=str)
+        self._save_table(
+            "lane_detection", "Lane", lanes, _LANE_COLUMNS,
+            fov_names, params, source_subset_metadata,
+        )
 
     def load_lane_detection(self) -> Dict[str, Any]:
         """Load lane detection checkpoint.
@@ -167,42 +258,42 @@ class CompanionStore:
         Returns
         -------
         dict
-            Keys: ``"lane_data"`` (dict), ``"params"`` (dict).
+            Keys: ``"lanes"`` (pd.DataFrame), ``"fov_names"`` (list),
+            ``"params"`` (dict).
         """
-        grp = self._store["lane_detection"]
-        return {
-            "lane_data": json.loads(grp.attrs["lane_data"]),
-            "params": json.loads(grp.attrs["params"]),
-        }
+        table, attrs = self._load_table("lane_detection", "Lane")
+        return {"lanes": table, "fov_names": attrs["fov_names"], "params": attrs["params"]}
 
     def has_lane_detection(self) -> bool:
         """Check whether lane detection data is checkpointed."""
-        return (
-            "lane_detection" in self._store
-            and "lane_data" in self._store["lane_detection"].attrs
-        )
-
-    # ------------------------------------------------------------------
-    # Trench detection
-    # ------------------------------------------------------------------
+        return self._has_section("lane_detection")
 
     def save_trench_detection(
         self,
-        trench_data: Dict[str, Any],
+        trenches: pd.DataFrame,
+        fov_names: list[str],
         params: Dict[str, Any],
+        source_subset_metadata: Dict[str, Any] | None = None,
     ) -> None:
         """Persist trench detection results.
 
         Parameters
         ----------
-        trench_data : dict
-            Per-FOV trench definitions (serialisable to JSON).
+        trenches : pd.DataFrame
+            One row per trench with a ``trench_id`` column plus the
+            ``TrenchDefinition`` fields.
+        fov_names : list[str]
+            FOVs that were processed, including any with no trenches.
         params : dict
             Detection parameters.
+        source_subset_metadata : dict | None
+            The experiment subset the trenches were detected on.
         """
-        grp = self._store.require_group("trench_detection")
-        grp.attrs["trench_data"] = json.dumps(trench_data, default=str)
-        grp.attrs["params"] = json.dumps(params, default=str)
+        self._save_table(
+            "trench_detection", "Trench", trenches, _TRENCH_COLUMNS,
+            fov_names, params, source_subset_metadata,
+            index=trenches["trench_id"].to_numpy(dtype=np.int32),
+        )
 
     def load_trench_detection(self) -> Dict[str, Any]:
         """Load trench detection checkpoint.
@@ -210,20 +301,15 @@ class CompanionStore:
         Returns
         -------
         dict
-            Keys: ``"trench_data"`` (dict), ``"params"`` (dict).
+            Keys: ``"trenches"`` (pd.DataFrame), ``"fov_names"`` (list),
+            ``"params"`` (dict).
         """
-        grp = self._store["trench_detection"]
-        return {
-            "trench_data": json.loads(grp.attrs["trench_data"]),
-            "params": json.loads(grp.attrs["params"]),
-        }
+        table, attrs = self._load_table("trench_detection", "Trench")
+        return {"trenches": table, "fov_names": attrs["fov_names"], "params": attrs["params"]}
 
     def has_trench_detection(self) -> bool:
         """Check whether trench detection data is checkpointed."""
-        return (
-            "trench_detection" in self._store
-            and "trench_data" in self._store["trench_detection"].attrs
-        )
+        return self._has_section("trench_detection")
 
     # ------------------------------------------------------------------
     # Reset
@@ -239,8 +325,6 @@ class CompanionStore:
             ``"trench_detection"`` to clear just that section.
             ``None`` (default) deletes the entire store and re-creates it.
         """
-        import shutil
-
         if section is not None:
             if section in self._store:
                 del self._store[section]
@@ -259,12 +343,6 @@ class CompanionStore:
     # ------------------------------------------------------------------
 
     def __repr__(self) -> str:
-        sections = []
-        if self.has_registration():
-            sections.append("registration")
-        if self.has_lane_detection():
-            sections.append("lane_detection")
-        if self.has_trench_detection():
-            sections.append("trench_detection")
+        sections = [name for name in _SECTIONS if self._has_section(name)]
         status = ", ".join(sections) if sections else "empty"
         return f"CompanionStore({self.path}, [{status}])"

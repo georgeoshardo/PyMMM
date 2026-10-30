@@ -1045,9 +1045,6 @@ class Registrator:
         if self._tmats is None:
             raise RuntimeError("Nothing to save — run compute_tmats() first.")
 
-        tmats_np = self._tmats.values
-        mean_np = self._mean_images.values if self._mean_images is not None else None
-
         params = {
             "channel": self.channel,
             "backend": self.backend,
@@ -1063,17 +1060,11 @@ class Registrator:
             "transform_convention": TRANSFORM_CONVENTION,
             "fov_names": self.experiment.fov_names,
             "source_subset_metadata": self.experiment.source_subset_metadata,
-            "tmats_dims": list(self._tmats.dims),
-            "tmats_shape": list(self._tmats.shape),
         }
-
-        # Store coordinate values for reconstruction
-        if "P" in self._tmats.coords:
-            params["tmats_P_coords"] = [str(v) for v in self._tmats.coords["P"].values]
-        if "T" in self._tmats.coords:
-            params["tmats_T_coords"] = [float(v) for v in self._tmats.coords["T"].values]
-
-        self.store.save_registration(tmats_np, mean_np, params)
+        self.store.save_registration(
+            self._tmats, self._mean_images, params,
+            source_subset_metadata=self.experiment.source_subset_metadata,
+        )
         print(f"Registration saved to {self.store.path}")
 
     @classmethod
@@ -1089,9 +1080,7 @@ class Registrator:
 
         data = store.load_registration(load_mean_images=load_mean_images)
         params = data["params"]
-        convention = params.get("transform_convention")
-        legacy_unrotated = convention is None and params.get("rotation", 0.0) == 0.0
-        if convention != TRANSFORM_CONVENTION and not legacy_unrotated:
+        if params.get("transform_convention") != TRANSFORM_CONVENTION:
             raise ValueError(
                 "Registration checkpoint uses an incompatible transform convention. "
                 "Recompute registration and downstream detection checkpoints."
@@ -1113,26 +1102,14 @@ class Registrator:
             opencv_threads=params.get("opencv_threads", 8),
         )
 
-        # Reconstruct tmats as xr.DataArray
-        tmats_np = data["tmats"]
-        dims = params.get("tmats_dims", ["T", "P", "row", "col"])
-        coords: Dict[str, Any] = {"row": [0, 1, 2], "col": [0, 1, 2]}
-        if "tmats_P_coords" in params:
-            coords["P"] = params["tmats_P_coords"]
-        if "tmats_T_coords" in params:
-            coords["T"] = params["tmats_T_coords"]
+        def _str_fovs(array: xr.DataArray) -> xr.DataArray:
+            if "P" in array.coords:
+                array = array.assign_coords(P=[str(p) for p in array.coords["P"].values])
+            return array
 
-        reg._tmats = xr.DataArray(tmats_np, dims=dims, coords=coords)
-
-        # Reconstruct mean images if present
-        mean_np = data["mean_images"]
-        if mean_np is not None and mean_np.size > 0:
-            mean_dims = ["P", "Y", "X"] if mean_np.ndim == 3 else ["Y", "X"]
-            mean_coords: Dict[str, Any] = {}
-            if "P" in mean_dims and "tmats_P_coords" in params:
-                mean_coords["P"] = params["tmats_P_coords"]
-            reg._mean_images = xr.DataArray(mean_np, dims=mean_dims, coords=mean_coords)
-
+        reg._tmats = _str_fovs(data["tmats"])
+        if data["mean_images"] is not None:
+            reg._mean_images = _str_fovs(data["mean_images"])
         return reg
 
     def __repr__(self) -> str:
