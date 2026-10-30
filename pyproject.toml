@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pymmm"
+version = "0.1.0"
+description = "Mother machine image processing"
+authors = [{ name = "Georgeos Hardo", email = "gh464@cantab.ac.uk" }]
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+dependencies = [
+    "dask",
+    "ipython",
+    "ipywidgets",
+    "matplotlib",
+    "nd2",
+    "ndv[jup]>=0.5,<0.6",
+    "numpy",
+    "opencv-python-headless>=4.13",
+    "pandas",
+    "pystackreg",
+    "scikit-image",
+    "scipy",
+    "tqdm",
+    "xarray>=2026.2.0,<2027",
+    "zarr>=3.1,<4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["pymmm"]
