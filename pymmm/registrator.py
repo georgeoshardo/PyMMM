@@ -536,24 +536,10 @@ class Registrator:
         reg_data = self._get_registration_data()
         fov_names = reg_data.coords["P"].values if "P" in reg_data.dims else [None]
         has_channels = exp.has_channels
-        y_roi = (
-            (exp._y_slice.start, exp._y_slice.stop, exp._y_slice.step)
-            if exp._y_slice is not None else None
-        )
-        x_roi = (
-            (exp._x_slice.start, exp._x_slice.stop, exp._x_slice.step)
-            if exp._x_slice is not None else None
-        )
-        # Map FOV names → integer P indices for read_frame()
-        raw_fov_names = [str(v) for v in exp._raw_data.coords["P"].values] if "P" in exp._raw_data.dims else []
+        y_roi, x_roi = exp.source_roi
         channel_idx = exp.channel_names.index(self.channel) if has_channels else None
 
-        # Map subsetted T indices → original file T indices
-        if exp._time_slice is not None:
-            n_raw_T = exp._raw_data.sizes["T"]
-            original_t_indices = list(range(*exp._time_slice.indices(n_raw_T)))
-        else:
-            original_t_indices = list(range(exp._raw_data.sizes["T"]))
+        original_t_indices = exp.source_axes["original_t_index"].tolist()
         n_times = len(original_t_indices)
         transformation = StackReg.TRANSLATION
         time_batches = [
@@ -615,7 +601,7 @@ class Registrator:
             try:
                 for fov in tqdm(fov_names, desc="Registering FOVs"):
                     fov_str = str(fov) if fov is not None else None
-                    fov_idx = raw_fov_names.index(fov_str) if fov_str is not None else 0
+                    fov_idx = exp.raw_fov_index(fov_str) if fov_str is not None else 0
                     ref_np = _compute_ref(fov_idx)
                     tmats_list = []
                     for time_batch in time_batches:
@@ -652,7 +638,7 @@ class Registrator:
 
             def _submit_fov(fov):
                 fov_str = str(fov) if fov is not None else None
-                fov_idx = raw_fov_names.index(fov_str) if fov_str is not None else 0
+                fov_idx = exp.raw_fov_index(fov_str) if fov_str is not None else 0
                 ref_np = _compute_ref(fov_idx)
                 ref_future = client.scatter(ref_np, broadcast=True, hash=False)
                 del ref_np
@@ -705,7 +691,7 @@ class Registrator:
                  ProcessPoolExecutor(max_workers=max_workers, mp_context=_mp_ctx) as pool:
                 for fov in tqdm(fov_names, desc="Registering FOVs"):
                     fov_str = str(fov) if fov is not None else None
-                    fov_idx = raw_fov_names.index(fov_str) if fov_str is not None else 0
+                    fov_idx = exp.raw_fov_index(fov_str) if fov_str is not None else 0
                     ref_np = _compute_ref(fov_idx)
 
                     ref_path = os.path.join(tmpdir, f"ref_{fov_idx}.npy")
@@ -759,23 +745,11 @@ class Registrator:
         reg_data = self._get_registration_data()
         fov_names = reg_data.coords["P"].values if "P" in reg_data.dims else [None]
         has_channels = exp.has_channels
-        y_roi = (
-            (exp._y_slice.start, exp._y_slice.stop, exp._y_slice.step)
-            if exp._y_slice is not None else None
-        )
-        x_roi = (
-            (exp._x_slice.start, exp._x_slice.stop, exp._x_slice.step)
-            if exp._x_slice is not None else None
-        )
+        y_roi, x_roi = exp.source_roi
 
-        raw_fov_names = [str(v) for v in exp._raw_data.coords["P"].values] if "P" in exp._raw_data.dims else []
         channel_idx = exp.channel_names.index(self.channel) if has_channels else None
 
-        if exp._time_slice is not None:
-            n_raw_T = exp._raw_data.sizes["T"]
-            original_t_indices = list(range(*exp._time_slice.indices(n_raw_T)))
-        else:
-            original_t_indices = list(range(exp._raw_data.sizes["T"]))
+        original_t_indices = exp.source_axes["original_t_index"].tolist()
         n_times = len(original_t_indices)
         pair_batches = [
             (
@@ -812,7 +786,7 @@ class Registrator:
         if n_jobs == 1:
             for fov in tqdm(fov_names, desc="Registering FOVs"):
                 fov_str = str(fov) if fov is not None else None
-                fov_idx = raw_fov_names.index(fov_str) if fov_str is not None else 0
+                fov_idx = exp.raw_fov_index(fov_str) if fov_str is not None else 0
                 pair_mats = []
                 for _, time_batch in pair_batches:
                     pair_mats.extend(
@@ -830,7 +804,7 @@ class Registrator:
 
             for fov in tqdm(fov_names, desc="Registering FOVs"):
                 fov_str = str(fov) if fov is not None else None
-                fov_idx = raw_fov_names.index(fov_str) if fov_str is not None else 0
+                fov_idx = exp.raw_fov_index(fov_str) if fov_str is not None else 0
 
                 future_to_start = {
                     client.submit(
@@ -857,7 +831,7 @@ class Registrator:
             with ProcessPoolExecutor(max_workers=max_workers, mp_context=_mp_ctx) as pool:
                 for fov in tqdm(fov_names, desc="Registering FOVs"):
                     fov_str = str(fov) if fov is not None else None
-                    fov_idx = raw_fov_names.index(fov_str) if fov_str is not None else 0
+                    fov_idx = exp.raw_fov_index(fov_str) if fov_str is not None else 0
 
                     future_to_start = {
                         pool.submit(

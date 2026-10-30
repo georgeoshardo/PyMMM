@@ -17,7 +17,6 @@ from tqdm.auto import tqdm
 
 from pymmm.experiment import ND2Experiment
 from pymmm.metadata import (
-    _exported_source_axes,
     build_acquisition_dataset,
     build_events_dataset,
     build_source_frames_dataset,
@@ -247,7 +246,7 @@ class Extractor:
 
         stored_reg = store["registration"]
         current_reg = self._build_registration_dataset(
-            _exported_source_axes(self.experiment)
+            self.experiment.source_axes
         )
         for key in ("rotation", "backend", "transform_convention"):
             if stored_reg.attrs.get(key) != _json(current_reg.attrs[key]):
@@ -673,30 +672,8 @@ class Extractor:
             self.registrator.rotation, (image_height, image_width)
         )
 
-        # Map subsetted T indices → original file T indices
-        if "T" not in exp._raw_data.dims:
-            original_t_indices = [0]
-        elif exp._time_slice is not None:
-            n_raw_T = exp._raw_data.sizes["T"]
-            original_t_indices = list(range(*exp._time_slice.indices(n_raw_T)))
-        else:
-            original_t_indices = list(range(exp._raw_data.sizes["T"]))
-
-        # Map FOV names → integer P indices for read_frame()
-        raw_fov_names = (
-            [str(v) for v in exp._raw_data.coords["P"].values]
-            if "P" in exp._raw_data.dims else []
-        )
-
-        # ROI slices (as tuples for pickling)
-        y_roi = (
-            (exp._y_slice.start, exp._y_slice.stop, exp._y_slice.step)
-            if exp._y_slice is not None else None
-        )
-        x_roi = (
-            (exp._x_slice.start, exp._x_slice.stop, exp._x_slice.step)
-            if exp._x_slice is not None else None
-        )
+        original_t_indices = exp.source_axes["original_t_index"].tolist()
+        y_roi, x_roi = exp.source_roi
 
         tmats_da = self.registrator.tmats  # (P, T, row, col) or (T, row, col)
 
@@ -719,7 +696,7 @@ class Extractor:
 
             for fov, fov_df in fov_iter:
                 fov_str = str(fov)
-                fov_idx = raw_fov_names.index(fov_str) if raw_fov_names else 0
+                fov_idx = exp.raw_fov_index(fov_str)
 
                 # Tmats for this FOV: (T, 3, 3)
                 if "P" in tmats_da.dims:
@@ -854,30 +831,12 @@ class Extractor:
             self.registrator.rotation, (image_height, image_width)
         )
 
-        if "T" not in exp._raw_data.dims:
-            original_t_indices = [0]
-        elif exp._time_slice is not None:
-            n_raw_t = exp._raw_data.sizes["T"]
-            original_t_indices = list(range(*exp._time_slice.indices(n_raw_t)))
-        else:
-            original_t_indices = list(range(exp._raw_data.sizes["T"]))
-
-        raw_fov_names = (
-            [str(v) for v in exp._raw_data.coords["P"].values]
-            if "P" in exp._raw_data.dims else []
-        )
-        y_roi = (
-            (exp._y_slice.start, exp._y_slice.stop, exp._y_slice.step)
-            if exp._y_slice is not None else None
-        )
-        x_roi = (
-            (exp._x_slice.start, exp._x_slice.stop, exp._x_slice.step)
-            if exp._x_slice is not None else None
-        )
+        original_t_indices = exp.source_axes["original_t_index"].tolist()
+        y_roi, x_roi = exp.source_roi
 
         fov_blocks = []
         for fov, fov_df in table.groupby("fov", sort=False):
-            fov_idx = raw_fov_names.index(str(fov)) if raw_fov_names else 0
+            fov_idx = exp.raw_fov_index(fov)
             if "P" in self.registrator.tmats.dims:
                 fov_tmats = self.registrator.tmats.sel(P=fov).values
             else:

@@ -56,19 +56,19 @@ class ND2Experiment:
         if "P" in self._raw_data.coords:
             self._raw_data = rename_duplicate_coords(self._raw_data, "P")
 
-        # Compute pixel size from Y coordinate spacing
+        # Coordinate spacing is only the fallback; the acquisition metadata
+        # below takes pixel size from the ND2 voxel size and the interval from
+        # the real frame times.
         if "Y" in self._raw_data.coords:
             y_coords = self._raw_data.coords["Y"].values
-            self._pixel_size_um: float = float(abs(y_coords[1] - y_coords[0]))
+            fallback_pixel_size_um = float(abs(y_coords[1] - y_coords[0]))
         else:
-            self._pixel_size_um = 1.0
-
-        # Compute time interval from T coordinate spacing
+            fallback_pixel_size_um = 1.0
         if "T" in self._raw_data.coords and self._raw_data.sizes.get("T", 0) > 1:
             t_coords = self._raw_data.coords["T"].values
-            self._time_interval_ms: float = float(abs(t_coords[1] - t_coords[0]))
+            fallback_time_interval_ms = float(abs(t_coords[1] - t_coords[0]))
         else:
-            self._time_interval_ms = 0.0
+            fallback_time_interval_ms = 0.0
 
         # Track discarded FOVs / time subsetting
         self._discarded_fovs: List[str] = []
@@ -77,9 +77,12 @@ class ND2Experiment:
         self._x_slice: Optional[slice] = None
         self._source_acquisition_metadata = extract_acquisition_metadata(
             self.path,
-            pixel_size_um=self._pixel_size_um,
-            time_interval_ms=self._time_interval_ms,
+            pixel_size_um=fallback_pixel_size_um,
+            time_interval_ms=fallback_time_interval_ms,
         )
+        file_summary = self._source_acquisition_metadata["file_summary"]
+        self._pixel_size_um: float = file_summary["pixel_size_um"]
+        self._time_interval_ms: float = file_summary["time_interval_ms"]
 
     # ------------------------------------------------------------------
     # Core data access
@@ -151,6 +154,51 @@ class ND2Experiment:
     def source_acquisition_metadata(self) -> dict:
         """Full acquisition/configuration metadata extracted from the ND2."""
         return copy.deepcopy(self._source_acquisition_metadata)
+
+    @property
+    def source_axes(self) -> dict:
+        """Map the current subset back to indices in the source ND2.
+
+        Returns ``fov_names`` (active FOVs), ``original_p_index`` (each active
+        FOV's P index in the ND2) and ``original_t_index`` (each active
+        timepoint's T index in the ND2), the latter two as int32 arrays.
+        """
+        if "P" in self._raw_data.dims:
+            raw_fov_names = [str(v) for v in self._raw_data.coords["P"].values]
+            fov_names = list(self.fov_names)
+            original_p_index = np.asarray(
+                [raw_fov_names.index(name) for name in fov_names], dtype=np.int32,
+            )
+        else:
+            fov_names = ["single"]
+            original_p_index = np.asarray([0], dtype=np.int32)
+
+        if "T" in self._raw_data.dims:
+            n_raw_times = int(self._raw_data.sizes["T"])
+            time_slice = self._time_slice or slice(None)
+            original_t_index = np.arange(*time_slice.indices(n_raw_times), dtype=np.int32)
+        else:
+            original_t_index = np.asarray([0], dtype=np.int32)
+
+        return {
+            "fov_names": fov_names,
+            "original_p_index": original_p_index,
+            "original_t_index": original_t_index,
+        }
+
+    def raw_fov_index(self, fov: str) -> int:
+        """P index of a FOV in the source ND2 (0 when the file has no P axis)."""
+        if "P" not in self._raw_data.dims:
+            return 0
+        return [str(v) for v in self._raw_data.coords["P"].values].index(str(fov))
+
+    @property
+    def source_roi(self) -> tuple:
+        """``(y_roi, x_roi)`` as picklable ``(start, stop, step)`` tuples or ``None``."""
+        return tuple(
+            (s.start, s.stop, s.step) if s is not None else None
+            for s in (self._y_slice, self._x_slice)
+        )
 
     @property
     def source_subset_metadata(self) -> dict:

@@ -46,40 +46,6 @@ def _json_dumps(value: Any) -> str:
     )
 
 
-def _exported_source_axes(experiment: Any) -> dict[str, Any]:
-    """Return exported source-frame indices for the current experiment subset."""
-    raw_data = experiment._raw_data
-
-    if "P" in raw_data.dims:
-        raw_fov_names = [str(v) for v in raw_data.coords["P"].values]
-        active_fov_names = list(experiment.fov_names)
-        original_p_index = np.asarray(
-            [raw_fov_names.index(name) for name in active_fov_names],
-            dtype=np.int32,
-        )
-    else:
-        active_fov_names = ["single"]
-        original_p_index = np.asarray([0], dtype=np.int32)
-
-    if "T" in raw_data.dims:
-        n_raw_times = int(raw_data.sizes["T"])
-        if experiment._time_slice is not None:
-            original_t_index = np.asarray(
-                list(range(*experiment._time_slice.indices(n_raw_times))),
-                dtype=np.int32,
-            )
-        else:
-            original_t_index = np.arange(n_raw_times, dtype=np.int32)
-    else:
-        original_t_index = np.asarray([0], dtype=np.int32)
-
-    return {
-        "fov_names": active_fov_names,
-        "original_p_index": original_p_index,
-        "original_t_index": original_t_index,
-    }
-
-
 def _extract_frame_scalars(frame_metadata: dict[str, Any]) -> dict[str, Any]:
     """Extract common scalar fields from a serialized ND2 frame metadata payload."""
     channels = frame_metadata.get("channels") or []
@@ -209,7 +175,7 @@ def _normalize_name(name: str) -> str:
 
 def extract_source_frame_metadata(experiment: Any) -> dict[str, Any]:
     """Collect per-source-frame metadata for the frames exported by the pipeline."""
-    export_axes = _exported_source_axes(experiment)
+    export_axes = experiment.source_axes
     fov_names = export_axes["fov_names"]
     original_p_index = export_axes["original_p_index"]
     original_t_index = export_axes["original_t_index"]
@@ -534,16 +500,47 @@ def build_acquisition_dataset(
     )
 
 
+def _median_frame_interval_ms(event_rows: Sequence[Mapping[str, Any]]) -> float | None:
+    """Median time between consecutive timepoints of the same FOV, from the
+    ND2 event table's frame rows."""
+    times_by_fov: dict[int, dict[int, float]] = {}
+    for row in event_rows:
+        if "Index" not in row or row.get("Time [s]") is None:
+            continue
+        times_by_fov.setdefault(int(row.get("P Index", 0)), {})[int(row.get("T Index", 0))] = (
+            float(row["Time [s]"]) * 1000.0
+        )
+    gaps = [
+        np.diff([times[t] for t in sorted(times)])
+        for times in times_by_fov.values() if len(times) > 1
+    ]
+    if not gaps:
+        return None
+    return float(np.median(np.concatenate(gaps)))
+
+
 def extract_acquisition_metadata(
     path: Path,
     *,
     pixel_size_um: float,
     time_interval_ms: float,
 ) -> dict[str, Any]:
-    """Read ND2 metadata without materializing image data."""
+    """Read ND2 metadata without materializing image data.
+
+    ``pixel_size_um`` and ``time_interval_ms`` are fallbacks: the pixel size
+    comes from the ND2 voxel size and the interval from the median gap between
+    real frame times, when the file provides them.
+    """
     with nd2.ND2File(path) as nd2_file:
         nd2_metadata = _to_builtin(nd2_file.metadata)
         n_channels = len((nd2_metadata or {}).get("channels") or [])
+        voxel = nd2_file.voxel_size()
+        if voxel is not None and voxel.x and voxel.x > 0:
+            pixel_size_um = float(voxel.x)
+        if not bool(nd2_file.is_legacy):
+            measured = _median_frame_interval_ms(nd2_file.events(orient="records"))
+            if measured is not None:
+                time_interval_ms = measured
         return {
             "file_summary": {
                 "source_file": str(path.resolve()),

@@ -21,6 +21,7 @@ from pymmm.registrator import Registrator
 from pymmm.trench_detector import TrenchDefinition, TrenchDetector
 from pymmm.metadata import (
     extract_acquisition_metadata,
+    _median_frame_interval_ms,
     extract_source_frame_metadata,
 )
 
@@ -252,10 +253,7 @@ def test_nd2experiment_subset_metadata_tracks_selection(monkeypatch, tmp_path):
     )
 
     monkeypatch.setattr("pymmm.experiment.nd2.imread", lambda *args, **kwargs: data)
-    monkeypatch.setattr(
-        "pymmm.experiment.extract_acquisition_metadata",
-        lambda *args, **kwargs: {},
-    )
+    monkeypatch.setattr("pymmm.metadata.nd2.ND2File", FakeND2File)
 
     exp = ND2Experiment(nd2_path)
     exp.select_times(0, 1)
@@ -387,10 +385,6 @@ def test_extract_source_frame_metadata_tracks_subset(monkeypatch, tmp_path):
 
     monkeypatch.setattr("pymmm.experiment.nd2.imread", lambda *args, **kwargs: data)
     monkeypatch.setattr("pymmm.metadata.nd2.ND2File", FakeND2File)
-    monkeypatch.setattr(
-        "pymmm.experiment.extract_acquisition_metadata",
-        lambda *args, **kwargs: {},
-    )
 
     exp = ND2Experiment(nd2_path)
     exp.select_fovs(["XYPos:1"]).select_times(1, 2)
@@ -644,3 +638,15 @@ def test_registration_dataset_stores_per_fov_shifts():
     assert registration["shift"].sel(FOV="XYPos:1", T=7).values.tolist() == [-2.0, 4.5]
     assert registration["shift"].sel(FOV="XYPos:1", T=5).values.tolist() == [0.0, 0.0]
     assert json.loads(registration.attrs["roi"]) == {"y": [250, 860]}
+
+
+def test_time_interval_is_median_of_real_frame_gaps():
+    rows = [{"Time [s]": 0.0, "Events": "Command Executed"}]
+    for t, (t0, t1) in enumerate([(0.0, 1.0), (60.0, 61.5), (121.0, 122.0), (180.0, 181.0)]):
+        rows += [
+            {"Index": 2 * t, "T Index": t, "P Index": 0, "Time [s]": t0},
+            {"Index": 2 * t + 1, "T Index": t, "P Index": 1, "Time [s]": t1},
+        ]
+    # FOV 0 gaps: 60, 61, 59 s; FOV 1 gaps: 60.5, 60.5, 59 s
+    assert _median_frame_interval_ms(rows) == pytest.approx(60250.0)
+    assert _median_frame_interval_ms(rows[:1]) is None
