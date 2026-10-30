@@ -11,7 +11,6 @@ import numpy as np
 import xarray as xr
 
 from pymmm.metadata import (
-    SOURCE_METADATA_VERSION,
     extract_acquisition_metadata,
     slice_to_dict,
 )
@@ -147,11 +146,6 @@ class ND2Experiment:
     @property
     def time_interval_ms(self) -> float:
         return self._time_interval_ms
-
-    @property
-    def source_metadata_version(self) -> int:
-        """Schema version for persisted source metadata bundles."""
-        return SOURCE_METADATA_VERSION
 
     @property
     def source_acquisition_metadata(self) -> dict:

@@ -13,6 +13,8 @@ import pandas as pd
 import xarray as xr
 import zarr
 
+from pymmm.provenance import SCHEMA_VERSION, provenance
+
 if TYPE_CHECKING:
     from pymmm.experiment import ND2Experiment
 
@@ -47,9 +49,10 @@ class CompanionStore:
 
     Each section is an xarray dataset written with ``to_zarr``. Its attrs hold
     the parameters that produced it as native JSON, the experiment subset it
-    was computed on, and a ``complete`` flag set only after all of it is
-    written. Root attrs identify the source ND2 and are written once, when the
-    store is created.
+    was computed on, the provenance of the code that wrote it (which includes
+    the time), and a ``complete`` flag set only after all of it is written.
+    Root attrs identify the source ND2 and are written once, when the store is
+    created.
 
     Structure::
 
@@ -85,11 +88,13 @@ class CompanionStore:
         if "created" not in attrs:
             source_stat = nd2_path.stat()
             attrs.update({
+                "schema_version": SCHEMA_VERSION,
                 "layout": "pymmm_companion",
                 "source_nd2": str(nd2_path),
                 "source_file_size_bytes": int(source_stat.st_size),
                 "source_mtime_ns": int(source_stat.st_mtime_ns),
                 "created": datetime.now().astimezone().isoformat(),
+                "provenance": provenance(),
             })
         return store
 
@@ -112,7 +117,7 @@ class CompanionStore:
             "layout": name,
             "params": params,
             "source_subset_metadata": source_subset_metadata,
-            "written": datetime.now().astimezone().isoformat(),
+            "provenance": provenance(),
             **(extra_attrs or {}),
             "complete": False,
         })
@@ -129,7 +134,7 @@ class CompanionStore:
         return name in self._store and bool(self._store[name].attrs.get("complete"))
 
     def section_attrs(self, name: str) -> Dict[str, Any]:
-        """Return a section's attrs (params, subset, written, complete)."""
+        """Return a section's attrs (params, subset, provenance, complete)."""
         return dict(self._store[name].attrs)
 
     # ------------------------------------------------------------------

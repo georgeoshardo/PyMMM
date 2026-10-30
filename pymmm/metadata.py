@@ -14,8 +14,6 @@ import nd2
 import numpy as np
 import xarray as xr
 
-SOURCE_METADATA_VERSION = 2
-EXTRACTOR_STORE_VERSION = 3
 
 def _to_builtin(value: Any) -> Any:
     """Convert nd2/numpy-rich objects to plain JSON-safe builtins."""
@@ -349,10 +347,7 @@ def build_source_frames_dataset(metadata: dict[str, Any]) -> xr.Dataset:
             "T": metadata["original_t_index"],
             "Axis": np.asarray(["x", "y", "z"], dtype=object),
         },
-        attrs={
-            "extractor_store_version": EXTRACTOR_STORE_VERSION,
-            "layout": "source_frames_v1",
-        },
+        attrs={"layout": "source_frames"},
     )
     for name, attrs in SOURCE_FRAME_ATTRS.items():
         dataset[name].attrs.update(attrs)
@@ -412,10 +407,7 @@ def build_events_dataset(
     Per-frame event columns are folded into ``/source_frames`` instead.
     """
     dataset = xr.Dataset(
-        attrs={
-            "extractor_store_version": EXTRACTOR_STORE_VERSION,
-            "layout": "events_v1",
-        },
+        attrs={"layout": "events"},
     )
     dataset = dataset.merge(
         _records_to_dataset(
@@ -528,8 +520,7 @@ def build_acquisition_dataset(
 
     optics = microscopes[0] if microscopes else {}
     attrs = {
-        "extractor_store_version": EXTRACTOR_STORE_VERSION,
-        "layout": "acquisition_v1",
+        "layout": "acquisition",
         "objective_name": optics.get("objectiveName"),
         "objective_magnification": optics.get("objectiveMagnification"),
         "objective_numerical_aperture": optics.get("objectiveNumericalAperture"),
@@ -554,8 +545,6 @@ def extract_acquisition_metadata(
         nd2_metadata = _to_builtin(nd2_file.metadata)
         n_channels = len((nd2_metadata or {}).get("channels") or [])
         return {
-            "schema_version": SOURCE_METADATA_VERSION,
-            "nd2_library_version": nd2.__version__,
             "file_summary": {
                 "source_file": str(path.resolve()),
                 "source_size_bytes": int(path.stat().st_size),

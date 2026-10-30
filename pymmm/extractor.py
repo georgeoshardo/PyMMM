@@ -17,13 +17,13 @@ from tqdm.auto import tqdm
 
 from pymmm.experiment import ND2Experiment
 from pymmm.metadata import (
-    EXTRACTOR_STORE_VERSION,
     _exported_source_axes,
     build_acquisition_dataset,
     build_events_dataset,
     build_source_frames_dataset,
     extract_source_frame_metadata,
 )
+from pymmm.provenance import SCHEMA_VERSION, provenance
 from pymmm.registrator import (
     TRANSFORM_CONVENTION,
     Registrator,
@@ -165,9 +165,9 @@ class Extractor:
         exp = self.experiment
         source_stat = exp.path.stat()
         return {
-            "extractor_store_version": EXTRACTOR_STORE_VERSION,
-            "layout": "xarray_trench_store_v1",
-            "source_metadata_version": int(exp.source_metadata_version),
+            "schema_version": SCHEMA_VERSION,
+            "layout": "trench_store",
+            "provenance": provenance(),
             "source_nd2": str(exp.path),
             "source_file_size_bytes": int(source_stat.st_size),
             "source_mtime_ns": int(source_stat.st_mtime_ns),
@@ -192,11 +192,8 @@ class Extractor:
         store can be resumed.
         """
         attrs = store.attrs
-        if attrs.get("extractor_store_version") != EXTRACTOR_STORE_VERSION:
-            return [
-                f"store version {attrs.get('extractor_store_version')} "
-                f"(current {EXTRACTOR_STORE_VERSION})"
-            ]
+        if attrs.get("schema_version") != SCHEMA_VERSION:
+            return [f"schema version {attrs.get('schema_version')} (current {SCHEMA_VERSION})"]
 
         def _json(value):
             return json.loads(json.dumps(value, default=str))
@@ -295,8 +292,7 @@ class Extractor:
                 "ShiftAxis": np.asarray(["y", "x"], dtype=object),
             },
             attrs={
-                "extractor_store_version": EXTRACTOR_STORE_VERSION,
-                "layout": "registration_v1",
+                "layout": "registration",
                 "description": (
                     "Registration transforms per FOV and timepoint, before rotation. "
                     "shift is the translation part of tmats (y = [1, 2], x = [0, 2])."
@@ -480,6 +476,32 @@ class Extractor:
                 acquisition, compressors=compressors,
             ),
         )
+
+        self._build_detection_dataset().to_zarr(
+            str(self.output_path),
+            mode="a",
+            group="detection",
+            consolidated=False,
+            zarr_format=3,
+        )
+
+    def _build_detection_dataset(self) -> xr.Dataset:
+        """Build the ``/detection`` group: lane and trench detection settings."""
+        def _settings(detector) -> dict[str, Any] | None:
+            if detector is None or not hasattr(detector, "_detection_params"):
+                return None
+            return json.loads(json.dumps(
+                {"channel": detector.channel, "params": detector._detection_params},
+                default=str,
+            ))
+
+        attrs = {
+            "layout": "detection",
+            "description": "Settings that produced the trench geometry in the root dataset.",
+            "lane_detection": _settings(getattr(self.trench_detector, "lane_detector", None)),
+            "trench_detection": _settings(self.trench_detector),
+        }
+        return xr.Dataset(attrs={k: v for k, v in attrs.items() if v is not None})
 
     def extract(
         self,

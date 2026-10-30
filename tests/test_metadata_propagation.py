@@ -15,11 +15,11 @@ import zarr
 from pymmm.checkpoint import CompanionStore
 from pymmm.experiment import ND2Experiment
 from pymmm.extractor import Extractor
+from pymmm.provenance import SCHEMA_VERSION
 from pymmm.lane_detector import LaneDetector, LaneInfo
 from pymmm.registrator import Registrator
 from pymmm.trench_detector import TrenchDefinition, TrenchDetector
 from pymmm.metadata import (
-    SOURCE_METADATA_VERSION,
     extract_acquisition_metadata,
     extract_source_frame_metadata,
 )
@@ -227,7 +227,6 @@ def test_extract_acquisition_metadata_is_json_serializable(monkeypatch, tmp_path
     )
 
     json.dumps(bundle)
-    assert bundle["schema_version"] == SOURCE_METADATA_VERSION
     assert bundle["file_summary"]["pixel_size_um"] == 0.108
     assert bundle["metadata"]["channels"][0]["channel"]["name"] == "PC"
     assert bundle["custom_data"]["StreamDataV1_0"]["ignored"] is True
@@ -255,7 +254,7 @@ def test_nd2experiment_subset_metadata_tracks_selection(monkeypatch, tmp_path):
     monkeypatch.setattr("pymmm.experiment.nd2.imread", lambda *args, **kwargs: data)
     monkeypatch.setattr(
         "pymmm.experiment.extract_acquisition_metadata",
-        lambda *args, **kwargs: {"schema_version": SOURCE_METADATA_VERSION},
+        lambda *args, **kwargs: {},
     )
 
     exp = ND2Experiment(nd2_path)
@@ -297,6 +296,8 @@ def test_companion_store_root_attrs_are_written_once(tmp_path):
     assert (store.path / "zarr.json").exists()
     assert not (store.path / ".zgroup").exists()
     assert attrs["source_file_size_bytes"] == 3
+    assert attrs["schema_version"] == SCHEMA_VERSION
+    assert "pymmm_commit" in attrs["provenance"]
     assert "source_acquisition_metadata" not in attrs
     assert "fov_names" not in attrs
 
@@ -348,6 +349,7 @@ def test_companion_store_round_trips_checkpoints(tmp_path):
 
     zarr_attrs = dict(zarr.open_group(str(store.path / "registration"), mode="r").attrs)
     assert zarr_attrs["complete"] is True
+    assert "pymmm_commit" in zarr_attrs["provenance"]
     assert zarr_attrs["params"]["roi"] == {"y": [250, 860]}  # native JSON, not a string
     assert repr(store).endswith("[registration, lane_detection, trench_detection])")
 
@@ -387,7 +389,7 @@ def test_extract_source_frame_metadata_tracks_subset(monkeypatch, tmp_path):
     monkeypatch.setattr("pymmm.metadata.nd2.ND2File", FakeND2File)
     monkeypatch.setattr(
         "pymmm.experiment.extract_acquisition_metadata",
-        lambda *args, **kwargs: {"schema_version": SOURCE_METADATA_VERSION},
+        lambda *args, **kwargs: {},
     )
 
     exp = ND2Experiment(nd2_path)
@@ -523,7 +525,10 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
     assert "pixel_size_um" not in root.attrs
     assert "trench_mapping" not in root.attrs
     assert "source_acquisition_metadata" not in root.attrs
-    assert root.attrs["extractor_store_version"] == 3
+    assert root.attrs["schema_version"] == SCHEMA_VERSION
+    assert root.attrs["layout"] == "trench_store"
+    assert root.attrs["provenance"]["libraries"]["zarr"] == zarr.__version__
+    assert "created" in root.attrs["provenance"]
     assert root.attrs["source_subset_metadata"]["active_timepoint_count"] == 1
 
     np.testing.assert_array_equal(
@@ -539,7 +544,9 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
         np.asarray([[118, 119], [114, 115]], dtype=np.uint16),
     )
 
-    assert set(tree.children) == {"acquisition", "events", "registration", "source_frames"}
+    assert set(tree.children) == {
+        "acquisition", "detection", "events", "registration", "source_frames",
+    }
     assert "tmats" not in json.dumps(dict(root.attrs))
     assert "extraction_fingerprint" not in root.attrs
     assert root.attrs["source_file_size_bytes"] == nd2_path.stat().st_size
