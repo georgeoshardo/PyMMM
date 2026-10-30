@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
+import warnings
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -15,14 +16,6 @@ import xarray as xr
 
 SOURCE_METADATA_VERSION = 2
 EXTRACTOR_STORE_VERSION = 3
-
-_SELECTED_CUSTOM_DATA_KEYS = (
-    "AcqTimeV1_0",
-    "AppInfo_V1_0",
-    "GrabberCameraSettingsV1_0",
-    "CustomDataV2_0",
-)
-
 
 def _to_builtin(value: Any) -> Any:
     """Convert nd2/numpy-rich objects to plain JSON-safe builtins."""
@@ -126,6 +119,22 @@ def _extract_frame_scalars(frame_metadata: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _static_frame_metadata(frame_metadata: dict[str, Any]) -> dict[str, Any]:
+    """Return a frame metadata payload without its per-frame fields.
+
+    Time, stage position and PFS offset change every frame and are stored as
+    typed ``/source_frames`` variables; what remains is the same for every
+    frame of a FOV.
+    """
+    static = json.loads(json.dumps(frame_metadata))
+    for channel in static.get("channels") or []:
+        channel.pop("time", None)
+        position = channel.get("position") or {}
+        position.pop("stagePositionUm", None)
+        position.pop("pfsOffset", None)
+    return static
+
+
 def _replace_nan_with_none(value: Any) -> Any:
     """Normalize missing scalar values to None for dtype inference."""
     if value is None:
@@ -133,14 +142,6 @@ def _replace_nan_with_none(value: Any) -> Any:
     if isinstance(value, (float, np.floating)) and np.isnan(value):
         return None
     return value
-
-
-def _is_simple_scalar(value: Any) -> bool:
-    builtin = _to_builtin(value)
-    return builtin is None or isinstance(
-        builtin,
-        (str, bool, int, float),
-    )
 
 
 def _values_to_array(values: Sequence[Any]) -> np.ndarray:
@@ -223,13 +224,14 @@ def extract_source_frame_metadata(experiment: Any) -> dict[str, Any]:
     stage_position_um = np.full((n_fovs, n_times, 3), np.nan, dtype=np.float64)
     pfs_offset = np.full((n_fovs, n_times), np.nan, dtype=np.float64)
     pfs_status = np.full((n_fovs, n_times), np.nan, dtype=np.float64)
-    frame_metadata_json = np.empty((n_fovs, n_times), dtype=object)
+    frame_metadata_json = np.empty((n_fovs,), dtype=object)
 
     with nd2.ND2File(experiment.path) as nd2_file:
         coord_axes = [axis for axis in nd2_file.sizes if axis not in {"X", "Y", "C", "S"}]
         coord_shape = tuple(int(nd2_file.sizes[axis]) for axis in coord_axes)
         axis_positions = {axis: idx for idx, axis in enumerate(coord_axes)}
 
+        changing_fovs: set[int] = set()
         for local_p, raw_p in enumerate(original_p_index):
             for local_t, raw_t in enumerate(original_t_index):
                 coords = [0] * len(coord_axes)
@@ -254,7 +256,21 @@ def extract_source_frame_metadata(experiment: Any) -> dict[str, Any]:
                 ]
                 stage_position_um[local_p, local_t] = scalars["stage_position_um"]
                 pfs_offset[local_p, local_t] = scalars["pfs_offset"]
-                frame_metadata_json[local_p, local_t] = _json_dumps(frame_dict)
+
+                static_json = _json_dumps(_static_frame_metadata(frame_dict))
+                if local_t == 0:
+                    frame_metadata_json[local_p] = static_json
+                elif (
+                    static_json != frame_metadata_json[local_p]
+                    and local_p not in changing_fovs
+                ):
+                    changing_fovs.add(local_p)
+                    warnings.warn(
+                        f"Frame metadata of {fov_names[local_p]} changes over time "
+                        f"(first at T={int(raw_t)}); only its first frame's static "
+                        "metadata is stored.",
+                        stacklevel=2,
+                    )
 
         # The ND2 event table has one row per frame plus non-frame acquisition
         # events. Frame rows are the reliable source for PFS: frame metadata
@@ -310,10 +326,7 @@ def build_source_frames_dataset(metadata: dict[str, Any]) -> xr.Dataset:
                 ("FOV", "T", "Axis"),
                 metadata["stage_position_um"],
             ),
-            "frame_metadata_json": (
-                ("FOV", "T"),
-                metadata["frame_metadata_json"],
-            ),
+            "frame_metadata_json": (("FOV",), metadata["frame_metadata_json"]),
         },
         coords={
             "FOV": np.asarray(metadata["fov_names"], dtype=object),
@@ -377,77 +390,119 @@ def build_events_dataset(
     return dataset
 
 
+def _channel_exposure_ms(nd2_file: Any, n_channels: int) -> list[float | None]:
+    """Per-channel exposure times (ms) from nd2's OME metadata.
+
+    The ND2 event table only records the first channel's exposure; the real
+    per-channel values live in the picture-plane sample settings, which nd2
+    exposes publicly through its OME planes.
+    """
+    exposures: list[float | None] = [None] * n_channels
+    try:
+        planes = nd2_file.ome_metadata().images[0].pixels.planes
+    except Exception:
+        return exposures
+    for plane in planes:
+        c = int(plane.the_c)
+        if c < n_channels and exposures[c] is None and plane.exposure_time is not None:
+            exposures[c] = float(plane.exposure_time)
+    return exposures
+
+
+def _color_hex(color: Mapping[str, Any] | None) -> str:
+    if not color:
+        return ""
+    return "#{:02X}{:02X}{:02X}".format(
+        int(color.get("r", 0)), int(color.get("g", 0)), int(color.get("b", 0)),
+    )
+
+
 def build_acquisition_dataset(
     acquisition_metadata: Mapping[str, Any],
     *,
     channel_names: Sequence[str] | None = None,
 ) -> xr.Dataset:
-    """Build the ``/acquisition`` xarray dataset."""
-    structured = _to_builtin(acquisition_metadata.get("structured", {}))
-    metadata_block = structured.get("metadata", {})
-    custom = _to_builtin(acquisition_metadata.get("custom", {}))
-    channel_records = metadata_block.get("channels") or []
+    """Build the ``/acquisition`` xarray dataset.
+
+    Typed per-channel settings and the static optics, plus one compressed
+    ``raw_json`` dump of everything read from the ND2.
+    """
+    nd2_metadata = _to_builtin(acquisition_metadata.get("metadata") or {})
+    channel_records = nd2_metadata.get("channels") or []
     acquisition_channel_names = [
-        str(record.get("name") or f"channel_{idx}")
+        str((record.get("channel") or {}).get("name") or f"channel_{idx}")
         for idx, record in enumerate(channel_records)
     ]
-    canonical_channel_names = (
-        [str(name) for name in channel_names]
-        if channel_names is not None else acquisition_channel_names
-    )
-    if channel_records and len(canonical_channel_names) == len(channel_records):
+    if channel_names is not None and len(channel_names) == len(channel_records):
         coord_name = "C"
-        coord_values = np.asarray(canonical_channel_names, dtype=object)
-    elif channel_records:
-        coord_name = "AcquisitionChannel"
-        coord_values = np.asarray(acquisition_channel_names, dtype=object)
+        coord_values = [str(name) for name in channel_names]
     else:
-        coord_name = None
-        coord_values = None
+        coord_name = "AcquisitionChannel"
+        coord_values = acquisition_channel_names
 
-    dataset = xr.Dataset(
-        attrs={
-            "extractor_store_version": EXTRACTOR_STORE_VERSION,
-            "source_metadata_version": int(
-                acquisition_metadata.get("schema_version", SOURCE_METADATA_VERSION)
-            ),
-            "nd2_library_version": acquisition_metadata.get("nd2_library_version"),
-            "file_summary": _to_builtin(acquisition_metadata.get("file_summary", {})),
-            "text_info": _to_builtin(structured.get("text_info", {})),
-            "attributes": _to_builtin(structured.get("attributes", {})),
-            "experiment": _to_builtin(structured.get("experiment", [])),
-            "custom_data_keys": _to_builtin(custom.get("custom_data_keys", [])),
-            "selected_custom": _to_builtin(custom.get("selected", {})),
-            "unstructured_metadata_keys": _to_builtin(
-                custom.get("unstructured_metadata_keys", [])
-            ),
-            "layout": "acquisition_v1",
-        },
+    exposures = list(acquisition_metadata.get("channel_exposure_ms") or [])
+    exposures += [None] * (len(channel_records) - len(exposures))
+
+    def _channel_var(values, dtype, **attrs):
+        return xr.DataArray(np.asarray(values, dtype=dtype), dims=(coord_name,), attrs=attrs)
+
+    def _nan(value):
+        return np.nan if value is None else float(value)
+
+    channels = [record.get("channel") or {} for record in channel_records]
+    microscopes = [record.get("microscope") or {} for record in channel_records]
+    data_vars = {
+        "exposure_time": _channel_var(
+            [_nan(v) for v in exposures], np.float64,
+            units="millisecond", long_name="camera exposure time",
+        ),
+        "emission_wavelength": _channel_var(
+            [_nan(ch.get("emissionLambdaNm")) for ch in channels], np.float64,
+            units="nanometer", long_name="emission wavelength",
+        ),
+        "excitation_wavelength": _channel_var(
+            [_nan(ch.get("excitationLambdaNm")) for ch in channels], np.float64,
+            units="nanometer", long_name="excitation wavelength",
+        ),
+        "color": _channel_var(
+            [_color_hex(ch.get("color")) for ch in channels], object,
+            long_name="display color (#RRGGBB)",
+        ),
+        "modality": _channel_var(
+            [",".join(m.get("modalityFlags") or []) for m in microscopes], object,
+            long_name="imaging modality flags",
+        ),
+    }
+
+    file_summary = acquisition_metadata.get("file_summary") or {}
+    data_vars["pixel_size"] = xr.DataArray(
+        float(file_summary.get("pixel_size_um", np.nan)),
+        attrs={"units": "micrometer", "long_name": "image pixel size"},
     )
-    if coord_name is not None and coord_values is not None:
-        dataset = dataset.assign_coords({coord_name: coord_values})
-
-    if channel_records:
-        channel_keys = sorted(
-            {
-                key
-                for record in channel_records
-                for key, value in record.items()
-                if key != "name" and _is_simple_scalar(value)
-            }
-        )
-        for key in channel_keys:
-            var_name = _normalize_name(key)
-            dataset[var_name] = xr.DataArray(
-                _values_to_array([record.get(key) for record in channel_records]),
-                dims=(coord_name,),
-            )
-            dataset[var_name].attrs["source_key"] = str(key)
-
-    dataset["raw_json"] = xr.DataArray(
-        np.asarray(_json_dumps(acquisition_metadata), dtype=object)
+    data_vars["time_interval"] = xr.DataArray(
+        float(file_summary.get("time_interval_ms", np.nan)),
+        attrs={"units": "millisecond", "long_name": "nominal time between frames"},
     )
-    return dataset
+    data_vars["raw_json"] = xr.DataArray(
+        np.asarray(_json_dumps(acquisition_metadata), dtype=object),
+        attrs={"long_name": "complete metadata read from the source ND2, as JSON"},
+    )
+
+    optics = microscopes[0] if microscopes else {}
+    attrs = {
+        "extractor_store_version": EXTRACTOR_STORE_VERSION,
+        "layout": "acquisition_v1",
+        "objective_name": optics.get("objectiveName"),
+        "objective_magnification": optics.get("objectiveMagnification"),
+        "objective_numerical_aperture": optics.get("objectiveNumericalAperture"),
+        "zoom_magnification": optics.get("zoomMagnification"),
+        "immersion_refractive_index": optics.get("immersionRefractiveIndex"),
+    }
+    return xr.Dataset(
+        data_vars=data_vars,
+        coords={coord_name: np.asarray(coord_values, dtype=object)},
+        attrs={key: value for key, value in attrs.items() if value is not None},
+    )
 
 
 def extract_acquisition_metadata(
@@ -458,13 +513,8 @@ def extract_acquisition_metadata(
 ) -> dict[str, Any]:
     """Read ND2 metadata without materializing image data."""
     with nd2.ND2File(path) as nd2_file:
-        custom_data = nd2_file.custom_data or {}
-        selected_custom = {
-            key: _to_builtin(custom_data[key])
-            for key in _SELECTED_CUSTOM_DATA_KEYS
-            if key in custom_data
-        }
-        unstructured_metadata = nd2_file.unstructured_metadata()
+        nd2_metadata = _to_builtin(nd2_file.metadata)
+        n_channels = len((nd2_metadata or {}).get("channels") or [])
         return {
             "schema_version": SOURCE_METADATA_VERSION,
             "nd2_library_version": nd2.__version__,
@@ -479,19 +529,13 @@ def extract_acquisition_metadata(
                 "pixel_size_um": float(pixel_size_um),
                 "time_interval_ms": float(time_interval_ms),
             },
-            "structured": {
-                "metadata": _to_builtin(nd2_file.metadata),
-                "experiment": _to_builtin(nd2_file.experiment),
-                "attributes": _to_builtin(nd2_file.attributes),
-                "text_info": _to_builtin(nd2_file.text_info),
-            },
-            "custom": {
-                "data": _to_builtin(custom_data),
-                "selected": selected_custom,
-                "custom_data_keys": sorted(custom_data.keys()),
-                "unstructured": _to_builtin(unstructured_metadata),
-                "unstructured_metadata_keys": sorted(unstructured_metadata.keys()),
-            },
+            "metadata": nd2_metadata,
+            "experiment": _to_builtin(nd2_file.experiment),
+            "attributes": _to_builtin(nd2_file.attributes),
+            "text_info": _to_builtin(nd2_file.text_info),
+            "custom_data": _to_builtin(nd2_file.custom_data or {}),
+            "unstructured_metadata": _to_builtin(nd2_file.unstructured_metadata()),
+            "channel_exposure_ms": _channel_exposure_ms(nd2_file, n_channels),
         }
 
 

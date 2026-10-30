@@ -304,7 +304,7 @@ class Extractor:
             spec: dict[str, Any] = {}
             if name in chunk_overrides:
                 spec["chunks"] = chunk_overrides[name]
-            if compressors is not None and dataset[name].dtype != object:
+            if compressors is not None:
                 spec["compressors"] = compressors
             if spec:
                 encoding[name] = spec
@@ -343,10 +343,6 @@ class Extractor:
                     np.asarray(trench_table["fov"].tolist(), dtype=object),
                 ),
                 "fov_index": (("Trench",), fov_index),
-                "original_p_index": (
-                    ("Trench",),
-                    source_metadata["original_p_index"][fov_index],
-                ),
                 "lane_index": (
                     ("Trench",),
                     trench_table["lane_index"].to_numpy(dtype=np.int32),
@@ -366,26 +362,6 @@ class Extractor:
                     ("Trench",),
                     trench_table["needs_flip"].to_numpy(dtype=bool),
                 ),
-                "source_seq_index": (
-                    ("Trench", "T"),
-                    source_metadata["source_seq_index"][fov_index],
-                ),
-                "relative_time_ms": (
-                    ("Trench", "T"),
-                    source_metadata["relative_time_ms"][fov_index],
-                ),
-                "absolute_julian_day_number": (
-                    ("Trench", "T"),
-                    source_metadata["absolute_julian_day_number"][fov_index],
-                ),
-                "pfs_offset": (
-                    ("Trench", "T"),
-                    source_metadata["pfs_offset"][fov_index],
-                ),
-                "stage_position_um": (
-                    ("Trench", "T", "Axis"),
-                    source_metadata["stage_position_um"][fov_index],
-                ),
             },
             coords={
                 "Trench": trench_table["trench_id"].to_numpy(dtype=np.int32),
@@ -393,7 +369,6 @@ class Extractor:
                 "C": np.asarray(channel_names, dtype=object),
                 "Y": np.arange(trench_h, dtype=np.int32),
                 "X": np.arange(trench_w, dtype=np.int32),
-                "Axis": np.asarray(["x", "y", "z"], dtype=object),
             },
             attrs=self._root_store_attrs(),
         )
@@ -425,7 +400,6 @@ class Extractor:
                     "pfs_offset": (1, n_times),
                     "pfs_status": (1, n_times),
                     "stage_position_um": (1, n_times, 3),
-                    "frame_metadata_json": (1, n_times),
                 },
                 compressors=compressors,
             ),
@@ -605,14 +579,12 @@ class Extractor:
                 data_chunks=chunks,
                 dtype=dtype,
             )
-            metadata_chunk = min(128, max(1, n_trenches))
             root_encoding = self._metadata_encoding(
                 root_dataset,
                 chunk_overrides={
                     "data": chunks,
                     "fov_name": (min(4096, max(1, n_trenches)),),
                     "fov_index": (min(4096, max(1, n_trenches)),),
-                    "original_p_index": (min(4096, max(1, n_trenches)),),
                     "lane_index": (min(4096, max(1, n_trenches)),),
                     "x_left": (min(4096, max(1, n_trenches)),),
                     "x_right": (min(4096, max(1, n_trenches)),),
@@ -620,11 +592,6 @@ class Extractor:
                     "y_bottom": (min(4096, max(1, n_trenches)),),
                     "orientation": (min(4096, max(1, n_trenches)),),
                     "needs_flip": (min(4096, max(1, n_trenches)),),
-                    "source_seq_index": (metadata_chunk, n_times),
-                    "relative_time_ms": (metadata_chunk, n_times),
-                    "absolute_julian_day_number": (metadata_chunk, n_times),
-                    "pfs_offset": (metadata_chunk, n_times),
-                    "stage_position_um": (metadata_chunk, n_times, 3),
                 },
                 compressors=metadata_compressors,
             )

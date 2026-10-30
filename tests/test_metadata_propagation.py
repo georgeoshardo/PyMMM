@@ -26,11 +26,20 @@ from pymmm.metadata import (
 class FakeChannelMeta:
     name: str
     index: int
+    color: dict | None = None
+    emissionLambdaNm: float | None = None
+    excitationLambdaNm: float | None = None
+
+
+@dataclass
+class FakeChannelRecord:
+    channel: FakeChannelMeta
+    microscope: dict
 
 
 @dataclass
 class FakeMetadata:
-    channels: list[FakeChannelMeta]
+    channels: list[FakeChannelRecord]
 
 
 @dataclass
@@ -82,10 +91,27 @@ class FakeND2File:
         self.shape = (2, 2, 2, 3, 4)
         self.dtype = np.dtype("uint16")
         self.is_legacy = False
+        microscope = {
+            "objectiveName": "Plan Apo 40x",
+            "objectiveNumericalAperture": 0.95,
+            "modalityFlags": ["camera"],
+        }
         self.metadata = FakeMetadata(
             channels=[
-                FakeChannelMeta(name="PC", index=0),
-                FakeChannelMeta(name="mCherry", index=1),
+                FakeChannelRecord(
+                    channel=FakeChannelMeta(
+                        name="PC", index=0, color={"r": 255, "g": 255, "b": 255},
+                        emissionLambdaNm=595.0,
+                    ),
+                    microscope=microscope,
+                ),
+                FakeChannelRecord(
+                    channel=FakeChannelMeta(
+                        name="mCherry", index=1, color={"r": 255, "g": 0, "b": 0},
+                        emissionLambdaNm=475.0,
+                    ),
+                    microscope=microscope,
+                ),
             ]
         )
         self.experiment = [FakeLoop(count=2, type="TimeLoop")]
@@ -115,6 +141,15 @@ class FakeND2File:
     def voxel_size(self):
         voxel_type = namedtuple("VoxelSize", ["x", "y", "z"])
         return voxel_type(0.108, 0.108, 1.0)
+
+    def ome_metadata(self):
+        planes = [
+            SimpleNamespace(the_c=0, exposure_time=80.0),
+            SimpleNamespace(the_c=1, exposure_time=200.0),
+        ]
+        return SimpleNamespace(
+            images=[SimpleNamespace(pixels=SimpleNamespace(planes=planes))]
+        )
 
     def unstructured_metadata(self) -> dict[str, dict]:
         return {
@@ -191,17 +226,10 @@ def test_extract_acquisition_metadata_is_json_serializable(monkeypatch, tmp_path
     json.dumps(bundle)
     assert bundle["schema_version"] == SOURCE_METADATA_VERSION
     assert bundle["file_summary"]["pixel_size_um"] == 0.108
-    assert bundle["structured"]["metadata"]["channels"][0]["name"] == "PC"
-    assert bundle["custom"]["custom_data_keys"] == [
-        "AppInfo_V1_0",
-        "CustomDataV2_0",
-        "GrabberCameraSettingsV1_0",
-        "StreamDataV1_0",
-    ]
-    assert bundle["custom"]["data"]["StreamDataV1_0"]["ignored"] is True
-    assert bundle["custom"]["unstructured"]["ImageEventsLV"]["RLxExperimentRecord"] == {}
-    assert "ImageEventsLV" in bundle["custom"]["unstructured_metadata_keys"]
-    assert "StreamDataV1_0" not in bundle["custom"]["selected"]
+    assert bundle["metadata"]["channels"][0]["channel"]["name"] == "PC"
+    assert bundle["custom_data"]["StreamDataV1_0"]["ignored"] is True
+    assert bundle["unstructured_metadata"]["ImageEventsLV"]["RLxExperimentRecord"] == {}
+    assert bundle["channel_exposure_ms"] == [80.0, 200.0]
 
 
 def test_nd2experiment_subset_metadata_tracks_selection(monkeypatch, tmp_path):
@@ -308,7 +336,10 @@ def test_extract_source_frame_metadata_tracks_subset(monkeypatch, tmp_path):
     assert exported["pfs_offset"].tolist() == [[17414.0]]
     assert exported["pfs_status"].tolist() == [[0.0]]
     assert "position_name" not in exported
-    assert "mCherry" in exported["frame_metadata_json"][0, 0]
+    static = json.loads(exported["frame_metadata_json"][0])
+    assert static["channels"][1]["channel"]["name"] == "mCherry"
+    assert "time" not in static["channels"][0]
+    assert "stagePositionUm" not in static["channels"][0]["position"]
     assert "frame_event_records" not in exported
     assert len(exported["acquisition_event_records"]) == 4
 
@@ -333,13 +364,6 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
 
     monkeypatch.setattr("pymmm.experiment.nd2.imread", lambda *args, **kwargs: data)
     monkeypatch.setattr("pymmm.metadata.nd2.ND2File", FakeND2File)
-    monkeypatch.setattr(
-        "pymmm.experiment.extract_acquisition_metadata",
-        lambda *args, **kwargs: {
-            "schema_version": SOURCE_METADATA_VERSION,
-            "structured": {"text_info": {"optics": "40x"}},
-        },
-    )
 
     experiment = ND2Experiment(nd2_path)
     experiment.select_fovs(["XYPos:1"]).select_times(1, 2)
@@ -422,12 +446,11 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
     assert root.coords["C"].values.tolist() == ["PC", "mCherry"]
     assert root["fov_name"].compute().values.tolist() == ["XYPos:1", "XYPos:1"]
     assert root["fov_index"].compute().values.tolist() == [0, 0]
-    assert root["original_p_index"].compute().values.tolist() == [1, 1]
-    assert root["relative_time_ms"].compute().values.tolist() == [[30124.0], [30124.0]]
-    assert root["stage_position_um"].compute().values.tolist() == [
-        [[101.0, 201.0, 302.0]],
-        [[101.0, 201.0, 302.0]],
-    ]
+    per_fov = {
+        "original_p_index", "source_seq_index", "relative_time_ms",
+        "absolute_julian_day_number", "pfs_offset", "stage_position_um",
+    }
+    assert not per_fov & set(root.data_vars)
     assert "trench_mapping" not in root.attrs
     assert "source_acquisition_metadata" not in root.attrs
     assert root.attrs["extractor_store_version"] == 3
@@ -473,13 +496,8 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
     assert source_frames["pfs_offset"].sel(FOV="XYPos:1", T=1).item() == 17414.0
     assert source_frames["pfs_status"].sel(FOV="XYPos:1", T=1).item() == 0.0
     assert "position_name" not in source_frames
-    assert root["pfs_offset"].compute().values.tolist() == [[17414.0], [17414.0]]
-    assert "mCherry" in (
-        source_frames["frame_metadata_json"]
-        .sel(FOV="XYPos:1", T=1)
-        .compute()
-        .item()
-    )
+    assert source_frames["frame_metadata_json"].dims == ("FOV",)
+    assert "mCherry" in source_frames["frame_metadata_json"].sel(FOV="XYPos:1").item()
 
     events = tree["events"].ds
     assert "FrameEvent" not in events.sizes
@@ -491,9 +509,16 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
     ]
 
     acquisition = tree["acquisition"].ds
-    assert acquisition.attrs["text_info"]["optics"] == "40x"
     assert acquisition.coords["C"].values.tolist() == ["PC", "mCherry"]
-    assert acquisition["raw_json"].compute().item().startswith("{")
+    assert acquisition["exposure_time"].values.tolist() == [80.0, 200.0]
+    assert acquisition["exposure_time"].attrs["units"] == "millisecond"
+    assert acquisition["color"].values.tolist() == ["#FFFFFF", "#FF0000"]
+    assert acquisition["pixel_size"].item() == pytest.approx(0.108)
+    assert acquisition.attrs["objective_name"] == "Plan Apo 40x"
+    assert "text_info" not in acquisition.attrs
+    raw = json.loads(acquisition["raw_json"].compute().item())
+    assert raw["text_info"]["optics"] == "Plan Apo 40x"
+    assert type(zarr_root["acquisition"]["raw_json"].metadata.codecs[-1]).__name__ == "BloscCodec"
 
     # Resuming with the same transforms is a no-op; different transforms are refused.
     extractor.extract(compressor="zstd", clevel=1, show_progress=False)
