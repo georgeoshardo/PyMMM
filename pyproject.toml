@@ -10,7 +10,8 @@ authors = [{ name = "Georgeos Hardo", email = "gh464@cantab.ac.uk" }]
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
 dependencies = [
-    "dask",
+    "bokeh>=3.1.0",
+    "dask[distributed]",
     "ipython",
     "ipywidgets",
     "matplotlib",
