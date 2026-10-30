@@ -445,6 +445,9 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
 
     assert set(tree.children) == {"acquisition", "events", "registration", "source_frames"}
     assert "tmats" not in json.dumps(dict(root.attrs))
+    assert "extraction_fingerprint" not in root.attrs
+    assert root.attrs["source_file_size_bytes"] == nd2_path.stat().st_size
+    assert root.attrs["source_mtime_ns"] == nd2_path.stat().st_mtime_ns
 
     registration = tree["registration"].ds
     assert registration["tmats"].dims == ("FOV", "T", "Row", "Col")
@@ -496,10 +499,18 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
 
     # Resuming with the same transforms is a no-op; different transforms are refused.
     extractor.extract(compressor="zstd", clevel=1, show_progress=False)
+    moved = trench_table.copy()
+    moved.loc[0, ["x_left", "x_right"]] = [0, 2]
+    trench_detector.get_trench_table = lambda: moved.copy()
+    with pytest.raises(RuntimeError, match="trench x_left, trench x_right"):
+        extractor.extract(compressor="zstd", clevel=1, show_progress=False)
+    with pytest.raises(RuntimeError, match="compression settings"):
+        trench_detector.get_trench_table = lambda: trench_table.copy()
+        extractor.extract(compressor="zstd", clevel=3, show_progress=False)
     shifted = np.eye(3, dtype=np.float64)
     shifted[1, 2] = 1.0
     registrator.tmats = registrator.tmats.copy(data=shifted[np.newaxis, np.newaxis])
-    with pytest.raises(RuntimeError, match="different registration transforms"):
+    with pytest.raises(RuntimeError, match="registration transforms"):
         extractor.extract(compressor="zstd", clevel=1, show_progress=False)
 
 

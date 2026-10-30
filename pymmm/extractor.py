@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -139,11 +138,14 @@ class Extractor:
     def _root_store_attrs(self) -> dict[str, Any]:
         """Return the small root-attrs bundle for the final trench store."""
         exp = self.experiment
+        source_stat = exp.path.stat()
         return {
             "extractor_store_version": EXTRACTOR_STORE_VERSION,
             "layout": "xarray_trench_store_v1",
             "source_metadata_version": int(exp.source_metadata_version),
             "source_nd2": str(exp.path),
+            "source_file_size_bytes": int(source_stat.st_size),
+            "source_mtime_ns": int(source_stat.st_mtime_ns),
             "experiment_name": exp.experiment_name,
             "pixel_size_um": exp.pixel_size_um,
             "registration_params": {
@@ -156,8 +158,9 @@ class Extractor:
             "source_subset_metadata": exp.source_subset_metadata,
         }
 
-    def _extraction_fingerprint(
+    def _resume_mismatches(
         self,
+        store: zarr.Group,
         trench_table,
         shape: tuple[int, ...],
         chunks: tuple[int, ...],
@@ -165,36 +168,79 @@ class Extractor:
         compressor: str,
         clevel: int,
         byte_shuffle: bool,
-    ) -> str:
-        """Hash the source, geometry, transforms, and output layout."""
-        source_stat = self.experiment.path.stat()
-        trench_columns = [
-            "trench_id", "fov", "lane_index", "x_left", "x_right",
-            "y_top", "y_bottom", "orientation", "needs_flip",
+    ) -> list[str]:
+        """Compare this extraction with what an existing store already records.
+
+        Returns a description of every input that differs; empty means the
+        store can be resumed.
+        """
+        attrs = store.attrs
+        if attrs.get("extractor_store_version") != EXTRACTOR_STORE_VERSION:
+            return [
+                f"store version {attrs.get('extractor_store_version')} "
+                f"(current {EXTRACTOR_STORE_VERSION})"
+            ]
+
+        def _json(value):
+            return json.loads(json.dumps(value, default=str))
+
+        current_attrs = _json(self._root_store_attrs())
+        mismatches = [
+            key for key in (
+                "source_nd2", "source_file_size_bytes", "source_mtime_ns",
+                "source_subset_metadata",
+            )
+            if attrs.get(key) != current_attrs[key]
         ]
-        payload = {
-            "source": str(self.experiment.path.resolve()),
-            "source_size": source_stat.st_size,
-            "source_mtime_ns": source_stat.st_mtime_ns,
-            "subset": self.experiment.source_subset_metadata,
-            "channels": self.experiment.channel_names,
-            "trenches": trench_table[trench_columns].to_json(orient="records"),
-            "shape": shape,
-            "chunks": chunks,
-            "dtype": dtype.str,
-            "rotation": self.registrator.rotation,
-            "registration_backend": getattr(
-                self.registrator, "backend", "stackreg"
-            ),
-            "transform_convention": TRANSFORM_CONVENTION,
-            "compressor": compressor,
-            "clevel": clevel,
-            "byte_shuffle": byte_shuffle,
-            "zarr_format": 3,
+
+        if store["C"][:].tolist() != list(self.experiment.channel_names):
+            mismatches.append("channels")
+
+        trench_columns = {
+            "Trench": "trench_id", "fov_name": "fov", "lane_index": "lane_index",
+            "x_left": "x_left", "x_right": "x_right", "y_top": "y_top",
+            "y_bottom": "y_bottom", "orientation": "orientation",
+            "needs_flip": "needs_flip",
         }
-        return hashlib.sha256(
-            json.dumps(payload, sort_keys=True, default=str).encode()
-        ).hexdigest()
+        stored_trench_count = store["Trench"].shape[0]
+        if stored_trench_count != len(trench_table):
+            mismatches.append(
+                f"trench count ({stored_trench_count} stored, {len(trench_table)} now)"
+            )
+        else:
+            for var, column in trench_columns.items():
+                if store[var][:].tolist() != trench_table[column].tolist():
+                    mismatches.append(f"trench {column}")
+
+        data = store["data"]
+        if data.shape != tuple(shape):
+            mismatches.append(f"data shape ({data.shape} stored, {tuple(shape)} now)")
+        if data.chunks != tuple(chunks):
+            mismatches.append(f"data chunks ({data.chunks} stored, {tuple(chunks)} now)")
+        if np.dtype(data.dtype) != dtype:
+            mismatches.append(f"data dtype ({data.dtype} stored, {dtype} now)")
+        blosc = [c for c in data.compressors if isinstance(c, zarr.codecs.BloscCodec)]
+        if compressor == "zstd":
+            want_shuffle = "shuffle" if byte_shuffle else "noshuffle"
+            if not blosc or (
+                str(getattr(blosc[0].cname, "value", blosc[0].cname)),
+                blosc[0].clevel,
+                str(getattr(blosc[0].shuffle, "value", blosc[0].shuffle)),
+            ) != ("zstd", clevel, want_shuffle):
+                mismatches.append("compression settings")
+        elif blosc:
+            mismatches.append("compression settings")
+
+        stored_reg = store["registration"]
+        current_reg = self._build_registration_dataset(
+            _exported_source_axes(self.experiment)
+        )
+        for key in ("rotation", "backend", "transform_convention"):
+            if stored_reg.attrs.get(key) != _json(current_reg.attrs[key]):
+                mismatches.append(f"registration {key}")
+        if not np.array_equal(stored_reg["tmats"][:], current_reg["tmats"].values):
+            mismatches.append("registration transforms")
+        return mismatches
 
     def _build_registration_dataset(
         self, source_metadata: dict[str, Any],
@@ -541,27 +587,20 @@ class Extractor:
         chunks = (1, output_time_chunk, 1, trench_h, trench_w)
 
         dtype = np.dtype(exp.data.dtype)
-        fingerprint = self._extraction_fingerprint(
-            trench_table, shape, chunks, dtype, compressor, clevel, byte_shuffle,
-        )
 
         if resume and self.output_path.exists():
             store = zarr.open_group(
                 str(self.output_path), mode="r+", zarr_format=3,
             )
-            if store.attrs.get("extraction_fingerprint") != fingerprint:
+            mismatches = self._resume_mismatches(
+                store, trench_table, shape, chunks, dtype,
+                compressor, clevel, byte_shuffle,
+            )
+            if mismatches:
                 raise RuntimeError(
-                    "Existing output is not compatible with this extraction. "
+                    "Existing output is not compatible with this extraction; "
+                    f"these inputs differ: {', '.join(mismatches)}. "
                     "Use resume=False or choose a new output path."
-                )
-            stored_tmats = store["registration"]["tmats"][:]
-            current_tmats = self._build_registration_dataset(
-                _exported_source_axes(exp)
-            )["tmats"].values
-            if not np.array_equal(stored_tmats, current_tmats):
-                raise RuntimeError(
-                    "Existing output was extracted with different registration "
-                    "transforms. Use resume=False or choose a new output path."
                 )
             completed_fovs = set(store.attrs.get("completed_fovs", []))
         else:
@@ -616,7 +655,6 @@ class Extractor:
             store = zarr.open_group(
                 str(self.output_path), mode="r+", zarr_format=3,
             )
-            store.attrs["extraction_fingerprint"] = fingerprint
             store.attrs["completed_fovs"] = []
             store.attrs["extraction_complete"] = False
             completed_fovs = set()
