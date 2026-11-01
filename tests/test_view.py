@@ -23,7 +23,11 @@ def test_view_adds_channels_and_segmentation_labels(tmp_path, monkeypatch):
     assert segmentation_names(store) == ["mcherry"]
 
     viewer = view_trench_store(store, ViewerModel())
-    labels = viewer.layers["mcherry labels"]
+    assert [layer.name for layer in viewer.layers][2:] == [
+        "mcherry S1", "mcherry S2", "mcherry S3", "mcherry S4",
+    ]
+    assert [layer.visible for layer in viewer.layers][2:] == [True, False, False, False]
+    labels = viewer.layers["mcherry S1"]
     assert type(labels).__name__ == "Labels"
     assert labels.data.shape == (N_TRENCH, N_T, H, W)
     assert viewer.dims.axis_labels == ("Trench", "T", "Y", "X")

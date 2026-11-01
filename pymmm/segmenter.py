@@ -1,4 +1,12 @@
-"""Segmenter – Omnipose cell labels for every trench crop in a trench store."""
+"""Segmenter – Omnipose cell labels for every trench crop in a trench store.
+
+Each trench is scaled by its own intensity percentiles (with a store-wide floor
+so trenches without cells keep their noise dark), then segmented under a few
+preset Omnipose settings, the *hypotheses*. S1 is the primary segmentation; S2–S4
+mostly keep pairs that have just divided as one cell, so downstream tracking can
+choose between them. Labels are written to ``/segmentation/<name>`` inside the
+trench store as ``labels(Hypothesis, Trench, T, Y, X)``.
+"""
 
 from __future__ import annotations
 
@@ -18,32 +26,55 @@ from tqdm.auto import tqdm
 
 from pymmm.provenance import SCHEMA_VERSION, provenance
 
-_LABEL_DIMS = ("Trench", "T", "Y", "X")
+_LABEL_DIMS = ("Hypothesis", "Trench", "T", "Y", "X")
 
 _LABELS_ATTRS = {
     "long_name": (
         "cell labels; 0 is background, 1..n are ordered from the trench's closed "
-        "end (Y = 0), so 1 is the mother cell"
+        "end (Y = 0), so 1 is the cell nearest the closed end"
     ),
 }
 
+PERCENTILES = (1.0, 99.0)
+"""Per-trench intensity percentiles mapped to 0 and 1 (before the gain)."""
+
 DEFAULT_PARAMS: Dict[str, Any] = {
-    "lower": None,
-    "upper": None,
+    "floor": None,
+    "floor_sigma": 20.0,
+    "gain": 1.0,
+    "rescale": 1.0,
     "mask_threshold": 0.0,
     "flow_threshold": 0.4,
-    "min_size": 15,
+    "min_area": 1.75,
+    "min_contrast": 5.0,
 }
-"""Omnipose settings. ``lower``/``upper`` are the fixed intensity bounds mapped to
-0 and 1 before the network; ``None`` means estimate them from the store."""
+"""Base settings, shared by every hypothesis unless the hypothesis overrides them.
+
+``floor``: lowest allowed upper intensity bound, in counts; ``None`` estimates it
+as background + ``floor_sigma`` background-noise SDs (median over sampled
+trenches). ``gain``: multiplies the trench's intensity range (above 1 lowers
+contrast). ``rescale``: Omnipose ``rescale_factor``. ``min_area``: smallest mask
+kept, in µm². ``min_contrast``: masks whose mean is fewer than this many
+background-noise SDs above the frame's background are dropped.
+"""
+
+HYPOTHESES: Dict[str, Dict[str, Any]] = {
+    "S1": {},
+    "S2": {"gain": 1.5, "rescale": 0.8, "flow_threshold": 0.0},
+    "S3": {"rescale": 0.8, "mask_threshold": -1.0, "flow_threshold": 0.0},
+    "S4": {"gain": 2.5, "rescale": 0.8, "mask_threshold": -1.0, "flow_threshold": 0.0},
+}
+"""Preset overrides of the base settings. Chosen from a sweep of 360 settings on
+mCherry: S1 splits dividing cells the most; S2–S4 cover the alternative
+segmentations (mostly just-divided pairs kept as one cell, fuller masks in
+crowded trenches) without adding masks on noise."""
+
+# Omnipose 2.0 logs mask building through the top-level "core" and "gpu" loggers.
+_OMNIPOSE_LOGGERS = ("omnipose", "core", "gpu")
 
 
 def _json_native(value: Any) -> Any:
     return json.loads(json.dumps(value, default=str))
-
-
-# Omnipose 2.0 logs mask building through the top-level "core" and "gpu" loggers.
-_OMNIPOSE_LOGGERS = ("omnipose", "core", "gpu")
 
 
 @contextmanager
@@ -60,11 +91,78 @@ def _quiet_omnipose() -> Iterator[None]:
             logger.setLevel(level)
 
 
+def background_noise(pixels: np.ndarray) -> Tuple[float, float]:
+    """Background level and noise SD of an image or stack.
+
+    The background is the median pixel and the noise is the robust SD of the
+    pixels below it, so cells (bright, a minority of pixels) do not inflate
+    either. Zero pixels (outside the camera image after drift correction) are
+    ignored.
+    """
+    real = np.asarray(pixels)
+    real = real[real > 0].astype(np.float64)
+    if real.size == 0:
+        return 0.0, 0.0
+    background = float(np.median(real))
+    below = real[real <= background]
+    return background, float(1.4826 * np.median(background - below))
+
+
+def trench_bounds(stack: np.ndarray, floor: float) -> Tuple[float, float]:
+    """Intensity bounds of one trench over all its frames.
+
+    The :data:`PERCENTILES` of the non-zero pixels; the upper bound is at least
+    ``floor``, so a trench that is mostly empty does not stretch its noise.
+    """
+    real = np.asarray(stack)
+    real = real[real > 0]
+    if real.size == 0:
+        return 0.0, float(floor)
+    lower, upper = np.percentile(real, PERCENTILES)
+    return float(lower), float(max(upper, floor, lower + 1))
+
+
+def normalise(stack: np.ndarray, lower: float, upper: float, gain: float = 1.0) -> np.ndarray:
+    """Map ``lower`` to 0 and ``lower + gain * (upper - lower)`` to 1.
+
+    Zero pixels are set to ``lower`` first so the zero-filled border does not
+    look like a dark structure.
+    """
+    stack = np.asarray(stack, dtype=np.float32)
+    stack = np.where(stack > 0, stack, np.float32(lower))
+    return (stack - np.float32(lower)) / np.float32(gain * (upper - lower))
+
+
+def drop_faint(masks: np.ndarray, stack: np.ndarray, min_contrast: float) -> np.ndarray:
+    """Remove masks fainter than ``min_contrast`` background-noise SDs.
+
+    The background and noise of each frame come from its pixels outside every
+    mask (:func:`background_noise`).
+    """
+    masks = np.array(masks)
+    for t, (frame_masks, frame) in enumerate(zip(masks, np.asarray(stack))):
+        if not frame_masks.any():
+            continue
+        background, noise = background_noise(frame[frame_masks == 0])
+        if noise <= 0:
+            continue
+        flat = frame_masks.ravel()
+        counts = np.bincount(flat)
+        sums = np.bincount(flat, weights=frame.ravel().astype(np.float64))
+        ids = np.flatnonzero(counts)
+        ids = ids[ids > 0]
+        contrast = (sums[ids] / counts[ids] - background) / noise
+        faint = ids[contrast < min_contrast]
+        if faint.size:
+            frame_masks[np.isin(frame_masks, faint)] = 0
+    return masks
+
+
 def order_from_closed_end(masks: np.ndarray) -> np.ndarray:
     """Relabel each frame of ``masks`` 1..n by centroid row, smallest Y first.
 
     Trench crops are flipped so every trench opens downward; Y = 0 is the closed
-    end, so label 1 is the mother cell.
+    end, so label 1 is the cell nearest it.
 
     Parameters
     ----------
@@ -130,14 +228,16 @@ def label_overlay(images: np.ndarray, labels: np.ndarray) -> np.ndarray:
 
 
 class Segmenter:
-    """Segment one channel of a trench store with Omnipose.
+    """Segment one channel of a trench store with Omnipose, under several hypotheses.
 
     Labels are written to ``/segmentation/<name>`` inside the trench store, as
-    ``labels(Trench, T, Y, X)`` with the root dataset's coordinates and one chunk
-    per trench, so they line up with ``data``::
+    ``labels(Hypothesis, Trench, T, Y, X)`` with the root dataset's coordinates
+    and one chunk per hypothesis and trench, so they line up with ``data``::
 
         tree = xr.open_datatree(store, engine="zarr", consolidated=False)
-        labels = tree["segmentation/mcherry"].ds["labels"]
+        labels = tree["segmentation/mcherry"].ds["labels"].sel(Hypothesis="S1")
+
+    The group also holds each trench's intensity bounds (``lower``, ``upper``).
 
     Parameters
     ----------
@@ -172,7 +272,11 @@ class Segmenter:
         self.name = name or channel.lower()
         self.group = f"segmentation/{self.name}"
         self.gpu = gpu
+        self.pixel_size = float(
+            xr.open_zarr(self.store_path, group="acquisition", consolidated=False)["pixel_size"]
+        )
         self._model = None
+        self._bounds: Dict[int, Tuple[float, float]] = {}
 
         saved = self._saved_attrs()
         if (
@@ -183,8 +287,8 @@ class Segmenter:
             self._params = dict(saved["params"])
         else:
             self._params = dict(DEFAULT_PARAMS)
-        if self._params["lower"] is None or self._params["upper"] is None:
-            self._params["lower"], self._params["upper"] = self.estimate_bounds()
+        if self._params["floor"] is None:
+            self._params["floor"] = self.estimate_floor(self._params["floor_sigma"])
 
     # ------------------------------------------------------------------
     # Store access
@@ -201,13 +305,22 @@ class Segmenter:
 
     @property
     def params(self) -> Dict[str, Any]:
-        """Current Omnipose settings (see :data:`DEFAULT_PARAMS`)."""
+        """Current base settings (see :data:`DEFAULT_PARAMS`)."""
         return dict(self._params)
 
     @property
-    def is_complete(self) -> bool:
-        attrs = self._saved_attrs()
-        return bool(attrs and attrs.get("segmentation_complete"))
+    def hypotheses(self) -> List[str]:
+        return list(HYPOTHESES)
+
+    def settings(self, hypothesis: str, params: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+        """Base settings with ``hypothesis``'s overrides applied."""
+        return {**(self._params if params is None else params), **HYPOTHESES[hypothesis]}
+
+    def is_complete(self, hypothesis: Optional[str] = None) -> bool:
+        attrs = self._saved_attrs() or {}
+        complete = attrs.get("complete", {})
+        names = [hypothesis] if hypothesis else self.hypotheses
+        return all(complete.get(h, False) for h in names)
 
     def _group_attrs(self) -> Dict[str, Any]:
         """Attrs that identify what produced the labels (checked on resume)."""
@@ -216,6 +329,7 @@ class Segmenter:
             "channel": self.channel,
             "model": self.model_name,
             "params": self._params,
+            "hypotheses": {h: self.settings(h) for h in self.hypotheses},
             "extraction_created": root_provenance.get("created"),
         })
 
@@ -226,8 +340,9 @@ class Segmenter:
     def _create_group(self) -> None:
         """(Re)write ``/segmentation/<name>`` with empty labels; root is untouched."""
         sizes = self.root.sizes
-        shape = tuple(sizes[dim] for dim in _LABEL_DIMS)
-        chunks = (1,) + shape[1:]
+        shape = (len(self.hypotheses),) + tuple(sizes[d] for d in _LABEL_DIMS[1:])
+        chunks = (1, 1) + shape[2:]
+        n_trenches = sizes["Trench"]
         dataset = xr.Dataset(
             data_vars={
                 "labels": (
@@ -235,20 +350,29 @@ class Segmenter:
                     da.zeros(shape, chunks=chunks, dtype=np.uint16),
                     _LABELS_ATTRS,
                 ),
+                "lower": (("Trench",), np.zeros(n_trenches, np.float32), {
+                    "long_name": "intensity mapped to 0 (0 until the trench is segmented)",
+                }),
+                "upper": (("Trench",), np.zeros(n_trenches, np.float32), {
+                    "long_name": "intensity mapped to 1 at gain 1 (0 until the trench is segmented)",
+                }),
             },
-            coords={dim: self.root[dim].variable for dim in _LABEL_DIMS},
+            coords={
+                "Hypothesis": np.asarray(self.hypotheses, dtype=object),
+                **{dim: self.root[dim].variable for dim in _LABEL_DIMS[1:]},
+            },
             attrs={
                 "schema_version": SCHEMA_VERSION,
                 "layout": "segmentation",
                 "description": (
                     f"Omnipose labels of the {self.channel} channel for each trench "
-                    "crop in the root dataset."
+                    "crop in the root dataset, under each hypothesis's settings."
                 ),
                 "provenance": provenance(),
                 **self._group_attrs(),
-                "completed_trenches": [],
-                "failed_frames": {},
-                "segmentation_complete": False,
+                "completed": {h: [] for h in self.hypotheses},
+                "complete": {h: False for h in self.hypotheses},
+                "failed_frames": {h: {} for h in self.hypotheses},
             },
         )
         dataset.to_zarr(
@@ -270,31 +394,50 @@ class Segmenter:
             },
         )
 
+    def _reset(self, hypotheses: Sequence[str]) -> None:
+        """Clear the labels and progress of ``hypotheses`` only."""
+        group = self._open_store(mode="r+")[self.group]
+        attrs = {key: dict(group.attrs.get(key, {})) for key in ("completed", "complete", "failed_frames")}
+        for hypothesis in hypotheses:
+            group["labels"][self.hypotheses.index(hypothesis)] = 0
+            attrs["completed"][hypothesis] = []
+            attrs["complete"][hypothesis] = False
+            attrs["failed_frames"][hypothesis] = {}
+        group.attrs.update(attrs)
+
     # ------------------------------------------------------------------
-    # Omnipose
+    # Normalisation
     # ------------------------------------------------------------------
 
-    def estimate_bounds(
-        self,
-        n_trenches: int = 16,
-        percentiles: Tuple[float, float] = (1.0, 99.9),
-        seed: int = 0,
-    ) -> Tuple[float, float]:
-        """Intensity percentiles of the channel over a random sample of trenches.
+    def estimate_floor(self, floor_sigma: float = 20.0, n_trenches: int = 32, seed: int = 0) -> float:
+        """Store-wide floor for the upper intensity bound, in counts.
 
-        One fixed pair of bounds for the whole store keeps frames with no cells
-        (e.g. after lysis) dark; per-frame normalisation stretches their noise to
-        full range and Omnipose finds cells in it.
+        For each of a random sample of trenches, background + ``floor_sigma``
+        noise SDs (:func:`background_noise`, every 5th frame); the median over
+        trenches, so a few crowded trenches (whose median pixel is a cell) do not
+        move it.
         """
         data = self._open_store()["data"]
         n_total = self.root.sizes["Trench"]
         rng = np.random.default_rng(seed)
         picks = np.sort(rng.choice(n_total, size=min(n_trenches, n_total), replace=False))
-        sample = np.stack([
-            data[int(i), ::5, self.channel_index] for i in picks
-        ])
-        lower, upper = np.percentile(sample, percentiles)
-        return float(lower), float(upper)
+        floors = []
+        for i in picks:
+            background, noise = background_noise(data[int(i), ::5, self.channel_index])
+            floors.append(background + floor_sigma * noise)
+        return float(np.median(floors))
+
+    def bounds(self, index: int, stack: Optional[np.ndarray] = None) -> Tuple[float, float]:
+        """Intensity bounds of the trench at position ``index`` (cached)."""
+        if index not in self._bounds:
+            if stack is None:
+                stack = self._open_store()["data"][index, :, self.channel_index]
+            self._bounds[index] = trench_bounds(stack, self._params["floor"])
+        return self._bounds[index]
+
+    # ------------------------------------------------------------------
+    # Omnipose
+    # ------------------------------------------------------------------
 
     def _get_model(self):
         if self._model is None:
@@ -304,33 +447,32 @@ class Segmenter:
                 self._model = OmniModel(gpu=self.gpu, model_type=self.model_name)
         return self._model
 
-    def _eval_kwargs(self, params: Mapping[str, Any], batch_size: int) -> Dict[str, Any]:
-        return {
-            "normalize": False,
-            "show_progress": False,
-            "batch_size": batch_size,
-            "mask_threshold": params["mask_threshold"],
-            "flow_threshold": params["flow_threshold"],
-            "min_size": params["min_size"],
-        }
-
     def segment_stack(
         self,
         stack: np.ndarray,
+        bounds: Tuple[float, float],
+        hypothesis: str = "S1",
         params: Optional[Mapping[str, Any]] = None,
         batch_size: int = 64,
     ) -> Tuple[np.ndarray, List[int]]:
-        """Segment a ``(T, Y, X)`` stack of one trench.
+        """Segment a ``(T, Y, X)`` stack of one trench under one hypothesis.
 
         Returns the labels ordered from the closed end and the frames Omnipose
         failed on (left empty). Omnipose 2.0 can raise ``IndexError`` while
         building masks for some frames; the stack is then retried frame by frame.
         """
-        params = self._params if params is None else params
-        lower, upper = float(params["lower"]), float(params["upper"])
-        x = (np.asarray(stack, dtype=np.float32) - lower) / (upper - lower)
+        s = self.settings(hypothesis, params)
+        x = normalise(stack, *bounds, gain=s["gain"])
+        kwargs = {
+            "normalize": False,
+            "show_progress": False,
+            "batch_size": batch_size,
+            "rescale_factor": s["rescale"],
+            "mask_threshold": s["mask_threshold"],
+            "flow_threshold": s["flow_threshold"],
+            "min_size": max(1, int(round(s["min_area"] / self.pixel_size ** 2))),
+        }
         model = self._get_model()
-        kwargs = self._eval_kwargs(params, batch_size)
         failed: List[int] = []
         with _quiet_omnipose():
             try:
@@ -342,6 +484,7 @@ class Segmenter:
                         masks[t] = np.asarray(model.eval(frame[None], **kwargs).masks)[0]
                     except IndexError:
                         failed.append(t)
+        masks = drop_faint(masks, stack, s["min_contrast"])
         return order_from_closed_end(masks), failed
 
     # ------------------------------------------------------------------
@@ -350,91 +493,140 @@ class Segmenter:
 
     def segment(
         self,
+        hypotheses: Optional[Sequence[str]] = None,
         resume: bool = True,
         batch_size: int = 64,
         show_progress: bool = True,
     ) -> None:
         """Segment every trench and write ``/segmentation/<name>/labels``.
 
-        Trenches are done one at a time on the GPU; the next trench is read
-        while the current one is segmented. Each finished trench is recorded in
-        the group's ``completed_trenches`` attr, so an interrupted run resumes.
+        Hypotheses are done one after another, each over all trenches, so the
+        first is complete before the next starts. The next trench is read while
+        the current one is segmented. Each finished trench is recorded in the
+        group's ``completed`` attr, so an interrupted run resumes.
 
         Parameters
         ----------
+        hypotheses : sequence of str | None
+            Which of :data:`HYPOTHESES` to run, in order; all if ``None``.
         resume : bool
             Continue an existing group made with the same channel, model,
-            settings and extraction. ``False`` rewrites the group.
+            settings and extraction. ``False`` clears and re-runs only
+            ``hypotheses``. Results of other hypotheses are never cleared: if
+            the settings changed, every hypothesis that already has results must
+            be among ``hypotheses``, or this raises.
         batch_size : int
             Frames per Omnipose GPU batch.
         show_progress : bool
-            Show a tqdm progress bar.
+            Show a tqdm progress bar per hypothesis.
         """
+        hypotheses = list(hypotheses or self.hypotheses)
+        unknown = [h for h in hypotheses if h not in HYPOTHESES]
+        if unknown:
+            raise ValueError(f"unknown hypotheses {unknown}; choose from {self.hypotheses}")
+
         saved = self._saved_attrs()
-        if resume and saved is not None:
-            mismatches = self._resume_mismatches(saved)
-            if mismatches:
-                raise RuntimeError(
-                    f"Existing {self.group} is not compatible with these settings; "
-                    f"these differ: {', '.join(mismatches)}. "
-                    "Use resume=False to overwrite it or choose another name."
-                )
-        else:
+        if saved is None:
             self._create_group()
+        else:
+            mismatches = self._resume_mismatches(saved)
+            with_results = [h for h in self.hypotheses if saved.get("completed", {}).get(h)]
+            if mismatches:
+                left_behind = [h for h in with_results if h not in hypotheses]
+                if resume or left_behind:
+                    rerun = [h for h in self.hypotheses if h in with_results or h in hypotheses]
+                    raise RuntimeError(
+                        f"{self.group} was segmented with different settings "
+                        f"({', '.join(mismatches)} differ). "
+                        + (f"{', '.join(with_results)} already have results with the saved settings. "
+                           if with_results else "")
+                        + f"To use the current settings, re-run them together: "
+                        f"segment(hypotheses={rerun}, resume=False). "
+                        "To keep the saved results, set the saved settings back instead."
+                    )
+                # Every hypothesis with results is being re-run: start the group afresh.
+                self._create_group()
+            elif not resume:
+                self._reset(hypotheses)
 
         store = self._open_store(mode="r+")
         data = store["data"]
         group = store[self.group]
         labels = group["labels"]
+        lower_arr, upper_arr = group["lower"], group["upper"]
+        stored_upper = upper_arr[:]
+        for index in np.flatnonzero(stored_upper > 0):
+            self._bounds[int(index)] = (float(lower_arr[index]), float(stored_upper[index]))
+
         trench_ids = [int(i) for i in self.root["Trench"].values]
-        completed = set(group.attrs.get("completed_trenches", []))
+        completed = {h: set(v) for h, v in group.attrs.get("completed", {}).items()}
         failed_frames = dict(group.attrs.get("failed_frames", {}))
-        todo = [i for i, tid in enumerate(trench_ids) if tid not in completed]
 
         def _read(index: int) -> np.ndarray:
             return data[index, :, self.channel_index]
 
-        progress = tqdm(total=len(todo), desc=f"Segmenting {self.channel}", disable=not show_progress)
         with ThreadPoolExecutor(max_workers=1) as reader:
-            pending = reader.submit(_read, todo[0]) if todo else None
-            for k, index in enumerate(todo):
-                stack = pending.result()
-                if k + 1 < len(todo):
-                    pending = reader.submit(_read, todo[k + 1])
-                masks, failed = self.segment_stack(stack, batch_size=batch_size)
-                labels[index] = masks
-                tid = trench_ids[index]
-                completed.add(tid)
-                if failed:
-                    failed_frames[str(tid)] = failed
-                    group.attrs["failed_frames"] = failed_frames
-                group.attrs["completed_trenches"] = [t for t in trench_ids if t in completed]
-                progress.update()
-        progress.close()
+            for hypothesis in hypotheses:
+                h_index = self.hypotheses.index(hypothesis)
+                done = completed.setdefault(hypothesis, set())
+                h_failed = dict(failed_frames.get(hypothesis, {}))
+                todo = [i for i, tid in enumerate(trench_ids) if tid not in done]
+                progress = tqdm(
+                    total=len(todo), desc=f"{hypothesis} {self.channel}", disable=not show_progress,
+                )
+                pending = reader.submit(_read, todo[0]) if todo else None
+                for k, index in enumerate(todo):
+                    stack = pending.result()
+                    if k + 1 < len(todo):
+                        pending = reader.submit(_read, todo[k + 1])
+                    if index not in self._bounds:
+                        lower, upper = self.bounds(index, stack)
+                        lower_arr[index] = lower
+                        upper_arr[index] = upper
+                    masks, failed = self.segment_stack(
+                        stack, self._bounds[index], hypothesis, batch_size=batch_size,
+                    )
+                    labels[h_index, index] = masks
+                    tid = trench_ids[index]
+                    done.add(tid)
+                    if failed:
+                        h_failed[str(tid)] = failed
+                        failed_frames[hypothesis] = h_failed
+                        group.attrs["failed_frames"] = failed_frames
+                    group.attrs["completed"] = {
+                        h: [t for t in trench_ids if t in completed.get(h, set())]
+                        for h in self.hypotheses
+                    }
+                    progress.update()
+                progress.close()
+                complete = dict(group.attrs.get("complete", {}))
+                complete[hypothesis] = done.issuperset(trench_ids)
+                group.attrs["complete"] = complete
 
-        group.attrs["segmentation_complete"] = completed.issuperset(trench_ids)
-        print(f"Segmentation complete: {self.store_path / self.group}")
-        if failed_frames:
-            n = sum(len(v) for v in failed_frames.values())
-            print(f"  Omnipose failed on {n} frames (left empty); see attrs['failed_frames']")
+        print(f"Segmentation written: {self.store_path / self.group} ({', '.join(hypotheses)})")
+        n_failed = sum(len(v) for h in hypotheses for v in failed_frames.get(h, {}).values())
+        if n_failed:
+            print(f"  Omnipose failed on {n_failed} frames (left empty); see attrs['failed_frames']")
 
-    def labels(self) -> xr.DataArray:
-        """Lazy ``labels(Trench, T, Y, X)`` from the store."""
-        return xr.open_zarr(
+    def labels(self, hypothesis: Optional[str] = None) -> xr.DataArray:
+        """Lazy ``labels(Hypothesis, Trench, T, Y, X)``, or one hypothesis's."""
+        labels = xr.open_zarr(
             self.store_path, group=self.group, consolidated=False,
         )["labels"]
+        return labels if hypothesis is None else labels.sel(Hypothesis=hypothesis)
 
     # ------------------------------------------------------------------
     # Interactive tuning and viewing
     # ------------------------------------------------------------------
 
     def interactive_segment(self, batch_size: int = 64) -> None:
-        """Display a widget for tuning the Omnipose settings on single trenches.
+        """Display a widget for tuning the base settings on single trenches.
 
         Uses ipywidgets for the controls, ndv for the channel with label
-        outlines (all frames of the selected trench), and matplotlib for the
-        number of cells per frame. **Apply** keeps the settings for
-        :meth:`segment`.
+        outlines (all frames of the selected trench, under the selected
+        hypothesis), and matplotlib for the number of cells per frame. The
+        sliders set the base settings; S2–S4 override some of them (shown under
+        the hypothesis). **Apply** keeps the settings for :meth:`segment`.
         """
         import ipywidgets as widgets
         import matplotlib.pyplot as plt
@@ -447,32 +639,43 @@ class Segmenter:
         trench_ids = [int(i) for i in self.root["Trench"].values]
         data = self._open_store()["data"]
         sizes = self.root.sizes
-        slider_style = {"description_width": "initial"}
+        style = {"description_width": "initial"}
 
+        hypothesis_select = widgets.Dropdown(
+            options=self.hypotheses, value=self.hypotheses[0], description="hypothesis",
+        )
+        overrides_label = widgets.HTML(value="")
         trench_slider = widgets.IntSlider(
             value=0, min=0, max=len(trench_ids) - 1,
-            description="trench (index)", continuous_update=False, style=slider_style,
+            description="trench (index)", continuous_update=False, style=style,
         )
-        intensity_max = max(int(params["upper"] * 3), 1)
-        lower_slider = widgets.IntSlider(
-            value=int(params["lower"]), min=0, max=intensity_max,
-            description="lower bound", continuous_update=False, style=slider_style,
+        floor_slider = widgets.IntSlider(
+            value=int(params["floor"]), min=0, max=max(int(params["floor"] * 4), 1),
+            description="upper-bound floor", continuous_update=False, style=style,
         )
-        upper_slider = widgets.IntSlider(
-            value=int(params["upper"]), min=1, max=intensity_max,
-            description="upper bound", continuous_update=False, style=slider_style,
+        gain_slider = widgets.FloatSlider(
+            value=params["gain"], min=0.5, max=3.0, step=0.05,
+            description="gain", continuous_update=False, style=style,
+        )
+        rescale_slider = widgets.FloatSlider(
+            value=params["rescale"], min=0.5, max=1.5, step=0.05,
+            description="image scale", continuous_update=False, style=style,
         )
         mask_slider = widgets.FloatSlider(
-            value=params["mask_threshold"], min=-4.0, max=4.0, step=0.1,
-            description="mask threshold", continuous_update=False, style=slider_style,
+            value=params["mask_threshold"], min=-3.0, max=3.0, step=0.1,
+            description="mask threshold", continuous_update=False, style=style,
         )
         flow_slider = widgets.FloatSlider(
-            value=params["flow_threshold"], min=0.0, max=2.0, step=0.05,
-            description="flow threshold", continuous_update=False, style=slider_style,
+            value=params["flow_threshold"], min=0.0, max=1.5, step=0.05,
+            description="flow threshold", continuous_update=False, style=style,
         )
-        min_size_slider = widgets.IntSlider(
-            value=params["min_size"], min=0, max=500,
-            description="min size (px)", continuous_update=False, style=slider_style,
+        area_slider = widgets.FloatSlider(
+            value=params["min_area"], min=0.0, max=5.0, step=0.05,
+            description="min area (µm²)", continuous_update=False, style=style,
+        )
+        contrast_slider = widgets.FloatSlider(
+            value=params["min_contrast"], min=0.0, max=20.0, step=0.5,
+            description="min contrast (σ)", continuous_update=False, style=style,
         )
         run_btn = widgets.Button(description="Segment trench", button_style="primary")
         apply_btn = widgets.Button(description="Apply", button_style="success")
@@ -495,23 +698,34 @@ class Segmenter:
 
         def _widget_params() -> Dict[str, Any]:
             return {
-                "lower": float(lower_slider.value),
-                "upper": float(upper_slider.value),
+                **params,
+                "floor": float(floor_slider.value),
+                "gain": float(gain_slider.value),
+                "rescale": float(rescale_slider.value),
                 "mask_threshold": float(mask_slider.value),
                 "flow_threshold": float(flow_slider.value),
-                "min_size": int(min_size_slider.value),
+                "min_area": float(area_slider.value),
+                "min_contrast": float(contrast_slider.value),
             }
 
+        def _show_overrides(_change: Any = None) -> None:
+            over = HYPOTHESES[hypothesis_select.value]
+            overrides_label.value = (
+                "overrides: " + ", ".join(f"{k} {v}" for k, v in over.items())
+                if over else "uses the sliders as they are"
+            )
+
         def _update(_change: Any = None) -> None:
-            if lower_slider.value >= upper_slider.value:
-                status_label.value = "<b>lower bound must be below upper bound</b>"
-                return
+            _show_overrides()
             index = trench_slider.value
             tid = trench_ids[index]
-            status_label.value = f"<b>Segmenting trench {tid}…</b>"
+            hypothesis = hypothesis_select.value
+            current = _widget_params()
+            status_label.value = f"<b>Segmenting trench {tid} ({hypothesis})…</b>"
             stack = data[index, :, self.channel_index]
+            bounds = trench_bounds(stack, current["floor"])
             start = time.perf_counter()
-            masks, failed = self.segment_stack(stack, _widget_params(), batch_size)
+            masks, failed = self.segment_stack(stack, bounds, hypothesis, current, batch_size)
             elapsed = time.perf_counter() - start
             viewer_data[:] = label_overlay(stack, masks)
             image_viewer.data_wrapper.data_changed.emit()
@@ -519,7 +733,8 @@ class Segmenter:
             n_cells = masks.reshape(masks.shape[0], -1).max(axis=1)
             fov = str(self.root["fov_name"].values[index])
             preview_label.value = (
-                f"<b>Trench {tid}</b> ({fov}) — up to {int(n_cells.max())} cells"
+                f"<b>Trench {tid}</b> ({fov}), {hypothesis} — up to {int(n_cells.max())} cells; "
+                f"bounds {bounds[0]:.0f}–{bounds[1]:.0f}"
             )
             status_label.value = f"Segmented {sizes['T']} frames in {elapsed:.1f} s"
             if failed:
@@ -531,24 +746,31 @@ class Segmenter:
                 ax.plot(n_cells, color="tab:red")
                 ax.set_xlabel("frame")
                 ax.set_ylabel("cells")
-                ax.set_title(f"Trench {tid}: cells per frame")
+                ax.set_title(f"Trench {tid}, {hypothesis}: cells per frame")
                 fig.tight_layout()
                 plt.show()
 
         def _on_apply(_btn: Any) -> None:
-            if lower_slider.value >= upper_slider.value:
-                status_label.value = "<b>lower bound must be below upper bound</b>"
-                return
-            self._params = _widget_params()
-            status_label.value = "<b>Applied</b> — settings kept for segment()"
+            self._params = {k: v for k, v in _widget_params().items() if k in DEFAULT_PARAMS}
+            self._bounds.clear()
+            status_label.value = "<b>Applied</b> — base settings kept for segment()"
+            saved = self._saved_attrs() or {}
+            done = [h for h in self.hypotheses if saved.get("completed", {}).get(h)]
+            if done and saved.get("params") != _json_native(self._params):
+                status_label.value += (
+                    f"<br>{', '.join(done)} already have results with the previous "
+                    "settings; segment() will ask you to re-run them too."
+                )
 
         run_btn.on_click(_update)
         apply_btn.on_click(_on_apply)
         trench_slider.observe(_update, names="value")
+        hypothesis_select.observe(_update, names="value")
 
         controls = widgets.VBox([
-            trench_slider, lower_slider, upper_slider,
-            mask_slider, flow_slider, min_size_slider,
+            hypothesis_select, overrides_label, trench_slider,
+            floor_slider, gain_slider, rescale_slider, mask_slider, flow_slider,
+            area_slider, contrast_slider,
             widgets.HBox([run_btn, apply_btn]), status_label,
         ])
         image_and_counts = widgets.VBox([
@@ -558,14 +780,14 @@ class Segmenter:
         _update()
 
     def view(self):
-        """Browse the stored labels as outlines over the channel, any trench and frame."""
+        """Browse the stored labels as outlines over the channel: any hypothesis, trench and frame."""
         import ndv
 
         from pymmm.plotting import NDV_CLIMS
 
         return ndv.imshow(
             _label_overlay_wrapper(self),
-            channel_axis=2,
+            channel_axis=3,
             channel_mode="composite",
             luts={
                 0: {"name": self.channel, "cmap": "gray", "clims": NDV_CLIMS},
@@ -578,8 +800,9 @@ class Segmenter:
         if attrs is None:
             state = "not segmented"
         else:
-            done = len(attrs.get("completed_trenches", []))
-            state = f"{done}/{self.root.sizes['Trench']} trenches segmented"
+            n = self.root.sizes["Trench"]
+            done = attrs.get("completed", {})
+            state = ", ".join(f"{h} {len(done.get(h, []))}/{n}" for h in self.hypotheses)
         return (
             f"Segmenter({self.store_path.name}, {self.group}, channel={self.channel!r}, "
             f"model={self.model_name!r}, {state})"
@@ -587,16 +810,16 @@ class Segmenter:
 
 
 def _label_overlay_wrapper(segmenter: Segmenter):
-    """ndv data ``(Trench, T, C, Y, X)``: the channel and label outlines, read
-    from the store only for the frames ndv asks for."""
+    """ndv data ``(Hypothesis, Trench, T, C, Y, X)``: the channel and label
+    outlines, read from the store only for the frames ndv asks for."""
     import ndv
 
     store = segmenter._open_store()
     data = store["data"]
     labels = store[segmenter.group]["labels"]
     channel_index = segmenter.channel_index
-    trench_ids = [int(i) for i in segmenter.root["Trench"].values]
     sizes = segmenter.root.sizes
+    n_hypotheses = labels.shape[0]
 
     class _LabelOverlay(ndv.DataWrapper):
         @classmethod
@@ -605,13 +828,14 @@ def _label_overlay_wrapper(segmenter: Segmenter):
 
         @property
         def dims(self) -> Tuple[str, ...]:
-            return ("Trench", "T", "C", "Y", "X")
+            return ("Hypothesis", "Trench", "T", "C", "Y", "X")
 
         @property
         def coords(self) -> Dict[str, Sequence]:
-            # ndv's Jupyter sliders only take ranges: Trench is by position.
+            # ndv's Jupyter sliders only take ranges: Hypothesis and Trench are by position.
             return {
-                "Trench": range(len(trench_ids)),
+                "Hypothesis": range(n_hypotheses),
+                "Trench": range(sizes["Trench"]),
                 "T": range(sizes["T"]),
                 "C": range(2),
                 "Y": range(sizes["Y"]),
@@ -626,10 +850,12 @@ def _label_overlay_wrapper(segmenter: Segmenter):
             return np.dtype(np.float32)
 
         def isel(self, index: Mapping[int, Union[int, slice]]) -> np.ndarray:
-            trench, t, c, y, x = (index.get(axis, slice(None)) for axis in range(5))
-            overlay = label_overlay(
-                data[trench, t, channel_index], labels[trench, t],
-            )
+            h, trench, t, c, y, x = (index.get(axis, slice(None)) for axis in range(6))
+            images = data[trench, t, channel_index]
+            frame_labels = labels[h, trench, t]
+            if isinstance(h, slice):
+                images = np.broadcast_to(images, frame_labels.shape)
+            overlay = label_overlay(images, frame_labels)
             return overlay[..., c, y, x]
 
     return _LabelOverlay(segmenter)

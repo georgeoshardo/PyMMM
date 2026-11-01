@@ -1,7 +1,8 @@
 """Open a trench store in napari.
 
-One image layer per channel and one labels layer per ``/segmentation/<name>``
-group, all lazy (dask) over ``(Trench, T, Y, X)``::
+One image layer per channel and one labels layer per segmentation hypothesis
+(``/segmentation/<name>``, ``Hypothesis`` S1…), all lazy (dask) over
+``(Trench, T, Y, X)``::
 
     python -m pymmm.view experiment.trenches.zarr
 """
@@ -90,7 +91,14 @@ def view_trench_store(store_path: Union[str, Path], viewer=None):
         labels = xr.open_zarr(
             store_path, group=f"segmentation/{name}", consolidated=False,
         )["labels"]
-        viewer.add_labels(labels.data, name=f"{name} labels", opacity=0.5)
+        # One layer per hypothesis; only the first (the primary segmentation) shown.
+        for k, hypothesis in enumerate(str(h) for h in labels["Hypothesis"].values):
+            viewer.add_labels(
+                labels.sel(Hypothesis=hypothesis).data,
+                name=f"{name} {hypothesis}",
+                opacity=0.5,
+                visible=k == 0,
+            )
 
     viewer.dims.axis_labels = ("Trench", "T", "Y", "X")
     trench_ids = root["Trench"].values
