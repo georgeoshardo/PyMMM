@@ -39,6 +39,5 @@ notebook = "python -m jupyter lab"
 PYTHONPATH = "$PIXI_PROJECT_ROOT"
 
 [pypi-dependencies]
-omnipose = ">=1.1.4, <2"
 opencv-python-headless = ">=4.13"
 ndv = { version = ">=0.5, <0.6", extras = ["jup"] }
