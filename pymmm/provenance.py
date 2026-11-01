@@ -22,6 +22,8 @@ _LIBRARIES = {
     "pystackreg": "pystackreg",
     "opencv": "opencv-python-headless",
     "scikit-image": "scikit-image",
+    "omnipose": "omnipose",
+    "torch": "torch",
 }
 
 

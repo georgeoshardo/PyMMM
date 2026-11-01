@@ -8,6 +8,7 @@ from pymmm.experiment import ND2Experiment
 from pymmm.extractor import Extractor
 from pymmm.lane_detector import LaneDetector
 from pymmm.registrator import Registrator
+from pymmm.segmenter import Segmenter
 from pymmm.trench_detector import TrenchDetector
 
 __all__ = [
@@ -16,5 +17,6 @@ __all__ = [
     "LaneDetector",
     "TrenchDetector",
     "Extractor",
+    "Segmenter",
     "CompanionStore",
 ]
