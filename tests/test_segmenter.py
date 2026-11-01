@@ -268,6 +268,25 @@ def test_reopened_segmenter_keeps_saved_params(segmenter):
     assert reopened.is_complete("S1")
 
 
+def test_worker_writes_the_same_labels_as_in_process(segmenter, monkeypatch):
+    from pymmm import segmenter as module
+
+    for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMBA_NUM_THREADS"):
+        monkeypatch.delenv(var, raising=False)  # restored after the test
+    segmenter.segment(hypotheses=["S1"], show_progress=False)
+    s1 = _s1_labels(segmenter)
+
+    module._init_worker(str(segmenter.store_path), "mCherry", "bact_fluor_omni",
+                        "mcherry", False, segmenter.params)
+    for index in range(N_TRENCH):
+        returned_index, bounds, failed = module._segment_trench(("S2", index, None, 64))
+        assert returned_index == index and failed == []
+        assert bounds == segmenter.bounds(index)
+
+    s2 = _open_group(segmenter)["segmentation/mcherry"].ds["labels"].sel(Hypothesis="S2").values
+    np.testing.assert_array_equal(s2 > 0, s1 > 0)
+
+
 def test_omnipose_index_error_retries_frame_by_frame(segmenter):
     segmenter.fake_model.fail_stack = True
     segmenter.fake_model.fail_frames = {2}

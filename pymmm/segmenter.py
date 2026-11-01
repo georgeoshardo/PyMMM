@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
+import multiprocessing
+import os
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
@@ -496,14 +498,20 @@ class Segmenter:
         hypotheses: Optional[Sequence[str]] = None,
         resume: bool = True,
         batch_size: int = 64,
+        workers: int = 1,
         show_progress: bool = True,
     ) -> None:
         """Segment every trench and write ``/segmentation/<name>/labels``.
 
         Hypotheses are done one after another, each over all trenches, so the
-        first is complete before the next starts. The next trench is read while
-        the current one is segmented. Each finished trench is recorded in the
-        group's ``completed`` attr, so an interrupted run resumes.
+        first is complete before the next starts. Each finished trench is
+        recorded in the group's ``completed`` attr, so an interrupted run
+        resumes.
+
+        Most of each trench's time is Omnipose building masks on the CPU, which
+        runs no faster with more threads; ``workers > 1`` segments that many
+        trenches at once in separate single-threaded processes, each with its
+        own copy of the model on the GPU.
 
         Parameters
         ----------
@@ -517,6 +525,9 @@ class Segmenter:
             be among ``hypotheses``, or this raises.
         batch_size : int
             Frames per Omnipose GPU batch.
+        workers : int
+            Trenches segmented at once, each in its own process (1: in this
+            process).
         show_progress : bool
             Show a tqdm progress bar per hypothesis.
         """
@@ -555,8 +566,9 @@ class Segmenter:
         labels = group["labels"]
         lower_arr, upper_arr = group["lower"], group["upper"]
         stored_upper = upper_arr[:]
-        for index in np.flatnonzero(stored_upper > 0):
-            self._bounds[int(index)] = (float(lower_arr[index]), float(stored_upper[index]))
+        stored_bounds = {int(i) for i in np.flatnonzero(stored_upper > 0)}
+        for index in stored_bounds:
+            self._bounds[index] = (float(lower_arr[index]), float(stored_upper[index]))
 
         trench_ids = [int(i) for i in self.root["Trench"].values]
         completed = {h: set(v) for h, v in group.attrs.get("completed", {}).items()}
@@ -565,43 +577,82 @@ class Segmenter:
         def _read(index: int) -> np.ndarray:
             return data[index, :, self.channel_index]
 
-        with ThreadPoolExecutor(max_workers=1) as reader:
+        def _record(hypothesis: str, index: int, bounds: Tuple[float, float], failed: List[int]) -> None:
+            self._bounds[index] = bounds
+            if index not in stored_bounds:
+                lower_arr[index], upper_arr[index] = bounds
+                stored_bounds.add(index)
+            tid = trench_ids[index]
+            completed[hypothesis].add(tid)
+            if failed:
+                failed_frames.setdefault(hypothesis, {})[str(tid)] = failed
+                group.attrs["failed_frames"] = failed_frames
+            group.attrs["completed"] = {
+                h: [t for t in trench_ids if t in completed.get(h, set())]
+                for h in self.hypotheses
+            }
+
+        pool = None
+        if workers > 1:
+            pool = ProcessPoolExecutor(
+                max_workers=workers,
+                mp_context=multiprocessing.get_context("spawn"),
+                initializer=_init_worker,
+                initargs=(str(self.store_path), self.channel, self.model_name,
+                          self.name, self.gpu, self._params),
+            )
+        reader = ThreadPoolExecutor(max_workers=1)
+        try:
             for hypothesis in hypotheses:
                 h_index = self.hypotheses.index(hypothesis)
                 done = completed.setdefault(hypothesis, set())
-                h_failed = dict(failed_frames.get(hypothesis, {}))
                 todo = [i for i, tid in enumerate(trench_ids) if tid not in done]
                 progress = tqdm(
                     total=len(todo), desc=f"{hypothesis} {self.channel}", disable=not show_progress,
                 )
-                pending = reader.submit(_read, todo[0]) if todo else None
-                for k, index in enumerate(todo):
-                    stack = pending.result()
-                    if k + 1 < len(todo):
-                        pending = reader.submit(_read, todo[k + 1])
-                    if index not in self._bounds:
-                        lower, upper = self.bounds(index, stack)
-                        lower_arr[index] = lower
-                        upper_arr[index] = upper
-                    masks, failed = self.segment_stack(
-                        stack, self._bounds[index], hypothesis, batch_size=batch_size,
-                    )
-                    labels[h_index, index] = masks
-                    tid = trench_ids[index]
-                    done.add(tid)
-                    if failed:
-                        h_failed[str(tid)] = failed
-                        failed_frames[hypothesis] = h_failed
-                        group.attrs["failed_frames"] = failed_frames
-                    group.attrs["completed"] = {
-                        h: [t for t in trench_ids if t in completed.get(h, set())]
-                        for h in self.hypotheses
-                    }
-                    progress.update()
+                if pool is None:
+                    pending = reader.submit(_read, todo[0]) if todo else None
+                    for k, index in enumerate(todo):
+                        stack = pending.result()
+                        if k + 1 < len(todo):
+                            pending = reader.submit(_read, todo[k + 1])
+                        bounds = self.bounds(index, stack)
+                        masks, failed = self.segment_stack(
+                            stack, bounds, hypothesis, batch_size=batch_size,
+                        )
+                        labels[h_index, index] = masks
+                        _record(hypothesis, index, bounds, failed)
+                        progress.update()
+                else:
+                    # Workers write their own label chunks (one per trench, so
+                    # never shared); progress and bounds are recorded here.
+                    queue = iter(todo)
+                    running = {}
+
+                    def _submit_next() -> None:
+                        index = next(queue, None)
+                        if index is not None:
+                            task = (hypothesis, index, self._bounds.get(index), batch_size)
+                            running[pool.submit(_segment_trench, task)] = index
+
+                    for _ in range(2 * workers):
+                        _submit_next()
+                    while running:
+                        finished, _ = wait(running, return_when=FIRST_COMPLETED)
+                        for future in finished:
+                            running.pop(future)
+                            index, bounds, failed = future.result()
+                            _record(hypothesis, index, bounds, failed)
+                            progress.update()
+                            _submit_next()
                 progress.close()
                 complete = dict(group.attrs.get("complete", {}))
                 complete[hypothesis] = done.issuperset(trench_ids)
                 group.attrs["complete"] = complete
+        finally:
+            reader.shutdown(wait=False, cancel_futures=True)
+            if pool is not None:
+                pool.shutdown(wait=True, cancel_futures=True)
 
         print(f"Segmentation written: {self.store_path / self.group} ({', '.join(hypotheses)})")
         n_failed = sum(len(v) for h in hypotheses for v in failed_frames.get(h, {}).values())
@@ -807,6 +858,46 @@ class Segmenter:
             f"Segmenter({self.store_path.name}, {self.group}, channel={self.channel!r}, "
             f"model={self.model_name!r}, {state})"
         )
+
+
+# ----------------------------------------------------------------------
+# Worker processes for Segmenter.segment(workers > 1)
+# ----------------------------------------------------------------------
+
+_WORKER: Optional[Segmenter] = None
+
+
+def _init_worker(
+    store_path: str, channel: str, model: str, name: str, gpu: bool, params: Dict[str, Any],
+) -> None:
+    """Process-pool initializer: a single-threaded Segmenter with its own model."""
+    for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMBA_NUM_THREADS"):
+        os.environ[var] = "1"
+    global _WORKER
+    _WORKER = Segmenter(store_path, channel=channel, model=model, name=name, gpu=gpu)
+    _WORKER._params = dict(params)
+    _WORKER._get_model()
+    try:
+        import torch
+
+        torch.set_num_threads(1)
+    except ImportError:
+        pass
+
+
+def _segment_trench(
+    task: Tuple[str, int, Optional[Tuple[float, float]], int],
+) -> Tuple[int, Tuple[float, float], List[int]]:
+    """Segment one trench under one hypothesis in a worker; write its label chunk."""
+    hypothesis, index, bounds, batch_size = task
+    seg = _WORKER
+    store = seg._open_store(mode="r+")
+    stack = store["data"][index, :, seg.channel_index]
+    if bounds is None:
+        bounds = trench_bounds(stack, seg._params["floor"])
+    masks, failed = seg.segment_stack(stack, bounds, hypothesis, batch_size=batch_size)
+    store[seg.group]["labels"][seg.hypotheses.index(hypothesis), index] = masks
+    return index, bounds, failed
 
 
 def _label_overlay_wrapper(segmenter: Segmenter):
