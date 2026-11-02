@@ -74,9 +74,43 @@ crowded trenches) without adding masks on noise."""
 # Omnipose 2.0 logs mask building through the top-level "core" and "gpu" loggers.
 _OMNIPOSE_LOGGERS = ("omnipose", "core", "gpu")
 
+# Omnipose imports the ``dbscan`` package, whose parlay scheduler threads spin
+# at full CPU even when idle (about 9 cores in an idle Jupyter kernel). One
+# thread costs nothing measurable in segmentation speed.
+_PARLAY_THREADS = {"PARLAY_NUM_THREADS": "1"}
+# What each process-pool worker gets: one thread per library, so ``workers``
+# processes use ``workers`` cores.
+_WORKER_THREADS = {
+    var: "1" for var in (
+        "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+        "NUMBA_NUM_THREADS", "PARLAY_NUM_THREADS",
+    )
+}
+
 
 def _json_native(value: Any) -> Any:
     return json.loads(json.dumps(value, default=str))
+
+
+@contextmanager
+def _environment(values: Mapping[str, str]) -> Iterator[None]:
+    """Set environment variables for the duration; restore them afterwards.
+
+    Thread pools read their size when a library is first loaded, so spawned
+    workers must inherit the limits from the parent's environment: setting them
+    in a worker's initializer is too late (the worker has already imported numpy
+    and torch by unpickling it).
+    """
+    previous = {var: os.environ.get(var) for var in values}
+    os.environ.update(values)
+    try:
+        yield
+    finally:
+        for var, value in previous.items():
+            if value is None:
+                os.environ.pop(var, None)
+            else:
+                os.environ[var] = value
 
 
 @contextmanager
@@ -443,6 +477,8 @@ class Segmenter:
 
     def _get_model(self):
         if self._model is None:
+            for var, value in _PARLAY_THREADS.items():
+                os.environ.setdefault(var, value)
             from omnipose.models import OmniModel
 
             with _quiet_omnipose():
@@ -592,67 +628,68 @@ class Segmenter:
                 for h in self.hypotheses
             }
 
-        pool = None
-        if workers > 1:
-            pool = ProcessPoolExecutor(
-                max_workers=workers,
-                mp_context=multiprocessing.get_context("spawn"),
-                initializer=_init_worker,
-                initargs=(str(self.store_path), self.channel, self.model_name,
-                          self.name, self.gpu, self._params),
-            )
-        reader = ThreadPoolExecutor(max_workers=1)
-        try:
-            for hypothesis in hypotheses:
-                h_index = self.hypotheses.index(hypothesis)
-                done = completed.setdefault(hypothesis, set())
-                todo = [i for i, tid in enumerate(trench_ids) if tid not in done]
-                progress = tqdm(
-                    total=len(todo), desc=f"{hypothesis} {self.channel}", disable=not show_progress,
+        with _environment(_WORKER_THREADS if workers > 1 else {}):
+            pool = None
+            if workers > 1:
+                pool = ProcessPoolExecutor(
+                    max_workers=workers,
+                    mp_context=multiprocessing.get_context("spawn"),
+                    initializer=_init_worker,
+                    initargs=(str(self.store_path), self.channel, self.model_name,
+                              self.name, self.gpu, self._params),
                 )
-                if pool is None:
-                    pending = reader.submit(_read, todo[0]) if todo else None
-                    for k, index in enumerate(todo):
-                        stack = pending.result()
-                        if k + 1 < len(todo):
-                            pending = reader.submit(_read, todo[k + 1])
-                        bounds = self.bounds(index, stack)
-                        masks, failed = self.segment_stack(
-                            stack, bounds, hypothesis, batch_size=batch_size,
-                        )
-                        labels[h_index, index] = masks
-                        _record(hypothesis, index, bounds, failed)
-                        progress.update()
-                else:
-                    # Workers write their own label chunks (one per trench, so
-                    # never shared); progress and bounds are recorded here.
-                    queue = iter(todo)
-                    running = {}
-
-                    def _submit_next() -> None:
-                        index = next(queue, None)
-                        if index is not None:
-                            task = (hypothesis, index, self._bounds.get(index), batch_size)
-                            running[pool.submit(_segment_trench, task)] = index
-
-                    for _ in range(2 * workers):
-                        _submit_next()
-                    while running:
-                        finished, _ = wait(running, return_when=FIRST_COMPLETED)
-                        for future in finished:
-                            running.pop(future)
-                            index, bounds, failed = future.result()
+            reader = ThreadPoolExecutor(max_workers=1)
+            try:
+                for hypothesis in hypotheses:
+                    h_index = self.hypotheses.index(hypothesis)
+                    done = completed.setdefault(hypothesis, set())
+                    todo = [i for i, tid in enumerate(trench_ids) if tid not in done]
+                    progress = tqdm(
+                        total=len(todo), desc=f"{hypothesis} {self.channel}", disable=not show_progress,
+                    )
+                    if pool is None:
+                        pending = reader.submit(_read, todo[0]) if todo else None
+                        for k, index in enumerate(todo):
+                            stack = pending.result()
+                            if k + 1 < len(todo):
+                                pending = reader.submit(_read, todo[k + 1])
+                            bounds = self.bounds(index, stack)
+                            masks, failed = self.segment_stack(
+                                stack, bounds, hypothesis, batch_size=batch_size,
+                            )
+                            labels[h_index, index] = masks
                             _record(hypothesis, index, bounds, failed)
                             progress.update()
+                    else:
+                        # Workers write their own label chunks (one per trench, so
+                        # never shared); progress and bounds are recorded here.
+                        queue = iter(todo)
+                        running = {}
+
+                        def _submit_next() -> None:
+                            index = next(queue, None)
+                            if index is not None:
+                                task = (hypothesis, index, self._bounds.get(index), batch_size)
+                                running[pool.submit(_segment_trench, task)] = index
+
+                        for _ in range(2 * workers):
                             _submit_next()
-                progress.close()
-                complete = dict(group.attrs.get("complete", {}))
-                complete[hypothesis] = done.issuperset(trench_ids)
-                group.attrs["complete"] = complete
-        finally:
-            reader.shutdown(wait=False, cancel_futures=True)
-            if pool is not None:
-                pool.shutdown(wait=True, cancel_futures=True)
+                        while running:
+                            finished, _ = wait(running, return_when=FIRST_COMPLETED)
+                            for future in finished:
+                                running.pop(future)
+                                index, bounds, failed = future.result()
+                                _record(hypothesis, index, bounds, failed)
+                                progress.update()
+                                _submit_next()
+                    progress.close()
+                    complete = dict(group.attrs.get("complete", {}))
+                    complete[hypothesis] = done.issuperset(trench_ids)
+                    group.attrs["complete"] = complete
+            finally:
+                reader.shutdown(wait=False, cancel_futures=True)
+                if pool is not None:
+                    pool.shutdown(wait=True, cancel_futures=True)
 
         print(f"Segmentation written: {self.store_path / self.group} ({', '.join(hypotheses)})")
         n_failed = sum(len(v) for h in hypotheses for v in failed_frames.get(h, {}).values())
@@ -870,9 +907,10 @@ _WORKER: Optional[Segmenter] = None
 def _init_worker(
     store_path: str, channel: str, model: str, name: str, gpu: bool, params: Dict[str, Any],
 ) -> None:
-    """Process-pool initializer: a single-threaded Segmenter with its own model."""
-    for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMBA_NUM_THREADS"):
-        os.environ[var] = "1"
+    """Process-pool initializer: a single-threaded Segmenter with its own model.
+
+    The thread limits come from the parent's environment (``_WORKER_THREADS``).
+    """
     global _WORKER
     _WORKER = Segmenter(store_path, channel=channel, model=model, name=name, gpu=gpu)
     _WORKER._params = dict(params)
