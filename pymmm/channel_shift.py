@@ -295,9 +295,50 @@ class ChannelShift:
             return one(labels)
         return np.stack([one(lab) for lab in labels]) if len(labels) else labels.copy()
 
+    def write_moved(self, name: Optional[str] = None, workers: int = 16, show_progress: bool = True) -> str:
+        """Write the segmentation's labels moved onto the channel as a segmentation of its
+        own, ``/segmentation/<name>`` (default ``<segmentation>_on_<channel>``), in the
+        same layout and with the same hypothesis name, so viewers and exports can read it
+        like any other segmentation. Returns the group path."""
+        import dask.array as da
+
+        name = name or f"{self.segmentation}_on_{self.channel.lower()}"
+        group = f"segmentation/{name}"
+        sizes = self.root.sizes
+        shape = (1, sizes["Trench"], sizes["T"], sizes["Y"], sizes["X"])
+        ds = xr.Dataset(
+            {"labels": (("Hypothesis", "Trench", "T", "Y", "X"), da.zeros(shape, chunks=(1, 1) + shape[2:], dtype=np.uint16),
+                        {"long_name": "cell labels; 0 is background (numbering as in the source segmentation)"})},
+            coords={"Hypothesis": np.asarray([self.hypothesis], dtype=object),
+                    **{d: self.root[d].variable for d in ("Trench", "Y", "X")}},
+            attrs={"schema_version": SCHEMA_VERSION, "layout": "segmentation",
+                   "description": (f"/segmentation/{self.segmentation} ({self.hypothesis}) labels moved onto the "
+                                   f"{self.channel} channel by /{self.group}'s model (ChannelShift.apply)."),
+                   "channel": self.channel, "source_segmentation": self.segmentation,
+                   "channel_shift": self.group, "provenance": provenance()},
+        )
+        ds.to_zarr(str(self.store_path), group=group, mode="w", compute=False, consolidated=False, zarr_format=3)
+        jobs = [(str(self.store_path), self.segmentation, self.hypothesis, self.channel, self.polarity,
+                 self.name, group, i) for i in range(sizes["Trench"])]
+        with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn")) as pool:
+            for _ in tqdm(pool.map(_write_moved_trench, jobs), total=len(jobs),
+                          desc=f"moving {self.segmentation} onto {self.channel}", disable=not show_progress):
+                pass
+        return group
+
     def __repr__(self) -> str:
         return (f"ChannelShift({self.store_path.name!r}, {self.segmentation}/{self.hypothesis} -> "
                 f"{self.channel}, polarity={self.polarity!r})")
+
+
+def _write_moved_trench(args) -> int:
+    store, segmentation, hypothesis, channel, polarity, shift_name, group, index = args
+    cs = ChannelShift(store, segmentation=segmentation, hypothesis=hypothesis, channel=channel,
+                      polarity=polarity, name=shift_name)
+    root = zarr.open_group(store, mode="r+")
+    labels = np.asarray(root[f"segmentation/{segmentation}/labels"][cs.hypothesis_index, index])
+    root[f"{group}/labels"][0, index] = cs.apply(labels, index)
+    return index
 
 
 def _json(value: Any) -> Any:
