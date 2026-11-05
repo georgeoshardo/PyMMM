@@ -51,6 +51,8 @@ from pymmm.registrator import (
     _rotation_matrix,
 )
 from pymmm.trench_detector import TrenchDetector
+from pymmm.trench_images import CHUNK_KEYS as _CHUNK_KEYS
+from pymmm.trench_images import OME_VERSION, trench_path
 
 _mp_ctx = multiprocessing.get_context("spawn")
 
@@ -122,19 +124,6 @@ def _extract_frame_batch(
                         result[batch_t, local_idx, channel_idx] = crop
 
     return result
-
-
-OME_VERSION = "0.5"
-_CHUNK_KEYS = {"name": "default", "separator": "."}
-_TRENCH_COLUMNS = (
-    "fov_name", "fov_index", "lane_index", "x_left", "x_right", "y_top", "y_bottom",
-    "orientation", "needs_flip",
-)
-
-
-def trench_path(trench_id: int) -> str:
-    """The trench's image group within the experiment group: ``trench_0007``."""
-    return f"trench_{int(trench_id):04d}"
 
 
 def _json(value):
