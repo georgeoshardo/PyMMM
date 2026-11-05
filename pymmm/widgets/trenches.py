@@ -52,10 +52,13 @@ def trench_widget(detector: "TrenchDetector") -> None:
     prominence_slider = slider("float", "prominence", params.get("prominence", 10), 0, 500, 1)
     trench_width_slider = slider("int", "trench width", params.get("trench_width") or 32,
                                  1, 200, 1)
-    trench_length_slider = slider("int", "trench length", params.get("trench_length", 160),
+    shape = detector.shape_defaults()  # the whole height when the lanes are the image's edge
+    trench_length_slider = slider("int", "trench length",
+                                  params.get("trench_length", shape["trench_length"]),
                                   10, experiment.data.sizes["Y"], 5)
-    trench_bottom_offset_slider = slider("int", "bottom offset",
-                                         params.get("trench_bottom_offset", 50), -200, 200, 5)
+    trench_bottom_offset_slider = slider(
+        "int", "bottom offset",
+        params.get("trench_bottom_offset", shape["trench_bottom_offset"]), -200, 200, 5)
     apply_btn = widgets.Button(description="Apply to all FOVs", button_style="primary")
     preview_label = widgets.HTML(value="")
     status_label = widgets.HTML(value="")

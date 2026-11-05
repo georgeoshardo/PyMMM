@@ -258,6 +258,15 @@ class TrenchDetector:
         """The settings of the last detection (or the saved one)."""
         return copy.deepcopy(self._detection_params)
 
+    def shape_defaults(self) -> Dict[str, int]:
+        """The default ``trench_length`` and ``trench_bottom_offset``: the image's whole
+        height when the lanes are its edge (:meth:`LaneDetector.use_image_edge`), else
+        160 and 50 px."""
+        if self.lane_detector.image_edge is not None:
+            return {"trench_length": int(self.experiment.data.sizes["Y"]),
+                    "trench_bottom_offset": 0}
+        return {"trench_length": 160, "trench_bottom_offset": 50}
+
     @property
     def n_trenches(self) -> int:
         if self._trenches is None:
@@ -410,8 +419,8 @@ class TrenchDetector:
         prominence: float = 10,
         height: float = 0,
         trench_width: int = 32,
-        trench_length: int = 160,
-        trench_bottom_offset: int = 50,
+        trench_length: Optional[int] = None,
+        trench_bottom_offset: Optional[int] = None,
         conv_filter: Optional[np.ndarray] = None,
         plot: bool = False,
         lane_params: Optional[Dict[int, Dict[str, Any]]] = None,
@@ -447,10 +456,11 @@ class TrenchDetector:
             Minimum peak height.
         trench_width : int
             Exact trench width in pixels.
-        trench_length : int
-            Trench crop height in pixels.
-        trench_bottom_offset : int
-            Offset from lane centre to trench bottom in pixels.
+        trench_length : int | None
+            Trench crop height in pixels (``None``: :meth:`shape_defaults`).
+        trench_bottom_offset : int | None
+            Offset from lane centre to trench bottom in pixels (``None``:
+            :meth:`shape_defaults`).
         conv_filter : np.ndarray | None
             Optional convolution filter for noisy data.
         plot : bool
@@ -474,6 +484,11 @@ class TrenchDetector:
         """
         if method not in ("peaks", "periodic"):
             raise ValueError(f"method must be 'peaks' or 'periodic', not {method!r}")
+        defaults = self.shape_defaults()
+        if trench_length is None:
+            trench_length = defaults["trench_length"]
+        if trench_bottom_offset is None:
+            trench_bottom_offset = defaults["trench_bottom_offset"]
         if trench_width <= 0:
             raise ValueError("trench_width must be greater than zero.")
         if trench_length <= 0:

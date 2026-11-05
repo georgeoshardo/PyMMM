@@ -1,4 +1,5 @@
-"""LaneDetector – detect feeding-lane y-positions in each FOV."""
+"""LaneDetector – detect feeding-lane y-positions in each FOV, or, for an image cropped
+to its trenches, take the image's edge as the lane (:meth:`LaneDetector.use_image_edge`)."""
 
 from __future__ import annotations
 
@@ -81,6 +82,12 @@ class LaneDetector:
     def detection_params(self) -> Dict[str, Any]:
         """The settings of the last detection (or the saved one)."""
         return dict(self._detection_params)
+
+    @property
+    def image_edge(self) -> Optional[str]:
+        """``"down"`` or ``"up"`` when the lanes are the image's edge
+        (:meth:`use_image_edge`), ``None`` when they were detected."""
+        return self._detection_params.get("image_edge")
 
     # ------------------------------------------------------------------
     # Detection
@@ -220,6 +227,36 @@ class LaneDetector:
         if plot:
             self.plot_fov(self.experiment.fov_names[0])
 
+    def use_image_edge(self, opening: str = "down", save_diagnostics: bool = True) -> None:
+        """No lane detection: one lane per FOV, on the image's edge where its trenches
+        open. For an image cropped to its trenches (``ND2Experiment.select_roi``, the
+        notebook's ``EXPERIMENT_Y_ROI``), so that they fill its height.
+
+        Parameters
+        ----------
+        opening : {"down", "up"}
+            ``"down"``: the trenches open down into a lane below the image, so the lane is
+            its bottom edge (y = the image height); ``"up"``: into a lane above it, its
+            top edge (y = 0). Trench detection then takes the image's whole height by
+            default (:meth:`TrenchDetector.shape_defaults`).
+        save_diagnostics : bool
+            Save the lane overlays, as :meth:`detect_lanes` does.
+        """
+        if opening not in _FORCED_ORIENTATION:
+            raise ValueError(f"opening must be 'down' or 'up', not {opening!r}")
+        y = self.experiment.data.sizes["Y"] if opening == "down" else 0
+        self._lanes = {
+            fov: [LaneInfo(y_center=y, orientation=_FORCED_ORIENTATION[opening], fov=fov,
+                           lane_index=0)]
+            for fov in self.experiment.fov_names
+        }
+        self._detection_params = {"image_edge": opening}
+        edge = "bottom" if opening == "down" else "top"
+        print(f"Lanes: the image's {edge} edge (y = {y}) in every FOV; the trenches open "
+              f"{opening} into it")
+        if save_diagnostics:
+            self.save_diagnostics()
+
     def save_diagnostics(self) -> None:
         """Save a lane overlay for every FOV to ``<experiment>_diagnostics/lanes/``."""
         from pymmm._utils import get_diagnostics_dir
@@ -329,5 +366,8 @@ class LaneDetector:
     def __repr__(self) -> str:
         if self._lanes is None:
             return "LaneDetector(not detected)"
+        if self.image_edge is not None:
+            return (f"LaneDetector(the image's edge, trenches open {self.image_edge}: "
+                    f"{len(self._lanes)} FOVs)")
         total = sum(len(v) for v in self._lanes.values())
         return f"LaneDetector({total} lanes across {len(self._lanes)} FOVs)"

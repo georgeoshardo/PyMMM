@@ -44,6 +44,8 @@ reg.save()
 lanes = LaneDetector(exp, reg, store, detection_channel="PC")
 lanes.interactive_detect_lanes()                  # tune, then "Apply to all FOVs"
 lanes.save()
+# or, for an image cropped to its trenches (exp.select_roi(y=...)), no lane detection:
+# lanes.use_image_edge("down")                    # trenches open down into a lane below
 
 trenches = TrenchDetector(exp, reg, lanes, store, detection_channel="PC")
 trenches.interactive_detect_trenches()
@@ -57,7 +59,9 @@ extractor.extract()                               # resumes an interrupted run
 Each step saves its result to the companion store, `<experiment>.pymmm.zarr` beside
 the ND2, and `Registrator.load`, `LaneDetector.load` and `TrenchDetector.load` pick it
 up again. Without widgets, `detect_lanes(...)` and `detect_trenches(...)` take the
-settings directly. Registration and extraction run on the active Dask client if there
+settings directly. With `use_image_edge`, each FOV's lane is the image's edge where the
+trenches open, and trench detection takes the image's whole height by default.
+Registration and extraction run on the active Dask client if there
 is one, else in a process pool.
 
 After extraction:

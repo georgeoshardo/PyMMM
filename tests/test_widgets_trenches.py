@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from fake_experiment import FOV_H, FOV_W, fov_experiment, fov_registrator
 
-from pymmm.steps.lanes import LaneInfo
+from pymmm.steps.lanes import LaneDetector, LaneInfo
 from pymmm.steps.trenches import TrenchDetector
 
 pytestmark = [pytest.mark.notebook,
@@ -23,7 +23,8 @@ def trench_setup(tmp_path):
     image[30:90, 20:150:40] = 40.0      # lane 0's trenches, above it (open down)
     image[120:180, 30:150:30] = 40.0    # lane 1's trenches, below it (open up)
     experiment = fov_experiment(tmp_path, ["f0"])
-    lanes = SimpleNamespace(lanes={"f0": [LaneInfo(100, 1, "f0", 0), LaneInfo(110, -1, "f0", 1)]})
+    lanes = SimpleNamespace(lanes={"f0": [LaneInfo(100, 1, "f0", 0), LaneInfo(110, -1, "f0", 1)]},
+                            image_edge=None)
     return experiment, fov_registrator({"f0": image}), lanes, image
 
 
@@ -78,3 +79,20 @@ def test_trench_widget_applies_lane_overrides(notebook, trench_setup):
     assert detector.detection_params["lane_params"] == {1: {"prominence": 7}}
     assert notebook.text("Applied") == (
         f"<b>Applied</b> — {expected.n_trenches} trenches across 1 FOVs")
+
+
+def test_with_image_edge_lanes_the_widget_starts_at_the_whole_height(notebook, tmp_path):
+    image = np.full((FOV_H, FOV_W), 10.0, dtype=np.float32)
+    image[:, 20:150:40] = 40.0
+    experiment = fov_experiment(tmp_path, ["f0"])
+    registrator = fov_registrator({"f0": image})
+    lanes = LaneDetector(experiment, registrator, None, detection_channel="PC")
+    lanes.use_image_edge("down", save_diagnostics=False)
+    detector = TrenchDetector(experiment, registrator, lanes, None, detection_channel="PC")
+    detector.interactive_detect_trenches()
+    assert notebook.control("trench length").value == FOV_H
+    assert notebook.control("bottom offset").value == 0
+    for name, value in [("trench width", 6), ("sigma", 0.0), ("distance", 5), ("prominence", 1)]:
+        notebook.control(name).value = value
+    notebook.control("Apply to all FOVs").click()
+    assert {(t.y_top, t.y_bottom) for t in detector.trenches["f0"]} == {(0, FOV_H)}

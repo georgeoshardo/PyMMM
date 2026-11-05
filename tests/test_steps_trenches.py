@@ -5,9 +5,10 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from fake_experiment import FOV_H, FOV_W, fov_experiment, fov_registrator
 from scipy.signal import find_peaks
 
-from pymmm.steps.lanes import LaneInfo
+from pymmm.steps.lanes import LaneDetector, LaneInfo
 from pymmm.steps.trenches import TrenchDetector
 
 
@@ -19,7 +20,7 @@ def _make_detector() -> TrenchDetector:
         compute_registered_means=lambda channel: {"f0": image},
     )
     lane_detector = SimpleNamespace(
-        lanes={"f0": [LaneInfo(100, 1, "f0", 0)]}
+        lanes={"f0": [LaneInfo(100, 1, "f0", 0)]}, image_edge=None
     )
     return TrenchDetector(
         experiment, registrator, lane_detector, object(), "PC"
@@ -120,7 +121,7 @@ def test_profile_uses_trench_rows_only(monkeypatch):
     image = np.zeros((200, 160), dtype=np.float32)
     image[100:, 70:90] = 1000.0  # bright stripe only below the lane (far side)
     experiment = SimpleNamespace(channel_names=["PC"], fov_names=["f0"])
-    lane_detector = SimpleNamespace(lanes={"f0": [LaneInfo(100, 1, "f0", 0)]})
+    lane_detector = SimpleNamespace(lanes={"f0": [LaneInfo(100, 1, "f0", 0)]}, image_edge=None)
     detector = TrenchDetector(experiment, None, lane_detector, object(), "PC")
 
     _, lane_profiles, _ = detector.detect_fov(
@@ -130,3 +131,27 @@ def test_profile_uses_trench_rows_only(monkeypatch):
 
     # Trenches open down (orientation 1) sit above the lane, rows 30-90.
     assert np.all(lane_profiles[0]["profile"] == 0)
+
+
+@pytest.mark.parametrize("opening, needs_flip", [("down", False), ("up", True)])
+def test_image_edge_lanes_give_trenches_the_whole_image_height(tmp_path, opening, needs_flip):
+    image = np.full((FOV_H, FOV_W), 10.0, dtype=np.float32)
+    image[:, 20:150:40] = 40.0  # four trenches, top to bottom of the cropped image
+    experiment = fov_experiment(tmp_path, ["f0"])
+    registrator = fov_registrator({"f0": image})
+    lanes = LaneDetector(experiment, registrator, None, detection_channel="PC")
+    lanes.use_image_edge(opening, save_diagnostics=False)
+    detector = TrenchDetector(experiment, registrator, lanes, None, "PC")
+    assert detector.shape_defaults() == {"trench_length": FOV_H, "trench_bottom_offset": 0}
+
+    detector.detect_trenches(sigma=0, distance=5, prominence=1, trench_width=6,
+                             save_diagnostics=False)
+    trenches = detector.trenches["f0"]
+    assert [(t.x_left + t.x_right) // 2 for t in trenches] == [20, 60, 100, 140]
+    assert {(t.y_top, t.y_bottom, t.needs_flip) for t in trenches} == {(0, FOV_H, needs_flip)}
+    params = detector.detection_params
+    assert (params["trench_length"], params["trench_bottom_offset"]) == (FOV_H, 0)
+
+
+def test_detected_lanes_keep_the_trench_shape_defaults():
+    assert _make_detector().shape_defaults() == {"trench_length": 160, "trench_bottom_offset": 50}
