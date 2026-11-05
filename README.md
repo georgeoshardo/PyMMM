@@ -106,7 +106,7 @@ napari --plugin napari-ome-zarr experiment.zarr/trench_0007
 | `steps.extraction` | `Extractor`: writes the experiment group |
 | `steps.segmentation` | `Segmenter`: Omnipose labels per hypothesis |
 | `widgets` | the notebook UIs the steps open: lane, trench and segmentation tuning, the label viewer |
-| `parallel` | where batches run: the active Dask client, a process pool, or this process |
+| `parallel` | where batches run: the active Dask client, a process pool, or this process; `local_cluster`, a notebook's Dask cluster, whose workers outlive the Interrupt button (it then drops the queued batches) |
 | `config` | the experiment file |
 | `plotting`, `view` | diagnostic figures; the napari viewer |
 

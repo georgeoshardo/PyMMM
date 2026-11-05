@@ -11,24 +11,54 @@ they run and gives back futures as they finish::
             result = future.result()
 
 and the task reads the shared array with ``shared(reference)``.
+
+In a notebook, :func:`local_cluster` makes the Dask cluster. Its workers, and a pool's,
+outlive JupyterLab's Interrupt button, which sends SIGINT to the kernel's whole process
+group, workers included: interrupting a cell stops the cell, and the :class:`Runner`
+then drops the batches it had queued (a batch already running finishes).
 """
 
 from __future__ import annotations
 
 import multiprocessing
 import os
+import signal
 import tempfile
+import weakref
 from concurrent.futures import Future, ProcessPoolExecutor
 from concurrent.futures import as_completed as _futures_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, Optional
+from typing import Any, Callable, Dict, Iterable, Iterator, Optional, Tuple
 
 import numpy as np
 
 # Fresh interpreters: pool workers then share nothing with the parent's Dask client,
 # event loops or thread state.
 SPAWN = multiprocessing.get_context("spawn")
+
+IGNORE_INTERRUPT = "import signal\nsignal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+"""A Dask worker preload (run in each worker process as it starts, restarts included):
+ignore SIGINT. Without it, JupyterLab's Interrupt button kills every worker of the
+notebook's cluster (it signals the kernel's process group) and the nanny does not start
+them again."""
+
+
+def _ignore_interrupt() -> None:
+    """A pool worker's initializer: ignore SIGINT (see :data:`IGNORE_INTERRUPT`)."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
+def local_cluster(workers: int, **kwargs: Any) -> Tuple[Any, Any]:
+    """A Dask cluster of ``workers`` processes on this machine, one thread each, and its
+    client: ``cluster, client = local_cluster(16)``. Its workers ignore SIGINT
+    (:data:`IGNORE_INTERRUPT`); ``client.close()`` and ``cluster.close()`` stop them.
+    ``kwargs`` go to ``LocalCluster`` (``dashboard_address=None``, say)."""
+    from dask.distributed import Client, LocalCluster
+
+    cluster = LocalCluster(n_workers=workers, threads_per_worker=1, processes=True,
+                           preload=[IGNORE_INTERRUPT], **kwargs)
+    return cluster, Client(cluster)
 
 
 def dask_client():
@@ -81,6 +111,9 @@ class Runner:
         self._pool: Optional[ProcessPoolExecutor] = None
         self._folder: Optional[tempfile.TemporaryDirectory] = None
         self._n_shared = 0
+        # The futures the caller still holds (Dask's or the pool's): cancelled if the
+        # run stops early.
+        self._futures: "weakref.WeakSet[Any]" = weakref.WeakSet()
 
     @property
     def kind(self) -> str:
@@ -92,7 +125,9 @@ class Runner:
     def submit(self, fn: Callable[..., Any], /, *args: Any) -> Any:
         """Run ``fn(*args)``; a future of its result. The pool starts at the first task."""
         if self.client is not None:
-            return self.client.submit(fn, *args)
+            future = self.client.submit(fn, *args)
+            self._futures.add(future)
+            return future
         if self.workers == 1:
             future: Future = Future()
             try:
@@ -101,15 +136,20 @@ class Runner:
                 future.set_exception(error)
             return future
         if self._pool is None:
-            self._pool = ProcessPoolExecutor(max_workers=self.workers, mp_context=SPAWN)
-        return self._pool.submit(fn, *args)
+            self._pool = ProcessPoolExecutor(max_workers=self.workers, mp_context=SPAWN,
+                                             initializer=_ignore_interrupt)
+        future = self._pool.submit(fn, *args)
+        self._futures.add(future)
+        return future
 
     def share(self, array: np.ndarray) -> Any:
         """``array`` once for every task that takes it: scattered to every Dask worker,
         saved to a file each pool worker reads once, or the array itself in this
         process. Tasks read it with :func:`shared`."""
         if self.client is not None:
-            return self.client.scatter(array, broadcast=True, hash=False)
+            future = self.client.scatter(array, broadcast=True, hash=False)
+            self._futures.add(future)
+            return future
         if self.workers == 1:
             return array
         if self._folder is None:
@@ -133,6 +173,22 @@ class Runner:
             return iter(as_completed(list(futures)))
         return _futures_completed(list(futures))
 
+    def cancel(self) -> None:
+        """Drop the tasks not started yet: the queued Dask tasks (and shared arrays) and
+        the pool's. A task already running finishes; stopping it would mean killing its
+        worker. (The pool's own ``cancel_futures`` is not enough: the pool goes with
+        the Runner's reference, before its manager thread cancels anything.)"""
+        futures = [future for future in self._futures if not future.done()]
+        if self.client is not None:
+            if futures:
+                self.client.cancel(futures)
+        else:
+            for future in futures:
+                future.cancel()  # a pending one never starts; a started one runs on
+        if self._pool is not None:
+            self._pool.shutdown(wait=False, cancel_futures=True)
+            self._pool = None
+
     def close(self) -> None:
         """Wait for the pool's tasks and stop it, and remove the shared files (the Dask
         client is not ours to close)."""
@@ -146,7 +202,11 @@ class Runner:
     def __enter__(self) -> "Runner":
         return self
 
-    def __exit__(self, *exc: Any) -> None:
+    def __exit__(self, exc_type: Any, *exc: Any) -> None:
+        """Close; first :meth:`cancel` if the block raised (an interrupted cell, a failed
+        batch), so the work queued behind it does not run on."""
+        if exc_type is not None:
+            self.cancel()
         self.close()
 
     def __repr__(self) -> str:
