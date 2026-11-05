@@ -25,16 +25,19 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Sequence, Tuple, Union
 
 import dask
 import dask.array as da
 import numpy as np
+import pandas as pd
 import xarray as xr
 import zarr
 from tqdm.auto import tqdm
 
+from pymmm._utils import normalize_channel_arg
 from pymmm.parallel import Runner
 from pymmm.source.metadata import (
     build_acquisition_dataset,
@@ -59,11 +62,17 @@ from pymmm.store.provenance import SCHEMA_VERSION, plain_json, provenance
 # ======================================================================
 
 
-def _extract_frame_batch(
+def _crop_frames(
     nd2_path, fov_idx, time_indices, y_roi, x_roi,
-    tmats, band_specs, trench_specs, image_width, out_dtype,
+    tmats, band_specs, trench_specs, image_width, out_dtype, channels=None,
 ):
-    """Read all channels once per frame and return trench-sized crops."""
+    """Read frames (all channels, or ``channels``) with one ND2 handle and cut their
+    trenches: ``(t, trench, c, y, x)``.
+
+    Each lane band is one warp of the raw frame (``tmats``: translation then rotation,
+    offset to the band's top row); its trenches are column ranges of it, flipped when
+    they open upward.
+    """
     import nd2
     from skimage.transform import warp as ski_warp
 
@@ -83,6 +92,8 @@ def _extract_frame_batch(
             frame = f.read_frame(frame_idx)
             if frame.ndim == 2:
                 frame = frame[np.newaxis, ...]
+            if channels is not None:
+                frame = frame[list(channels)]
             if y_roi is not None:
                 frame = frame[..., slice(*y_roi), :]
             if x_roi is not None:
@@ -112,6 +123,73 @@ def _extract_frame_batch(
                         result[batch_t, local_idx, channel_idx] = crop
 
     return result
+
+
+@dataclass(frozen=True)
+class FovCrops:
+    """Everything needed to cut one FOV's trenches out of its frames (one
+    :func:`_crop_frames` call per batch of frames, anywhere)."""
+
+    nd2_path: str
+    fov: str
+    fov_index: int                      # its P index in the ND2
+    time_indices: Tuple[int, ...]       # ND2 T index of each frame
+    roi: Tuple[Any, Any]                # the experiment's (y, x) ROI
+    image_width: int
+    dtype: np.dtype
+    tmats: np.ndarray                   # (T, 3, 3): registration, then rotation
+    trench_ids: Tuple[int, ...]         # in table order
+    trench_specs: Tuple[tuple, ...]     # (y_top, y_bottom, x_left, x_right, needs_flip)
+    band_specs: Tuple[tuple, ...]       # (y_top, y_bottom, ((local index, x_left, x_right, needs_flip), ...))
+
+    def batch(self, start: int, stop: int, channels: Optional[Sequence[int]] = None) -> tuple:
+        """The :func:`_crop_frames` arguments for frames ``start:stop``."""
+        return (self.nd2_path, self.fov_index, list(self.time_indices[start:stop]), *self.roi,
+                self.tmats[start:stop], self.band_specs, self.trench_specs, self.image_width,
+                self.dtype, None if channels is None else tuple(channels))
+
+
+@dataclass(frozen=True)
+class _ImageLayout:
+    """A trench image's array: (t, c, y, x) shape, inner chunks, shard, dtype."""
+
+    shape: Tuple[int, int, int, int]
+    chunks: Tuple[int, int, int, int]
+    shards: Tuple[int, int, int, int]
+    dtype: np.dtype
+
+
+def _codecs(compressor: str, clevel: int, byte_shuffle: bool) -> Tuple[list, list]:
+    """The metadata's and the pixels' compressors."""
+    if compressor != "zstd":
+        return [], []
+    return (
+        [zarr.codecs.BloscCodec(cname="zstd", clevel=clevel, shuffle="noshuffle")],
+        [zarr.codecs.BloscCodec(cname="zstd", clevel=clevel,
+                                shuffle="shuffle" if byte_shuffle else "noshuffle")],
+    )
+
+
+def _cut(runner: Runner, crops: FovCrops, batch_size: int) -> np.ndarray:
+    """A FOV's trenches, (trench, t, c, y, x), cut in batches of frames."""
+    n_times = len(crops.time_indices)
+    futures = {
+        runner.submit(_crop_frames, *crops.batch(start, min(start + batch_size, n_times))): start
+        for start in range(0, n_times, batch_size)
+    }
+    pixels = None
+    for future in runner.as_completed(futures):
+        start = futures[future]
+        batch = future.result()
+        if pixels is None:
+            pixels = np.empty((batch.shape[1], n_times) + batch.shape[2:], dtype=batch.dtype)
+        pixels[:, start:start + batch.shape[0]] = batch.transpose(1, 0, 2, 3, 4)
+    return pixels
+
+
+def _update_attrs(store: zarr.Group, **values: Any) -> None:
+    """Set keys of the experiment group's ``pymmm`` attributes."""
+    store.attrs["pymmm"] = {**dict(store.attrs)["pymmm"], **values}
 
 
 _TABLE_ATTRS = {
@@ -588,20 +666,49 @@ class Extractor:
         if int(batch_size) != batch_size or batch_size < 1:
             raise ValueError("batch_size must be a positive integer")
         batch_size = int(batch_size)
+        table = self._trench_table("extract")
+        layout = self._layout(table, time_chunk)
+        if resume and self.output_path.exists():
+            store = self._reopen(table, layout, compressor, clevel, byte_shuffle)
+        else:
+            store = self._create(table, layout, _codecs(compressor, clevel, byte_shuffle))
 
-        trench_table = self.trench_detector.get_trench_table()
-        if len(trench_table) == 0:
-            raise RuntimeError("No trenches to extract.")
-        trench_table = trench_table.sort_values("trench_id").reset_index(drop=True)
+        crops = self._crops(table)
+        all_fovs = [c.fov for c in crops]
+        completed = set(dict(store.attrs)["pymmm"].get("completed_fovs", []))
+        todo = [c for c in crops if c.fov not in completed]
+        # A FOV's frames in one batch run here; more batches run on the Dask
+        # cluster or in a process pool.
+        with Runner(workers=1 if layout.shape[0] <= batch_size else None) as runner:
+            for fov_crops in tqdm(todo, desc="Extracting FOVs", total=len(todo),
+                                  disable=not show_progress):
+                self._write_fov(store, fov_crops, _cut(runner, fov_crops, batch_size))
+                completed.add(fov_crops.fov)
+                _update_attrs(store, completed_fovs=[f for f in all_fovs if f in completed])
 
-        # Determine output shape from first trench
-        first = trench_table.iloc[0]
-        trench_h = int(first["y_bottom"] - first["y_top"])
-        trench_w = int(first["x_right"] - first["x_left"])
-        heights = trench_table["y_bottom"] - trench_table["y_top"]
-        widths = trench_table["x_right"] - trench_table["x_left"]
-        if not (heights.eq(trench_h).all() and widths.eq(trench_w).all()):
+        _update_attrs(store, extraction_complete=set(all_fovs).issubset(completed))
+        print(f"Extraction complete: {self.output_path}")
+        print(f"  {len(table)} trench images of {layout.shape}, chunks {layout.chunks}, "
+              f"shards {layout.shards}")
+
+    # ------------------------------------------------------------------
+    # The steps of an extraction
+    # ------------------------------------------------------------------
+
+    def _trench_table(self, action: str) -> pd.DataFrame:
+        """The trench table in trench-id order; every trench is the same size."""
+        table = self.trench_detector.get_trench_table()
+        if len(table) == 0:
+            raise RuntimeError(f"No trenches to {action}.")
+        table = table.sort_values("trench_id").reset_index(drop=True)
+        heights = table["y_bottom"] - table["y_top"]
+        widths = table["x_right"] - table["x_left"]
+        if heights.nunique() != 1 or widths.nunique() != 1:
             raise ValueError("All trenches must have the same output shape.")
+        return table
+
+    def _layout(self, table: pd.DataFrame, time_chunk: int | None) -> _ImageLayout:
+        """Each trench image's shape, inner chunks, shard and dtype."""
         exp = self.experiment
         n_times = exp.n_timepoints
         if time_chunk is None:
@@ -610,219 +717,142 @@ class Extractor:
             if int(time_chunk) != time_chunk or time_chunk < 1:
                 raise ValueError("time_chunk must be a positive integer or None")
             output_time_chunk = min(n_times, int(time_chunk))
+        n_channels = len(exp.channel_names)
+        first = table.iloc[0]
+        trench_h = int(first["y_bottom"] - first["y_top"])
+        trench_w = int(first["x_right"] - first["x_left"])
+        # (t, c, y, x) in one shard holding a chunk per channel (and time chunk)
+        return _ImageLayout(
+            shape=(n_times, n_channels, trench_h, trench_w),
+            chunks=(output_time_chunk, 1, trench_h, trench_w),
+            shards=(math.ceil(n_times / output_time_chunk) * output_time_chunk,
+                    n_channels, trench_h, trench_w),
+            dtype=np.dtype(exp.data.dtype),
+        )
 
-        # Determine channels
+    def _reopen(self, table: pd.DataFrame, layout: _ImageLayout, compressor: str,
+                clevel: int, byte_shuffle: bool) -> zarr.Group:
+        """The existing experiment group, if this extraction can resume it."""
+        store = zarr.open_group(str(self.output_path), mode="r+", zarr_format=3)
+        mismatches = self._resume_mismatches(
+            store, table, layout.shape, layout.chunks, layout.shards, layout.dtype,
+            compressor, clevel, byte_shuffle,
+        )
+        if mismatches:
+            raise RuntimeError(
+                "Existing output is not compatible with this extraction; "
+                f"these inputs differ: {', '.join(mismatches)}. "
+                "Use resume=False or choose a new output path."
+            )
+        return store
+
+    def _create(self, table: pd.DataFrame, layout: _ImageLayout,
+                codecs: Tuple[list, list]) -> zarr.Group:
+        """A new experiment group: its metadata, and every trench image, empty.
+        ``codecs``: the metadata's and the pixels' compressors."""
+        exp = self.experiment
         channel_names = list(exp.channel_names)
         n_channels = len(channel_names)
-
-        # Create output zarr store
-        if compressor == "zstd":
-            metadata_compressors = [
-                zarr.codecs.BloscCodec(
-                    cname="zstd", clevel=clevel, shuffle="noshuffle",
-                )
-            ]
-            data_compressors = [
-                zarr.codecs.BloscCodec(
-                    cname="zstd",
-                    clevel=clevel,
-                    shuffle="shuffle" if byte_shuffle else "noshuffle",
-                )
-            ]
-        else:
-            metadata_compressors = []
-            data_compressors = []
-
-        # one trench image: (T, C, Y, X); one shard holding a chunk per channel
-        # (and time chunk)
-        shape = (n_times, n_channels, trench_h, trench_w)
-        chunks = (output_time_chunk, 1, trench_h, trench_w)
-        shards = (
-            math.ceil(n_times / output_time_chunk) * output_time_chunk,
-            n_channels, trench_h, trench_w,
+        n_times = layout.shape[0]
+        if self.output_path.exists() and not self._is_experiment_group():
+            raise RuntimeError(
+                f"{self.output_path} exists and is not an experiment group written by "
+                "the Extractor; it is never overwritten. Choose a new output path."
+            )
+        metadata_codecs, pixel_codecs = codecs
+        source_metadata = extract_source_frame_metadata(exp)
+        acquisition = build_acquisition_dataset(
+            exp.source_acquisition_metadata, channel_names=channel_names,
         )
-
-        dtype = np.dtype(exp.data.dtype)
-
-        if resume and self.output_path.exists():
-            store = zarr.open_group(
-                str(self.output_path), mode="r+", zarr_format=3,
-            )
-            mismatches = self._resume_mismatches(
-                store, trench_table, shape, chunks, shards, dtype,
-                compressor, clevel, byte_shuffle,
-            )
-            if mismatches:
-                raise RuntimeError(
-                    "Existing output is not compatible with this extraction; "
-                    f"these inputs differ: {', '.join(mismatches)}. "
-                    "Use resume=False or choose a new output path."
-                )
-            completed_fovs = set(dict(store.attrs)["pymmm"].get("completed_fovs", []))
-        else:
-            if self.output_path.exists() and not self._is_experiment_group():
-                raise RuntimeError(
-                    f"{self.output_path} exists and is not an experiment group written by "
-                    "the Extractor; it is never overwritten. Choose a new output path."
-                )
-            source_metadata = extract_source_frame_metadata(exp)
-            acquisition = build_acquisition_dataset(
-                exp.source_acquisition_metadata, channel_names=channel_names,
-            )
-            frame_interval_ms = float(acquisition["time_interval"])
-            pixel_size_um = float(exp.pixel_size_um)
-            if "C" in acquisition["color"].dims:
-                colors = [str(c).lstrip("#").upper() for c in acquisition["color"].values]
-            else:  # the ND2's channel records don't match its channels
-                colors = ["FFFFFF"] * n_channels
-            experiment_attrs = self._experiment_attrs(
-                channel_names=channel_names, pixel_size_um=pixel_size_um,
-                frame_interval_ms=frame_interval_ms,
-            )
-            self._build_root_dataset(
-                source_metadata=source_metadata, channel_names=channel_names,
-                attrs=experiment_attrs,
-            ).to_zarr(str(self.output_path), mode="w", consolidated=False, zarr_format=3)
-            table = self._build_trench_table(trench_table, source_metadata)
-            table.to_zarr(
-                str(self.output_path),
-                mode="a",
-                group="trenches",
-                consolidated=False,
-                zarr_format=3,
-                encoding=self._metadata_encoding(
-                    table, compressors=metadata_compressors,
+        frame_interval_ms = float(acquisition["time_interval"])
+        pixel_size_um = float(exp.pixel_size_um)
+        if "C" in acquisition["color"].dims:
+            colors = [str(c).lstrip("#").upper() for c in acquisition["color"].values]
+        else:  # the ND2's channel records don't match its channels
+            colors = ["FFFFFF"] * n_channels
+        experiment_attrs = self._experiment_attrs(
+            channel_names=channel_names, pixel_size_um=pixel_size_um,
+            frame_interval_ms=frame_interval_ms,
+        )
+        self._build_root_dataset(
+            source_metadata=source_metadata, channel_names=channel_names,
+            attrs=experiment_attrs,
+        ).to_zarr(str(self.output_path), mode="w", consolidated=False, zarr_format=3)
+        table_ds = self._build_trench_table(table, source_metadata)
+        table_ds.to_zarr(
+            str(self.output_path),
+            mode="a",
+            group="trenches",
+            consolidated=False,
+            zarr_format=3,
+            encoding=self._metadata_encoding(table_ds, compressors=metadata_codecs),
+        )
+        self._write_metadata_groups(
+            source_metadata=source_metadata,
+            acquisition=acquisition,
+            compressors=metadata_codecs,
+            n_times=n_times,
+        )
+        store = zarr.open_group(str(self.output_path), mode="r+", zarr_format=3)
+        fov_index = dict(zip(table_ds["trench"].values.tolist(),
+                             table_ds["fov_index"].values.tolist()))
+        for _, row in table.iterrows():
+            image = store.create_group(
+                trench_path(row["trench_id"]),
+                attributes=self._image_attrs(
+                    row, channel_names=channel_names, colors=colors,
+                    pixel_size_um=pixel_size_um, frame_interval_ms=frame_interval_ms,
+                    dtype=layout.dtype, fov_index=fov_index[int(row["trench_id"])],
                 ),
             )
-            self._write_metadata_groups(
-                source_metadata=source_metadata,
-                acquisition=acquisition,
-                compressors=metadata_compressors,
-                n_times=n_times,
+            image.create_array(
+                "0", shape=layout.shape, dtype=layout.dtype, chunks=layout.chunks,
+                shards=layout.shards, compressors=pixel_codecs, chunk_key_encoding=_CHUNK_KEYS,
+                dimension_names=["t", "c", "y", "x"], fill_value=0,
             )
-            store = zarr.open_group(
-                str(self.output_path), mode="r+", zarr_format=3,
-            )
-            fov_index = dict(zip(table["trench"].values.tolist(),
-                                 table["fov_index"].values.tolist()))
-            for _, row in trench_table.iterrows():
-                image = store.create_group(
-                    trench_path(row["trench_id"]),
-                    attributes=self._image_attrs(
-                        row, channel_names=channel_names, colors=colors,
-                        pixel_size_um=pixel_size_um, frame_interval_ms=frame_interval_ms,
-                        dtype=dtype, fov_index=fov_index[int(row["trench_id"])],
-                    ),
-                )
-                image.create_array(
-                    "0", shape=shape, dtype=dtype, chunks=chunks, shards=shards,
-                    compressors=data_compressors, chunk_key_encoding=_CHUNK_KEYS,
-                    dimension_names=["t", "c", "y", "x"], fill_value=0,
-                )
-            store.attrs["pymmm"] = {
-                **experiment_attrs, "completed_fovs": [], "extraction_complete": False,
-            }
-            completed_fovs = set()
-
-        # ----------------------------------------------------------
-        # Frame-level extraction parameters
-        # ----------------------------------------------------------
-        nd2_path = str(exp.path)
-        image_height = exp.data.sizes["Y"]
-        image_width = exp.data.sizes["X"]
-        rotation_matrix = _rotation_matrix(
-            self.registrator.rotation, (image_height, image_width)
-        )
-
-        original_t_indices = exp.source_axes["original_t_index"].tolist()
-        y_roi, x_roi = exp.source_roi
-
-        tmats_da = self.registrator.tmats  # (P, T, row, col) or (T, row, col)
-
-        grouped = list(trench_table.groupby("fov", sort=False))
-        all_fovs = [str(fov) for fov, _ in grouped]
-        grouped = [
-            (fov, fov_df) for fov, fov_df in grouped
-            if str(fov) not in completed_fovs
-        ]
-
-        # A FOV's frames in one batch run here; more batches run on the Dask
-        # cluster or in a process pool.
-        runner = Runner(workers=1 if n_times <= batch_size else None)
-        try:
-            fov_iter = grouped
-            if show_progress:
-                fov_iter = tqdm(grouped, desc="Extracting FOVs", total=len(grouped))
-
-            for fov, fov_df in fov_iter:
-                fov_str = str(fov)
-                fov_idx = exp.raw_fov_index(fov_str)
-
-                # Tmats for this FOV: (T, 3, 3)
-                if "P" in tmats_da.dims:
-                    fov_tmats = tmats_da.sel(P=fov).values
-                else:
-                    fov_tmats = tmats_da.values
-                fov_tmats = np.matmul(fov_tmats, rotation_matrix)
-
-                fov_df = fov_df.reset_index(drop=True)
-                trench_specs = [
-                    (
-                        int(row["y_top"]), int(row["y_bottom"]),
-                        int(row["x_left"]), int(row["x_right"]),
-                        bool(row["needs_flip"]),
-                    )
-                    for _, row in fov_df.iterrows()
-                ]
-                band_map = {}
-                for local_idx, (y_top, y_bottom, x_left, x_right, needs_flip) in enumerate(trench_specs):
-                    band_map.setdefault((y_top, y_bottom), []).append(
-                        (local_idx, x_left, x_right, needs_flip)
-                    )
-                band_specs = [
-                    (y_top, y_bottom, band_trenches)
-                    for (y_top, y_bottom), band_trenches in band_map.items()
-                ]
-                fov_output = np.empty(
-                    (len(fov_df), n_times, n_channels, trench_h, trench_w),
-                    dtype=dtype,
-                )
-
-                future_to_start = {}
-                for start in range(0, n_times, batch_size):
-                    stop = min(start + batch_size, n_times)
-                    future = runner.submit(
-                        _extract_frame_batch, nd2_path, fov_idx,
-                        original_t_indices[start:stop], y_roi, x_roi,
-                        fov_tmats[start:stop], band_specs, trench_specs, image_width, dtype,
-                    )
-                    future_to_start[future] = start
-                for future in runner.as_completed(future_to_start):
-                    start = future_to_start[future]
-                    batch = future.result()
-                    stop = start + batch.shape[0]
-                    fov_output[:, start:stop] = batch.transpose(1, 0, 2, 3, 4)
-
-                for local_idx, (_, row) in enumerate(fov_df.iterrows()):
-                    image = store[trench_path(row["trench_id"])]
-                    image["0"][...] = fov_output[local_idx]
-                    image.attrs["ome"] = ome.with_windows(
-                        dict(image.attrs)["ome"], ome.display_windows(fov_output[local_idx]))
-
-                completed_fovs.add(fov_str)
-                store.attrs["pymmm"] = {
-                    **dict(store.attrs)["pymmm"],
-                    "completed_fovs": [name for name in all_fovs if name in completed_fovs],
-                }
-        finally:
-            runner.close()
-
         store.attrs["pymmm"] = {
-            **dict(store.attrs)["pymmm"],
-            "extraction_complete": set(all_fovs).issubset(completed_fovs),
+            **experiment_attrs, "completed_fovs": [], "extraction_complete": False,
         }
-        print(f"Extraction complete: {self.output_path}")
-        print(f"  {len(trench_table)} trench images of {shape}, chunks {chunks}, shards {shards}")
+        return store
+
+    def _crops(self, table: pd.DataFrame) -> List[FovCrops]:
+        """How each FOV's trenches are cut (FOVs in table order)."""
+        exp = self.experiment
+        rotation = _rotation_matrix(
+            self.registrator.rotation, (exp.data.sizes["Y"], exp.data.sizes["X"])
+        )
+        tmats = self.registrator.tmats  # (P, T, row, col) or (T, row, col)
+        times = tuple(exp.source_axes["original_t_index"].tolist())
+        crops = []
+        for fov, fov_df in table.groupby("fov", sort=False):
+            fov_tmats = tmats.sel(P=fov).values if "P" in tmats.dims else tmats.values
+            trench_specs = tuple(
+                (int(row["y_top"]), int(row["y_bottom"]), int(row["x_left"]),
+                 int(row["x_right"]), bool(row["needs_flip"]))
+                for _, row in fov_df.iterrows()
+            )
+            bands: dict = {}
+            for local_idx, (y_top, y_bottom, x_left, x_right, flip) in enumerate(trench_specs):
+                bands.setdefault((y_top, y_bottom), []).append((local_idx, x_left, x_right, flip))
+            crops.append(FovCrops(
+                nd2_path=str(exp.path), fov=str(fov), fov_index=exp.raw_fov_index(str(fov)),
+                time_indices=times, roi=tuple(exp.source_roi), image_width=exp.data.sizes["X"],
+                dtype=np.dtype(exp.data.dtype), tmats=np.matmul(fov_tmats, rotation),
+                trench_ids=tuple(int(t) for t in fov_df["trench_id"]),
+                trench_specs=trench_specs,
+                band_specs=tuple((y_top, y_bottom, tuple(band))
+                                 for (y_top, y_bottom), band in bands.items()),
+            ))
+        return crops
+
+    def _write_fov(self, store: zarr.Group, crops: FovCrops, pixels: np.ndarray) -> None:
+        """Write a FOV's trench images, ``(trench, t, c, y, x)``, and their display
+        windows."""
+        for local_idx, trench_id in enumerate(crops.trench_ids):
+            image = store[trench_path(trench_id)]
+            image["0"][...] = pixels[local_idx]
+            image.attrs["ome"] = ome.with_windows(
+                dict(image.attrs)["ome"], ome.display_windows(pixels[local_idx]))
 
     # ------------------------------------------------------------------
     # Preview
@@ -831,13 +861,10 @@ class Extractor:
     def preview(self, channel: Optional[Union[str, int]] = None) -> xr.DataArray:
         """Return a lazy dask-backed DataArray previewing the extraction output.
 
-        Uses the same direct lane-band warp as :meth:`extract`, with one lazy
-        task per FOV and timepoint. Selecting a frame therefore reads one raw
-        frame and produces all trenches and channels for that FOV without
-        writing a zarr store.
-
-        Browse it before committing to the full extraction (the notebook
-        extra)::
+        The same crops as :meth:`extract`, with one lazy task per FOV and timepoint:
+        selecting a frame reads one raw frame and cuts all its FOV's trenches,
+        without writing anything. Browse it before committing to the full extraction
+        (the notebook extra)::
 
             ndv.imshow(extractor.preview())
 
@@ -847,112 +874,46 @@ class Extractor:
             A specific channel to preview. ``None`` includes all channels
             (matching the output zarr layout).
         """
-        table = (
-            self.trench_detector.get_trench_table()
-            .sort_values("trench_id")
-            .reset_index(drop=True)
-        )
-        if len(table) == 0:
-            raise RuntimeError("No trenches to preview.")
-
-        first = table.iloc[0]
-        trench_h = int(first["y_bottom"] - first["y_top"])
-        trench_w = int(first["x_right"] - first["x_left"])
-        heights = table["y_bottom"] - table["y_top"]
-        widths = table["x_right"] - table["x_left"]
-        if not (heights.eq(trench_h).all() and widths.eq(trench_w).all()):
-            raise ValueError("All trenches must have the same output shape.")
-
-        exp = self.experiment
-        channel_names = exp.channel_names
-        n_channels = len(channel_names)
-        dtype = np.dtype(exp.data.dtype)
-        image_height = exp.data.sizes["Y"]
-        image_width = exp.data.sizes["X"]
-        rotation_matrix = _rotation_matrix(
-            self.registrator.rotation, (image_height, image_width)
-        )
-
-        original_t_indices = exp.source_axes["original_t_index"].tolist()
-        y_roi, x_roi = exp.source_roi
+        table = self._trench_table("preview")
+        layout = self._layout(table, None)
+        n_times, n_channels, trench_h, trench_w = layout.shape
+        channel_names = self.experiment.channel_names
+        channels = None
+        if channel is not None:
+            channels = (int(channel) if isinstance(channel, int)
+                        else channel_names.index(str(channel)),)
+            n_channels = 1
 
         fov_blocks = []
-        for fov, fov_df in table.groupby("fov", sort=False):
-            fov_idx = exp.raw_fov_index(fov)
-            if "P" in self.registrator.tmats.dims:
-                fov_tmats = self.registrator.tmats.sel(P=fov).values
-            else:
-                fov_tmats = self.registrator.tmats.values
-            fov_tmats = np.matmul(fov_tmats, rotation_matrix)
-
-            fov_df = fov_df.reset_index(drop=True)
-            trench_specs = [
-                (
-                    int(row["y_top"]), int(row["y_bottom"]),
-                    int(row["x_left"]), int(row["x_right"]),
-                    bool(row["needs_flip"]),
-                )
-                for _, row in fov_df.iterrows()
-            ]
-            band_map = {}
-            for local_idx, spec in enumerate(trench_specs):
-                y_top, y_bottom, x_left, x_right, needs_flip = spec
-                band_map.setdefault((y_top, y_bottom), []).append(
-                    (local_idx, x_left, x_right, needs_flip)
-                )
-            band_specs = [
-                (y_top, y_bottom, band_trenches)
-                for (y_top, y_bottom), band_trenches in band_map.items()
-            ]
-
-            time_blocks = []
-            for time_idx, original_t in enumerate(original_t_indices):
-                delayed = dask.delayed(_extract_frame_batch)(
-                    str(exp.path), fov_idx, [original_t], y_roi, x_roi,
-                    fov_tmats[time_idx:time_idx + 1], band_specs,
-                    trench_specs, image_width, dtype,
-                )
-                block = da.from_delayed(
-                    delayed,
-                    shape=(1, len(fov_df), n_channels, trench_h, trench_w),
-                    dtype=dtype,
+        for fov_crops in self._crops(table):
+            n_trenches = len(fov_crops.trench_ids)
+            time_blocks = [
+                da.from_delayed(
+                    dask.delayed(_crop_frames)(*fov_crops.batch(t, t + 1, channels)),
+                    shape=(1, n_trenches, n_channels, trench_h, trench_w),
+                    dtype=layout.dtype,
                 ).transpose(1, 0, 2, 3, 4)
-                time_blocks.append(block)
+                for t in range(n_times)
+            ]
             fov_blocks.append(da.concatenate(time_blocks, axis=1))
-
         result_da = da.concatenate(fov_blocks, axis=0)
+        coords = {
+            "Trench": table["trench_id"].to_numpy(dtype=np.int32),
+            "Y": np.arange(trench_h),
+            "X": np.arange(trench_w),
+        }
         if channel is not None:
-            channel_idx = (
-                int(channel) if isinstance(channel, int)
-                else channel_names.index(str(channel))
-            )
-            return xr.DataArray(
-                result_da[:, :, channel_idx],
-                dims=["Trench", "T", "Y", "X"],
-                coords={
-                    "Trench": table["trench_id"].to_numpy(dtype=np.int32),
-                    "Y": np.arange(trench_h),
-                    "X": np.arange(trench_w),
-                },
-            )
-
-        return xr.DataArray(
-            result_da,
-            dims=["Trench", "T", "C", "Y", "X"],
-            coords={
-                "Trench": table["trench_id"].to_numpy(dtype=np.int32),
-                "C": channel_names,
-                "Y": np.arange(trench_h),
-                "X": np.arange(trench_w),
-            },
-        )
+            return xr.DataArray(result_da[:, :, 0], dims=["Trench", "T", "Y", "X"],
+                                coords=coords)
+        return xr.DataArray(result_da, dims=["Trench", "T", "C", "Y", "X"],
+                            coords={**coords, "C": channel_names})
 
     def extract_single_trench(
         self,
         trench_id: int,
         channel: Optional[Union[str, int]] = None,
     ) -> np.ndarray:
-        """Extract a single trench for preview (without writing to zarr).
+        """Cut one trench out of every frame, as :meth:`extract` does, without writing.
 
         Parameters
         ----------
@@ -967,21 +928,13 @@ class Extractor:
             Array of shape ``(T, trench_h, trench_w)``.
         """
         table = self.trench_detector.get_trench_table()
-        row = table[table["trench_id"] == trench_id].iloc[0]
-
-        stabilized = self.registrator.get_stabilized_data(
-            channel=channel, fov=row["fov"],
-        )
-        crop = stabilized.isel(
-            Y=slice(row["y_top"], row["y_bottom"]),
-            X=slice(row["x_left"], row["x_right"]),
-        )
-        crop_np = crop.compute().values
-
-        if row["needs_flip"]:
-            crop_np = crop_np[:, ::-1, :]
-
-        return crop_np
+        (fov_crops,) = self._crops(table[table["trench_id"] == trench_id])
+        exp = self.experiment
+        name = normalize_channel_arg(
+            channel if channel is not None else self.registrator.channel, exp.channel_names)
+        n_times = len(fov_crops.time_indices)
+        frames = _crop_frames(*fov_crops.batch(0, n_times, [exp.channel_names.index(name)]))
+        return frames[:, 0, 0]
 
     def __repr__(self) -> str:
         table = self.trench_detector.get_trench_table()

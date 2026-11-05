@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import os
-import tempfile
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Literal, Optional, Union
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
 import numpy as np
 import xarray as xr
@@ -14,7 +14,7 @@ from skimage.transform import warp
 from tqdm.auto import tqdm
 
 from pymmm._utils import normalize_channel_arg, normalize_fov_arg
-from pymmm.parallel import SPAWN, dask_client
+from pymmm.parallel import Runner, dask_client, shared
 from pymmm.source.nd2 import ND2Experiment
 from pymmm.store.companion import CompanionStore
 
@@ -26,28 +26,13 @@ TRANSFORM_CONVENTION = "raw_translation_then_rotation_v1"
 # ======================================================================
 
 
-def _register_and_get_matrix(
-    ref: np.ndarray,
-    mov: np.ndarray,
-    transformation: int = StackReg.TRANSLATION,
-) -> np.ndarray:
-    """Register two 2-D images and return the 3×3 transformation matrix.
+def _register_stackreg(ref: np.ndarray, mov: np.ndarray) -> np.ndarray:
+    """Register two 2-D images by translation; the 3×3 transformation matrix.
 
     A fresh ``StackReg`` instance is created per call for thread safety.
     """
-    ref_sq = np.squeeze(ref)
-    mov_sq = np.squeeze(mov)
-    sr = StackReg(transformation)
-    sr.register(ref_sq, mov_sq)
-    return sr.get_matrix()
-
-
-def _register_translation(ref: np.ndarray, mov: np.ndarray) -> np.ndarray:
-    """Register with TRANSLATION mode (for ``previous`` method)."""
-    ref_sq = np.squeeze(ref)
-    mov_sq = np.squeeze(mov)
     sr = StackReg(StackReg.TRANSLATION)
-    sr.register(ref_sq, mov_sq)
+    sr.register(np.squeeze(ref), np.squeeze(mov))
     return sr.get_matrix()
 
 
@@ -236,62 +221,29 @@ def _register_fixed_batch(
     channel_idx: Optional[int],
     y_roi: Optional[tuple],
     x_roi: Optional[tuple],
-    transformation: int,
     roi: dict,
     downsample: int,
-    ref_np: np.ndarray,
+    reference: Any,
     backend: str = "stackreg",
+    threads: int = 1,
 ) -> list[np.ndarray]:
-    """Load and register a batch of frames against one fixed reference."""
+    """Load a batch of frames and register each to one fixed reference (a
+    :meth:`~pymmm.parallel.Runner.share` handle). With the OpenCV backend, ``threads``
+    frames are registered at once."""
+    ref = shared(reference)
     frames = _load_registration_frames(
         nd2_path, fov_idx, time_indices, channel_idx,
         y_roi, x_roi, roi, downsample, backend,
     )
-    return [
-        _scale_translation(
-            _register_opencv(ref_np, img)
-            if backend == "opencv"
-            else _register_and_get_matrix(
-                ref_np, img, transformation=transformation
-            ),
-            downsample,
-        )
-        for img in frames
-    ]
-
-
-_worker_ref_cache: dict[str, np.ndarray] = {}
-
-
-def _register_fixed_batch_fileref(
-    nd2_path: str,
-    fov_idx: int,
-    time_indices: list[int],
-    channel_idx: Optional[int],
-    y_roi: Optional[tuple],
-    x_roi: Optional[tuple],
-    transformation: int,
-    roi: dict,
-    downsample: int,
-    ref_path: str,
-    backend: str = "stackreg",
-) -> list[np.ndarray]:
-    """Register a frame batch using a per-worker cached file reference.
-
-    Like ``_register_fixed_batch`` but receives a path to a ``.npy`` file
-    instead of the full reference array.  A per-worker cache ensures the
-    file is read at most once per FOV (cache is evicted when the path
-    changes).  With ``spawn`` context each worker is a separate process,
-    so the module-level cache has no thread-safety concerns.
-    """
-    if ref_path not in _worker_ref_cache:
-        _worker_ref_cache.clear()
-        _worker_ref_cache[ref_path] = np.load(ref_path)
-    ref_np = _worker_ref_cache[ref_path]
-    return _register_fixed_batch(
-        nd2_path, fov_idx, time_indices, channel_idx,
-        y_roi, x_roi, transformation, roi, downsample, ref_np, backend,
-    )
+    if backend == "opencv":
+        if threads > 1:
+            with ThreadPoolExecutor(max_workers=threads) as pool:
+                matrices = list(pool.map(lambda image: _register_opencv(ref, image), frames))
+        else:
+            matrices = [_register_opencv(ref, image) for image in frames]
+    else:
+        matrices = [_register_stackreg(ref, image) for image in frames]
+    return [_scale_translation(matrix, downsample) for matrix in matrices]
 
 
 def _register_previous_batch(
@@ -310,9 +262,30 @@ def _register_previous_batch(
         y_roi, x_roi, roi, downsample,
     )
     return [
-        _scale_translation(_register_translation(ref, mov), downsample)
+        _scale_translation(_register_stackreg(ref, mov), downsample)
         for ref, mov in zip(frames[:-1], frames[1:])
     ]
+
+
+def _cumulative(pair_matrices: list[np.ndarray]) -> np.ndarray:
+    """Each frame's transform to the first, from the transforms between neighbours."""
+    cumulative = [np.eye(3)]
+    for matrix in pair_matrices:
+        cumulative.append(cumulative[-1] @ matrix)
+    return np.stack(cumulative)
+
+
+@dataclass
+class _FovRegistration:
+    """One FOV's registration work: its batches (``start`` into the FOV's results,
+    and the task's arguments), how many results they give, and how those become the
+    FOV's ``(T, 3, 3)`` transforms."""
+
+    task: Callable[..., list]
+    batches: List[tuple]
+    n_results: int
+    finish: Callable[[list], np.ndarray]
+    shared: List[Any] = field(default_factory=list)
 
 
 # ======================================================================
@@ -509,23 +482,136 @@ class Registrator:
         Parameters
         ----------
         plot : bool
-            Show drift diagnostics for the first FOV.
+            Save drift diagnostics for each FOV as it completes.
         n_jobs : int
-            Number of worker processes for within-FOV parallelism.
-            ``-1`` = all cores (default). ``1`` keeps one ND2 reader in the
-            parent process; the OpenCV backend can still run frame
-            registrations concurrently using ``opencv_threads``. FOVs are
-            always processed sequentially.
+            ``1`` registers in this process with one ND2 reader (the OpenCV backend
+            still registers ``opencv_threads`` frames at once). Otherwise batches of
+            frames run on the active Dask cluster if there is one, else in a process
+            pool of ``n_jobs`` workers (``-1``: one per core), with ``fov_window``
+            FOVs in flight.
 
-        The chosen ``mode`` determines the registration strategy:
-        - ``"mean"`` — register each frame to temporal mean (TRANSLATION)
-        - ``"previous"`` — register to predecessor, cumulative (TRANSLATION)
-        - ``"first"`` / ``"last"`` / ``int`` — register to a fixed frame (TRANSLATION)
+        The ``mode`` decides what each frame is registered to (by translation):
+
+        - ``"mean"``: the mean of ``mean_n_frames`` frames from ``mean_from``
+        - ``"first"`` / ``"last"`` / an ``int``: that frame
+        - ``"previous"``: the frame before it; the transforms are then chained
         """
-        if self.mode == "previous":
-            self._compute_tmats_previous(n_jobs=n_jobs, plot=plot)
+        previous = self.mode == "previous"
+        print("Computing relative transformation matrices..." if previous
+              else "Computing transformation matrices...")
+        exp = self.experiment
+        reg_data = self._get_registration_data()
+        fov_names = list(reg_data.coords["P"].values) if "P" in reg_data.dims else [None]
+        serial = n_jobs == 1
+        runner = Runner(workers=1 if serial else (None if n_jobs == -1 else n_jobs),
+                        dask=not serial)
+        window = 1 if serial else self.fov_window
+        plan = self._previous_plan if previous else self._fixed_plan
+
+        parts = []
+        waiting = list(fov_names)
+        in_flight: List[tuple] = []
+
+        def launch() -> None:
+            if waiting:
+                fov = waiting.pop(0)
+                job = plan(runner, exp.raw_fov_index(str(fov)) if fov is not None else 0,
+                           threads=self.opencv_threads if serial else 1)
+                futures = {runner.submit(job.task, *args): start for start, args in job.batches}
+                in_flight.append((fov, job, futures))
+
+        with runner:
+            for _ in range(window):
+                launch()
+            progress = tqdm(total=len(fov_names), desc="Registering FOVs")
+            while in_flight:
+                fov, job, futures = in_flight.pop(0)
+                results: List[Any] = [None] * job.n_results
+                for future in tqdm(runner.as_completed(futures), total=len(futures),
+                                   desc=f"  batches ({fov})", leave=False):
+                    start = futures[future]
+                    batch = future.result()
+                    results[start:start + len(batch)] = batch
+                for handle in job.shared:
+                    runner.release(handle)
+                fov_da = self._fov_tmats(reg_data, fov, job.finish(results))
+                parts.append(fov_da)
+                self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
+                progress.update()
+                launch()
+            progress.close()
+
+        self._tmats = xr.concat(parts, dim="P") if "P" in reg_data.dims else parts[0]
+
+    def _frames(self) -> dict:
+        """Where :func:`_load_registration_frames` reads this registration's frames."""
+        exp = self.experiment
+        y_roi, x_roi = exp.source_roi
+        return dict(
+            nd2_path=str(exp.path),
+            channel_idx=exp.channel_names.index(self.channel) if exp.has_channels else None,
+            y_roi=y_roi, x_roi=x_roi, roi=_resolve_roi(self.roi), downsample=self.downsample,
+        )
+
+    def _reference(self, fov_idx: int) -> np.ndarray:
+        """The fixed reference image of a FOV, prepared as its frames are."""
+        f = self._frames()
+        times = self.experiment.source_axes["original_t_index"].tolist()
+        n_times = len(times)
+        if self.mode == "mean":
+            n_ref = min(self.mean_n_frames, n_times)
+            ref_times = times[n_times - n_ref:] if self.mean_from == "end" else times[:n_ref]
+        elif self.mode == "first":
+            ref_times = [times[0]]
+        elif self.mode == "last":
+            ref_times = [times[-1]]
+        elif isinstance(self.mode, int):
+            ref_times = [times[self.mode]]
         else:
-            self._compute_tmats_fixed_ref(n_jobs=n_jobs, plot=plot)
+            raise ValueError(f"Unknown mode: {self.mode!r}")
+        frames = _load_registration_frames(
+            f["nd2_path"], fov_idx, ref_times, f["channel_idx"], f["y_roi"], f["x_roi"],
+            f["roi"], f["downsample"], self.backend,
+        )
+        return np.mean(frames, axis=0) if self.mode == "mean" else frames[0]
+
+    def _fixed_plan(self, runner: Runner, fov_idx: int, threads: int) -> _FovRegistration:
+        """Every frame of a FOV registered to its reference, in batches."""
+        f = self._frames()
+        times = self.experiment.source_axes["original_t_index"].tolist()
+        reference = runner.share(self._reference(fov_idx))
+        batches = [
+            (start, (f["nd2_path"], fov_idx, times[start:start + self.batch_size],
+                     f["channel_idx"], f["y_roi"], f["x_roi"], f["roi"], f["downsample"],
+                     reference, self.backend, threads))
+            for start in range(0, len(times), self.batch_size)
+        ]
+        return _FovRegistration(_register_fixed_batch, batches, len(times), np.stack,
+                                [reference])
+
+    def _previous_plan(self, runner: Runner, fov_idx: int, threads: int) -> _FovRegistration:
+        """Each frame of a FOV registered to the frame before it, in overlapping
+        batches (each shares its first frame with the batch before)."""
+        f = self._frames()
+        times = self.experiment.source_axes["original_t_index"].tolist()
+        n_times = len(times)
+        batches = [
+            (start, (f["nd2_path"], fov_idx,
+                     times[start:min(start + self.batch_size, n_times - 1) + 1],
+                     f["channel_idx"], f["y_roi"], f["x_roi"], f["roi"], f["downsample"]))
+            for start in range(0, n_times - 1, self.batch_size)
+        ]
+        return _FovRegistration(_register_previous_batch, batches, n_times - 1, _cumulative)
+
+    @staticmethod
+    def _fov_tmats(reg_data: xr.DataArray, fov: Any, matrices: np.ndarray) -> xr.DataArray:
+        """A FOV's ``(T, 3, 3)`` transforms, labelled as :attr:`tmats` (with ``P``)."""
+        t_coords = (reg_data.sel(P=fov) if fov is not None else reg_data).coords["T"].values
+        fov_da = xr.DataArray(
+            matrices, dims=["T", "row", "col"],
+            coords={"T": t_coords, "row": [0, 1, 2], "col": [0, 1, 2]},
+        )
+        return fov_da.expand_dims(P=[str(fov)]) if fov is not None else fov_da
 
     def _plot_fov_drift(self, fov: Any, fov_da: xr.DataArray, plot: bool) -> None:
         """Persist drift diagnostics for one completed FOV immediately."""
@@ -542,347 +628,6 @@ class Registrator:
             fov_label=fov_label,
             save_path=str(diag_dir / f"drift_{fov_label}.png"),
         )
-
-    def _compute_tmats_fixed_ref(self, n_jobs: int = -1, plot: bool = False) -> None:
-        """Register every frame to a fixed reference image.
-
-        Sequential across FOVs, parallel across timepoints within each FOV
-        via ``ProcessPoolExecutor`` with spawn context.  Completely
-        independent of dask — workers are fresh Python interpreters that
-        know nothing about the parent's dask Client or event loop.
-        """
-        print("Computing transformation matrices...")
-        exp = self.experiment
-        nd2_path = str(exp.path)
-        roi = _resolve_roi(self.roi)
-
-        # Registration data (for T coords and FOV names only)
-        reg_data = self._get_registration_data()
-        fov_names = reg_data.coords["P"].values if "P" in reg_data.dims else [None]
-        has_channels = exp.has_channels
-        y_roi, x_roi = exp.source_roi
-        channel_idx = exp.channel_names.index(self.channel) if has_channels else None
-
-        original_t_indices = exp.source_axes["original_t_index"].tolist()
-        n_times = len(original_t_indices)
-        transformation = StackReg.TRANSLATION
-        time_batches = [
-            original_t_indices[start:start + self.batch_size]
-            for start in range(0, n_times, self.batch_size)
-        ]
-
-        max_workers = None if n_jobs == -1 else n_jobs
-
-        def _compute_ref(fov_idx):
-            if self.mode == "mean":
-                n_ref = min(self.mean_n_frames, n_times)
-                if self.mean_from == "end":
-                    ref_t_indices = [original_t_indices[i] for i in range(n_times - n_ref, n_times)]
-                else:
-                    ref_t_indices = [original_t_indices[i] for i in range(n_ref)]
-                ref_frames = _load_registration_frames(
-                    nd2_path, fov_idx, ref_t_indices, channel_idx,
-                    y_roi, x_roi, roi, self.downsample, self.backend,
-                )
-                return np.mean(ref_frames, axis=0)
-            elif self.mode == "first":
-                ref_time = original_t_indices[0]
-            elif self.mode == "last":
-                ref_time = original_t_indices[-1]
-            elif isinstance(self.mode, int):
-                ref_time = original_t_indices[self.mode]
-            else:
-                raise ValueError(f"Unknown mode: {self.mode!r}")
-            return _load_registration_frames(
-                nd2_path, fov_idx, [ref_time], channel_idx,
-                y_roi, x_roi, roi, self.downsample, self.backend,
-            )[0]
-
-        def _wrap_da(fov, tmats_list):
-            fov_tmats_np = np.stack(tmats_list)  # (T, 3, 3)
-            if fov is not None:
-                t_coords = reg_data.sel(P=fov).coords["T"].values
-            else:
-                t_coords = reg_data.coords["T"].values
-            fov_da = xr.DataArray(
-                fov_tmats_np,
-                dims=["T", "row", "col"],
-                coords={"T": t_coords, "row": [0, 1, 2], "col": [0, 1, 2]},
-            )
-            if fov is not None:
-                fov_da = fov_da.expand_dims(P=[str(fov)])
-            return fov_da
-
-        parts = []
-
-        if n_jobs == 1:
-            # One ND2 reader; OpenCV calls can share frames across threads.
-            thread_pool = (
-                ThreadPoolExecutor(max_workers=self.opencv_threads)
-                if self.backend == "opencv" and self.opencv_threads > 1
-                else None
-            )
-            try:
-                for fov in tqdm(fov_names, desc="Registering FOVs"):
-                    fov_str = str(fov) if fov is not None else None
-                    fov_idx = exp.raw_fov_index(fov_str) if fov_str is not None else 0
-                    ref_np = _compute_ref(fov_idx)
-                    tmats_list = []
-                    for time_batch in time_batches:
-                        if thread_pool is None:
-                            tmats_list.extend(
-                                _register_fixed_batch(
-                                    nd2_path, fov_idx, time_batch, channel_idx,
-                                    y_roi, x_roi, transformation, roi,
-                                    self.downsample, ref_np, self.backend,
-                                )
-                            )
-                            continue
-                        frames = _load_registration_frames(
-                            nd2_path, fov_idx, time_batch, channel_idx,
-                            y_roi, x_roi, roi, self.downsample, self.backend,
-                        )
-                        matrices = thread_pool.map(
-                            lambda image: _register_opencv(ref_np, image), frames
-                        )
-                        tmats_list.extend(
-                            _scale_translation(matrix, self.downsample)
-                            for matrix in matrices
-                        )
-                    del ref_np
-                    fov_da = _wrap_da(fov, tmats_list)
-                    parts.append(fov_da)
-                    self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
-            finally:
-                if thread_pool is not None:
-                    thread_pool.shutdown()
-        elif (client := dask_client()) is not None:
-            # Dask path — reuse the user's existing distributed cluster
-            from dask.distributed import as_completed as dask_as_completed
-
-            def _submit_fov(fov):
-                fov_str = str(fov) if fov is not None else None
-                fov_idx = exp.raw_fov_index(fov_str) if fov_str is not None else 0
-                ref_np = _compute_ref(fov_idx)
-                ref_future = client.scatter(ref_np, broadcast=True, hash=False)
-                del ref_np
-
-                future_to_start = {
-                    client.submit(
-                        _register_fixed_batch, nd2_path, fov_idx,
-                        time_batch, channel_idx, y_roi, x_roi,
-                        transformation, roi, self.downsample,
-                        ref_future, self.backend,
-                    ): start
-                    for start, time_batch in zip(
-                        range(0, n_times, self.batch_size), time_batches
-                    )
-                }
-                return fov, ref_future, future_to_start
-
-            fov_iter = iter(fov_names)
-            in_flight = []
-            for _ in range(min(self.fov_window, len(fov_names))):
-                in_flight.append(_submit_fov(next(fov_iter)))
-
-            fov_progress = tqdm(total=len(fov_names), desc="Registering FOVs")
-            while in_flight:
-                fov, ref_future, future_to_start = in_flight.pop(0)
-                results = [None] * n_times
-                for fut in tqdm(
-                    dask_as_completed(future_to_start), total=len(time_batches),
-                    desc=f"  batches ({fov})", leave=False,
-                ):
-                    start = future_to_start[fut]
-                    batch_result = fut.result()
-                    results[start:start + len(batch_result)] = batch_result
-
-                del ref_future
-                fov_da = _wrap_da(fov, results)
-                parts.append(fov_da)
-                self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
-                fov_progress.update()
-
-                try:
-                    next_fov = next(fov_iter)
-                except StopIteration:
-                    continue
-                in_flight.append(_submit_fov(next_fov))
-            fov_progress.close()
-        else:
-            # PPE fallback — pool + tmpdir created once, reused across FOVs
-            with tempfile.TemporaryDirectory(prefix="pymmm_reg_") as tmpdir, \
-                 ProcessPoolExecutor(max_workers=max_workers, mp_context=SPAWN) as pool:
-                for fov in tqdm(fov_names, desc="Registering FOVs"):
-                    fov_str = str(fov) if fov is not None else None
-                    fov_idx = exp.raw_fov_index(fov_str) if fov_str is not None else 0
-                    ref_np = _compute_ref(fov_idx)
-
-                    ref_path = os.path.join(tmpdir, f"ref_{fov_idx}.npy")
-                    np.save(ref_path, ref_np)
-                    del ref_np
-
-                    future_to_start = {
-                        pool.submit(
-                            _register_fixed_batch_fileref, nd2_path, fov_idx,
-                            time_batch, channel_idx, y_roi, x_roi,
-                            transformation, roi, self.downsample,
-                            ref_path, self.backend,
-                        ): start
-                        for start, time_batch in zip(
-                            range(0, n_times, self.batch_size), time_batches
-                        )
-                    }
-
-                    results = [None] * n_times
-                    for fut in tqdm(
-                        as_completed(future_to_start), total=len(time_batches),
-                        desc=f"  batches ({fov})", leave=False,
-                    ):
-                        start = future_to_start[fut]
-                        batch_result = fut.result()
-                        results[start:start + len(batch_result)] = batch_result
-
-                    os.unlink(ref_path)
-                    fov_da = _wrap_da(fov, results)
-                    parts.append(fov_da)
-                    self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
-
-        if "P" in reg_data.dims:
-            self._tmats = xr.concat(parts, dim="P")
-        else:
-            self._tmats = parts[0]
-
-    def _compute_tmats_previous(self, n_jobs: int = -1, plot: bool = False) -> None:
-        """Register each frame to its predecessor (cumulative product).
-
-        Sequential across FOVs, parallel across consecutive frame pairs
-        within each FOV via ``ProcessPoolExecutor`` with spawn context.
-        The cumulative product is computed sequentially after all pairs
-        finish.
-        """
-        print("Computing relative transformation matrices...")
-        exp = self.experiment
-        nd2_path = str(exp.path)
-        roi = _resolve_roi(self.roi)
-
-        reg_data = self._get_registration_data()
-        fov_names = reg_data.coords["P"].values if "P" in reg_data.dims else [None]
-        has_channels = exp.has_channels
-        y_roi, x_roi = exp.source_roi
-
-        channel_idx = exp.channel_names.index(self.channel) if has_channels else None
-
-        original_t_indices = exp.source_axes["original_t_index"].tolist()
-        n_times = len(original_t_indices)
-        pair_batches = [
-            (
-                start,
-                original_t_indices[
-                    start:min(start + self.batch_size, n_times - 1) + 1
-                ],
-            )
-            for start in range(0, n_times - 1, self.batch_size)
-        ]
-
-        max_workers = None if n_jobs == -1 else n_jobs
-
-        def _collect_pairs(fov, fov_idx, pair_mats):
-            cumulative = [np.eye(3)]
-            for mat in pair_mats:
-                cumulative.append(cumulative[-1] @ mat)
-            cumulative_np = np.stack(cumulative)  # (T, 3, 3)
-            if fov is not None:
-                t_coords = reg_data.sel(P=fov).coords["T"].values
-            else:
-                t_coords = reg_data.coords["T"].values
-            fov_da = xr.DataArray(
-                cumulative_np,
-                dims=["T", "row", "col"],
-                coords={"T": t_coords, "row": [0, 1, 2], "col": [0, 1, 2]},
-            )
-            if fov is not None:
-                fov_da = fov_da.expand_dims(P=[str(fov)])
-            return fov_da
-
-        parts = []
-
-        if n_jobs == 1:
-            for fov in tqdm(fov_names, desc="Registering FOVs"):
-                fov_str = str(fov) if fov is not None else None
-                fov_idx = exp.raw_fov_index(fov_str) if fov_str is not None else 0
-                pair_mats = []
-                for _, time_batch in pair_batches:
-                    pair_mats.extend(
-                        _register_previous_batch(
-                            nd2_path, fov_idx, time_batch, channel_idx,
-                            y_roi, x_roi, roi, self.downsample,
-                        )
-                    )
-                fov_da = _collect_pairs(fov, fov_idx, pair_mats)
-                parts.append(fov_da)
-                self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
-        elif (client := dask_client()) is not None:
-            # Dask path — no scatter needed, workers load their own frames
-            from dask.distributed import as_completed as dask_as_completed
-
-            for fov in tqdm(fov_names, desc="Registering FOVs"):
-                fov_str = str(fov) if fov is not None else None
-                fov_idx = exp.raw_fov_index(fov_str) if fov_str is not None else 0
-
-                future_to_start = {
-                    client.submit(
-                        _register_previous_batch, nd2_path, fov_idx,
-                        time_batch, channel_idx, y_roi, x_roi,
-                        roi, self.downsample,
-                    ): start
-                    for start, time_batch in pair_batches
-                }
-
-                results = [None] * (n_times - 1)
-                for fut in tqdm(
-                    dask_as_completed(future_to_start), total=len(pair_batches),
-                    desc=f"  batches ({fov})", leave=False,
-                ):
-                    start = future_to_start[fut]
-                    batch_result = fut.result()
-                    results[start:start + len(batch_result)] = batch_result
-
-                fov_da = _collect_pairs(fov, fov_idx, results)
-                parts.append(fov_da)
-                self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
-        else:
-            with ProcessPoolExecutor(max_workers=max_workers, mp_context=SPAWN) as pool:
-                for fov in tqdm(fov_names, desc="Registering FOVs"):
-                    fov_str = str(fov) if fov is not None else None
-                    fov_idx = exp.raw_fov_index(fov_str) if fov_str is not None else 0
-
-                    future_to_start = {
-                        pool.submit(
-                            _register_previous_batch, nd2_path, fov_idx,
-                            time_batch, channel_idx, y_roi, x_roi,
-                            roi, self.downsample,
-                        ): start
-                        for start, time_batch in pair_batches
-                    }
-
-                    results = [None] * (n_times - 1)
-                    for fut in tqdm(
-                        as_completed(future_to_start), total=len(pair_batches),
-                        desc=f"  batches ({fov})", leave=False,
-                    ):
-                        start = future_to_start[fut]
-                        batch_result = fut.result()
-                        results[start:start + len(batch_result)] = batch_result
-
-                    fov_da = _collect_pairs(fov, fov_idx, results)
-                    parts.append(fov_da)
-                    self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
-
-        if "P" in reg_data.dims:
-            self._tmats = xr.concat(parts, dim="P")
-        else:
-            self._tmats = parts[0]
 
     # ------------------------------------------------------------------
     # Lazy stabilised data access

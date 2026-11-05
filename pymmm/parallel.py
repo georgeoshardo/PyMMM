@@ -5,17 +5,26 @@ the ND2 itself, so the same task runs anywhere. A :class:`Runner` decides once w
 they run and gives back futures as they finish::
 
     with Runner(workers=None) as runner:
-        futures = {runner.submit(task, *args): start for start, args in batches}
+        reference = runner.share(image)          # sent once, read by every task
+        futures = {runner.submit(task, reference, *args): start for start, args in batches}
         for future in runner.as_completed(futures):
             result = future.result()
+
+and the task reads the shared array with ``shared(reference)``.
 """
 
 from __future__ import annotations
 
 import multiprocessing
+import os
+import tempfile
 from concurrent.futures import Future, ProcessPoolExecutor
 from concurrent.futures import as_completed as _futures_completed
-from typing import Any, Callable, Iterable, Iterator, Optional
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterable, Iterator, Optional
+
+import numpy as np
 
 # Fresh interpreters: pool workers then share nothing with the parent's Dask client,
 # event loops or thread state.
@@ -29,6 +38,29 @@ def dask_client():
         return get_client()
     except (ImportError, ValueError):
         return None
+
+
+@dataclass(frozen=True)
+class SharedFile:
+    """An array a process pool's tasks read from a file (see :meth:`Runner.share`)."""
+
+    path: str
+
+
+_loaded: Dict[str, np.ndarray] = {}  # in a pool worker: the shared files it read lately
+_KEEP = 4  # a few, for the FOVs in flight at once
+
+
+def shared(value: Any) -> Any:
+    """In a task: the array a :meth:`Runner.share` handle stands for (each pool worker
+    reads a shared file once)."""
+    if not isinstance(value, SharedFile):
+        return value  # Dask has resolved its future; in this process it is the array
+    if value.path not in _loaded:
+        if len(_loaded) >= _KEEP:
+            _loaded.clear()
+        _loaded[value.path] = np.load(value.path)
+    return _loaded[value.path]
 
 
 class Runner:
@@ -47,6 +79,8 @@ class Runner:
         self.client = dask_client() if dask else None
         self.workers = workers
         self._pool: Optional[ProcessPoolExecutor] = None
+        self._folder: Optional[tempfile.TemporaryDirectory] = None
+        self._n_shared = 0
 
     @property
     def kind(self) -> str:
@@ -70,6 +104,27 @@ class Runner:
             self._pool = ProcessPoolExecutor(max_workers=self.workers, mp_context=SPAWN)
         return self._pool.submit(fn, *args)
 
+    def share(self, array: np.ndarray) -> Any:
+        """``array`` once for every task that takes it: scattered to every Dask worker,
+        saved to a file each pool worker reads once, or the array itself in this
+        process. Tasks read it with :func:`shared`."""
+        if self.client is not None:
+            return self.client.scatter(array, broadcast=True, hash=False)
+        if self.workers == 1:
+            return array
+        if self._folder is None:
+            self._folder = tempfile.TemporaryDirectory(prefix="pymmm_")
+        path = Path(self._folder.name) / f"shared_{self._n_shared}.npy"
+        self._n_shared += 1
+        np.save(path, array)
+        return SharedFile(str(path))
+
+    def release(self, handle: Any) -> None:
+        """Done with a shared array: its file goes (a Dask worker drops it with the
+        last reference to its future)."""
+        if isinstance(handle, SharedFile):
+            os.unlink(handle.path)
+
     def as_completed(self, futures: Iterable[Any]) -> Iterator[Any]:
         """The futures, as they finish."""
         if self.client is not None:
@@ -79,10 +134,14 @@ class Runner:
         return _futures_completed(list(futures))
 
     def close(self) -> None:
-        """Wait for the pool's tasks and stop it (the Dask client is not ours to close)."""
+        """Wait for the pool's tasks and stop it, and remove the shared files (the Dask
+        client is not ours to close)."""
         if self._pool is not None:
             self._pool.shutdown(wait=True)
             self._pool = None
+        if self._folder is not None:
+            self._folder.cleanup()
+            self._folder = None
 
     def __enter__(self) -> "Runner":
         return self
