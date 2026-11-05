@@ -296,6 +296,13 @@ class Extractor:
             for c in range(image.shape[1])
         ]
 
+    def _is_experiment_group(self) -> bool:
+        try:
+            group = zarr.open_group(str(self.output_path), mode="r", zarr_format=3)
+        except (FileNotFoundError, ValueError, zarr.errors.GroupNotFoundError):
+            return False
+        return (dict(group.attrs).get("pymmm") or {}).get("layout") == "experiment"
+
     def _resume_mismatches(
         self,
         store: zarr.Group,
@@ -715,6 +722,11 @@ class Extractor:
                 )
             completed_fovs = set(dict(store.attrs)["pymmm"].get("completed_fovs", []))
         else:
+            if self.output_path.exists() and not self._is_experiment_group():
+                raise RuntimeError(
+                    f"{self.output_path} exists and is not an experiment group written by "
+                    "the Extractor; it is never overwritten. Choose a new output path."
+                )
             source_metadata = extract_source_frame_metadata(exp)
             acquisition = build_acquisition_dataset(
                 exp.source_acquisition_metadata, channel_names=channel_names,

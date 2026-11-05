@@ -631,6 +631,18 @@ def test_extractor_writes_one_ome_zarr_image_per_trench(monkeypatch, tmp_path):
     registrator.tmats = registrator.tmats.copy(data=shifted[np.newaxis, np.newaxis])
     with pytest.raises(RuntimeError, match="registration transforms"):
         extractor.extract(compressor="zstd", clevel=1, show_progress=False)
+    # starting over replaces an experiment group, but nothing else
+    registrator.tmats = registrator.tmats.copy(data=np.eye(3)[np.newaxis, np.newaxis])
+    extractor.extract(compressor="zstd", clevel=1, show_progress=False, resume=False)
+    assert zarr.open_group(output_path, mode="r").attrs["pymmm"]["extraction_complete"] is True
+    other = tmp_path / "other.trenches.zarr"
+    zarr.open_group(str(other), mode="w", zarr_format=3).attrs["layout"] = "trench_store"
+    elsewhere = Extractor(experiment, registrator, trench_detector, output_path=other)
+    with pytest.raises(RuntimeError, match="never overwritten"):
+        elsewhere.extract(compressor="zstd", clevel=1, show_progress=False, resume=False)
+    with pytest.raises(RuntimeError, match="layout"):
+        elsewhere.extract(compressor="zstd", clevel=1, show_progress=False)
+    assert zarr.open_group(str(other), mode="r").attrs["layout"] == "trench_store"
 
 
 def test_registration_dataset_stores_per_fov_shifts():
