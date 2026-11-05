@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 from scipy.signal import find_peaks
 
-from pymmm.lane_detector import LaneInfo
-from pymmm.trench_detector import TrenchDetector
+from pymmm.steps.lanes import LaneInfo
+from pymmm.steps.trenches import TrenchDetector
 
 
 def _make_detector() -> TrenchDetector:
@@ -29,7 +29,7 @@ def _make_detector() -> TrenchDetector:
 @pytest.mark.parametrize("trench_width", [32, 33])
 def test_explicit_trench_width_is_exact(monkeypatch, trench_width: int) -> None:
     monkeypatch.setattr(
-        "pymmm.trench_detector.find_peaks",
+        "pymmm.steps.trenches.find_peaks",
         lambda *args, **kwargs: (np.array([40, 80]), {}),
     )
     detector = _make_detector()
@@ -86,7 +86,7 @@ def _side_trench_profile(centres, filled, length=2300, seed=0):
 
 
 def test_periodic_centres_survive_filled_side_trenches():
-    from pymmm.trench_detector import periodic_trench_centres
+    from pymmm.steps.trenches import periodic_trench_centres
 
     true_centres = 40.3 + 155.0 * np.arange(15)
     filled = np.random.default_rng(1).random(15) < 0.6  # most trenches hold cells
@@ -105,7 +105,7 @@ def test_periodic_centres_survive_filled_side_trenches():
 
 
 def test_periodic_detection_drops_low_symmetry_sites():
-    from pymmm.trench_detector import periodic_trench_centres
+    from pymmm.steps.trenches import periodic_trench_centres
 
     true_centres = 40.3 + 155.0 * np.arange(15)
     profile = _side_trench_profile(np.delete(true_centres, 7), [False] * 14)

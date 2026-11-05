@@ -1,5 +1,5 @@
-"""Golden tests of the experiment group's writers (``pymmm.trench_images``,
-``pymmm.tracks``) on a real trench: label images, a segmentation's hypotheses, a
+"""Golden tests of the experiment group's writers (``pymmm.store.experiment_group``,
+``pymmm.store.geff``) on a real trench: label images, a segmentation's hypotheses, a
 tracking run's masks and GEFF, and the records of both.
 
 The labels come from thresholding the trench's mCherry frames, not from a model, so
@@ -15,9 +15,15 @@ import pytest
 from golden_io import check, digest, manifest
 from scipy import ndimage
 
-from pymmm import trench_images as ti
-from pymmm.segmenter import order_from_closed_end
-from pymmm.tracks import GEFF_NAME, read_trench_geff, tracklets_and_lineages
+from pymmm.steps.segmentation import order_from_closed_end
+from pymmm.store import experiment_group as eg
+from pymmm.store.geff import (
+    GEFF_NAME,
+    has_tracks,
+    read_trench_geff,
+    tracklets_and_lineages,
+    write_tracks,
+)
 
 pytestmark = pytest.mark.golden
 
@@ -34,7 +40,7 @@ def group(pipeline, tmp_path):
 
 def threshold_labels(root) -> np.ndarray:
     """``(t, y, x)`` uint16 labels of the bright mCherry blobs, 1 nearest the closed end."""
-    bright = ti.image(root, TRENCH)[:, ti.channel_index(root, "mCherry")] > THRESHOLD
+    bright = eg.image(root, TRENCH)[:, eg.channel_index(root, "mCherry")] > THRESHOLD
     return order_from_closed_end(np.stack([
         ndimage.label(ndimage.binary_opening(frame, iterations=2))[0] for frame in bright]))
 
@@ -66,56 +72,56 @@ def graph(labels: np.ndarray):
 
 
 def test_label_images(group):
-    root = ti.open_experiment(group, mode="r+")
+    root = eg.open_experiment(group, mode="r+")
     labels = threshold_labels(root)
     merged = np.where(labels == 2, 1, labels).astype(np.uint16)  # cells 1 and 2 as one
-    ti.update_experiment(root, "segmentations", "golden",
+    eg.update_experiment(root, "segmentations", "golden",
                          {"channel": "mCherry", "hypotheses": ["A", "B"]})
-    ti.write_segmentation(root, TRENCH, "golden", {"A": labels, "B": merged},
+    eg.write_segmentation(root, TRENCH, "golden", {"A": labels, "B": merged},
                           attrs={"lower": 100.0, "upper": 900.0})
-    ti.write_label_image(root, TRENCH, "unlisted", labels[:, ::-1], listed=False,
+    eg.write_label_image(root, TRENCH, "unlisted", labels[:, ::-1], listed=False,
                          attrs={"note": "flipped"})
 
-    names, arrays = ti.segmentation(root, TRENCH, "golden")
+    names, arrays = eg.segmentation(root, TRENCH, "golden")
     np.testing.assert_array_equal(arrays[0][...], labels)
     check("store_label_images", {
         "hypotheses": names,
-        "listed": ti.listed_labels(root, TRENCH),
-        "has_segmentation": {t: ti.has_segmentation(root, t, "golden") for t in (TRENCH, 3)},
-        "records": ti.records(root, "segmentations"),
-        "trench": manifest(group / ti.trench_path(TRENCH)),
+        "listed": eg.listed_labels(root, TRENCH),
+        "has_segmentation": {t: eg.has_segmentation(root, t, "golden") for t in (TRENCH, 3)},
+        "records": eg.records(root, "segmentations"),
+        "trench": manifest(group / eg.trench_path(TRENCH)),
     })
 
-    ti.remove_segmentation(root, TRENCH, "golden")
+    eg.remove_segmentation(root, TRENCH, "golden")
     check("store_label_images_removed", {
-        "listed": ti.listed_labels(root, TRENCH),
-        "trench": manifest(group / ti.trench_path(TRENCH)),
+        "listed": eg.listed_labels(root, TRENCH),
+        "trench": manifest(group / eg.trench_path(TRENCH)),
     })
 
 
 def test_tracks(group, tmp_path):
     pytest.importorskip("geff")
-    root = ti.open_experiment(group, mode="r+")
+    root = eg.open_experiment(group, mode="r+")
     labels = threshold_labels(root)
     nodes, edges = graph(labels)
     track_id, lineage_id = tracklets_and_lineages(len(nodes["t"]), nodes["t"], edges)
     scores = np.linspace(0.0, 1.0, len(edges), dtype=np.float32)
     scores[0] = np.nan
-    path = ti.write_tracks(root, TRENCH, "golden",
+    path = write_tracks(root, TRENCH, "golden",
                            {**nodes, "track_id": track_id, "lineage_id": lineage_id},
                            edges, scores, labels, extra={"tracker": "golden test"})
-    ti.update_experiment(root, "tracks", "golden", {"tracker": "golden test"})
+    eg.update_experiment(root, "tracks", "golden", {"tracker": "golden test"})
 
     legacy = tmp_path / "legacy"  # read_trench_geff reads the earlier per-trench layout
     legacy.mkdir()
     (legacy / GEFF_NAME).symlink_to(path)
     check("store_tracks", {
         "geff": path.relative_to(group).as_posix(),
-        "has_tracks": {t: ti.has_tracks(root, t, "golden") for t in (TRENCH, 3)},
+        "has_tracks": {t: has_tracks(root, t, "golden") for t in (TRENCH, 3)},
         "n_nodes": len(nodes["t"]), "n_edges": len(edges),
         "track_id": track_id, "lineage_id": lineage_id,
         "read_trench_geff": {key: digest(value)
                              for key, value in read_trench_geff(legacy).items()},
-        "records": ti.records(root, "tracks"),
-        "trench": manifest(group / ti.trench_path(TRENCH)),
+        "records": eg.records(root, "tracks"),
+        "trench": manifest(group / eg.trench_path(TRENCH)),
     })

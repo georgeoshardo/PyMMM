@@ -11,10 +11,9 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 
 from pymmm._utils import normalize_channel_arg, normalize_fov_arg
-from pymmm.checkpoint import CompanionStore
-from pymmm.experiment import ND2Experiment
-from pymmm.registrator import Registrator
-
+from pymmm.source.nd2 import ND2Experiment
+from pymmm.steps.registration import Registrator
+from pymmm.store.companion import CompanionStore
 
 # Forced lane orientations: "down" = trenches above the lane opening down into
 # it (+1), "up" = trenches below the lane opening up into it (-1).
@@ -270,9 +269,9 @@ class LaneDetector:
         import ipywidgets as widgets
         import matplotlib.pyplot as plt
         import ndv
+        from IPython.display import display
 
         from pymmm.plotting import NDV_CLIMS
-        from IPython.display import display
 
         mean_images: Dict[str, np.ndarray] = {}
         params = self._detection_params

@@ -20,7 +20,7 @@ a new dataset means writing one file::
 
 ``store`` is the experiment group the Extractor writes: one OME-Zarr image per
 trench, with each trench's segmentations and tracks beside its pixels (see
-:mod:`pymmm.trench_images`). Relative paths are relative to the TOML file's
+:mod:`pymmm.store.experiment_group`). Relative paths are relative to the TOML file's
 folder. ``experiment.segmenter()`` builds the Segmenter from it.
 """
 
@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Union
 
 if TYPE_CHECKING:
-    from pymmm.segmenter import Segmenter
+    from pymmm.steps.segmentation import Segmenter
 
 _PATH_KEYS = ("nd2", "store")
 
@@ -75,8 +75,8 @@ class Experiment:
         return str(seg.get("name") or seg.get("channel", "mCherry").lower())
 
     def segmenter(self, **overrides: Any) -> "Segmenter":
-        """A :class:`~pymmm.segmenter.Segmenter` for the experiment group."""
-        from pymmm.segmenter import Segmenter
+        """A :class:`~pymmm.steps.segmentation.Segmenter` for the experiment group."""
+        from pymmm.steps.segmentation import Segmenter
 
         seg = self.segmentation
         kwargs = {"channel": seg.get("channel", "mCherry"), "name": self.segmentation_name}

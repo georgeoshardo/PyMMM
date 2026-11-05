@@ -5,11 +5,11 @@ import pytest
 
 napari = pytest.importorskip("napari")
 
+from fake_experiment import CELL, N_T, N_TRENCH, H, W, cell_image, make_experiment
 from napari.components import ViewerModel
 
-from pymmm import trench_images as ti
+from pymmm.store import experiment_group as eg
 from pymmm.view import label_images, view_experiment
-from fake_experiment import CELL, H, N_T, N_TRENCH, W, cell_image, make_experiment
 
 
 def test_view_stacks_every_trench_with_its_label_images(tmp_path):
@@ -18,13 +18,13 @@ def test_view_stacks_every_trench_with_its_label_images(tmp_path):
     assert [layer.name for layer in viewer.layers] == ["PC", "mCherry"]
 
     # A segmentation finished in trench 11 only, and a tracking run's masks in trench 10.
-    root = ti.open_experiment(path, mode="r+")
-    ti.update_experiment(root, "segmentations", "seg", {"hypotheses": ["b", "a"]})
+    root = eg.open_experiment(path, mode="r+")
+    eg.update_experiment(root, "segmentations", "seg", {"hypotheses": ["b", "a"]})
     cells = (cell_image() > CELL // 2).astype(np.uint16)
-    ti.write_segmentation(root, 11, "seg", {"b": cells[1], "a": 2 * cells[1]})
-    ti.update_experiment(root, "tracks", "run", {"segmentation": "seg"})
-    ti.write_label_image(root, 10, "tracks.run", cells[0])
-    ti.update_experiment(root, "segmentations", "unwritten", {"hypotheses": ["x"]})
+    eg.write_segmentation(root, 11, "seg", {"b": cells[1], "a": 2 * cells[1]})
+    eg.update_experiment(root, "tracks", "run", {"segmentation": "seg"})
+    eg.write_label_image(root, 10, "tracks.run", cells[0])
+    eg.update_experiment(root, "segmentations", "unwritten", {"hypotheses": ["x"]})
     assert label_images(root) == ["seg.b", "seg.a", "unwritten.x", "tracks.run"]
 
     viewer = view_experiment(path, ViewerModel())

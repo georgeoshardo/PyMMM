@@ -6,7 +6,7 @@ from __future__ import annotations
 import numpy as np
 import zarr
 
-from pymmm import trench_images as ti
+from pymmm.store import experiment_group as eg
 from pymmm.store import ome
 
 N_TRENCH, N_T, H, W = 3, 4, 12, 6
@@ -46,11 +46,11 @@ def make_experiment(tmp_path):
         ["f0", "f0", "f1"], dtype=object)
     cells = cell_image()
     for k, trench in enumerate(TRENCHES):
-        group = root.create_group(ti.trench_path(trench))
+        group = root.create_group(eg.trench_path(trench))
         group.attrs["ome"] = {
             "version": ome.OME_VERSION,
             "multiscales": [{
-                "name": ti.trench_path(trench),
+                "name": eg.trench_path(trench),
                 "axes": [{"name": "t", "type": "time", "unit": "minute"},
                          {"name": "c", "type": "channel"},
                          {"name": "y", "type": "space", "unit": "micrometer"},

@@ -25,7 +25,7 @@ import numpy as np
 import zarr
 
 from pymmm.plotting import contrast_limits
-from pymmm.trench_images import (
+from pymmm.store.experiment_group import (
     image,
     label_name,
     listed_labels,
@@ -84,7 +84,7 @@ def view_experiment(path: Union[str, Path], viewer=None):
     Parameters
     ----------
     path : str | Path
-        Experiment group written by :class:`~pymmm.extractor.Extractor`.
+        Experiment group written by :class:`~pymmm.steps.extraction.Extractor`.
     viewer : napari.Viewer | None
         Viewer to add layers to; a new one is created if ``None``.
 

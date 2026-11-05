@@ -1,6 +1,6 @@
 """The per-trench OME-Zarr layout of an experiment, for the steps after extraction.
 
-The experiment group (written by :class:`~pymmm.extractor.Extractor`) holds one
+The experiment group (written by :class:`~pymmm.steps.extraction.Extractor`) holds one
 OME-Zarr image per trench. Segmentations and tracks are written beside each
 trench's pixels::
 
@@ -23,7 +23,8 @@ name). A label image counts once it is listed in ``labels/``'s ``ome.labels``: w
 list it after its pixels are in, and a segmentation's hypotheses all at once, so a
 reader never takes half a segmentation for one. The experiment group's ``pymmm``
 attributes record each segmentation's settings and hypotheses (``segmentations``) and
-each tracking run's (``tracks``).
+each tracking run's (``tracks``). :mod:`pymmm.store.geff` writes the tracks, and
+docs/layout.md specifies the whole layout.
 """
 
 from __future__ import annotations
@@ -38,7 +39,6 @@ from pymmm.store import ome
 
 CHUNK_KEYS = {"name": "default", "separator": "."}
 LABEL_COMPRESSORS = (zarr.codecs.BloscCodec(cname="zstd", clevel=3, shuffle="bitshuffle"),)
-NODE_PROPS = ("t", "y", "x", "seg_id", "track_id", "lineage_id")
 
 PathLike = Union[str, Path]
 
@@ -220,88 +220,3 @@ def remove_segmentation(root: zarr.Group, trench_id: int, name: str) -> None:
         for label in names:
             if label in labels:
                 del labels[label]
-
-
-# ----------------------------------------------------------------------------
-# tracks
-# ----------------------------------------------------------------------------
-def write_tracks(
-    root: zarr.Group,
-    trench_id: int,
-    run: str,
-    nodes: Mapping[str, np.ndarray],
-    edges: np.ndarray,
-    scores: np.ndarray,
-    masks: np.ndarray,
-    *,
-    extra: Mapping[str, Any],
-) -> Path:
-    """Write (or replace) a tracking run's result for one trench: its masks as the
-    label image ``tracks.<run>`` and its graph as ``tracks/<run>.geff``.
-
-    Parameters
-    ----------
-    nodes : mapping of str to ndarray
-        Arrays of equal length keyed by :data:`NODE_PROPS`; ``t`` is the frame,
-        ``y``/``x`` pixels in the trench, ``seg_id`` the node's value in ``masks``.
-    edges : ndarray
-        ``(n_edges, 2)`` parent, child positions into the node arrays. The GEFF's
-        node ids are the positions + 1, so they start at 1: readers such as
-        funtracks take node 0 for the masks' background.
-    scores : ndarray
-        Link score per edge.
-    masks : ndarray
-        ``(t, y, x)`` the masks the tracker chose.
-    extra : mapping
-        Provenance for the GEFF's ``extra`` metadata.
-
-    Returns
-    -------
-    Path
-        The GEFF group.
-    """
-    from geff.core_io._base_write import write_arrays
-    from geff_spec import Axis, GeffMetadata, RelatedObject
-
-    label = f"tracks.{run}"
-    write_label_image(root, trench_id, label, np.asarray(masks, dtype=np.uint16), attrs={
-        "tracks": f"../../tracks/{run}.geff",
-        "description": "the masks the tracker chose; a mask's value is its GEFF node's seg_id",
-    })
-    trench = root[trench_path(trench_id)]
-    if "tracks" not in trench:
-        trench.create_group("tracks", attributes={"pymmm": {
-            "description": "tracking runs' GEFFs (regenerable); curated copies are in curation/"}})
-    pixel_um, frame_min = calibration(root)
-    # Positions stay in pixels and t in frames, with no axis scale: readers such as
-    # funtracks apply an axis scale to the positions (to world units) and would then
-    # miss the masks. The trench image carries the calibration.
-    metadata = GeffMetadata(
-        directed=True,
-        axes=[Axis(name="t", type="time", unit="frame"), Axis(name="y", type="space"),
-              Axis(name="x", type="space")],
-        node_props_metadata={},
-        edge_props_metadata={},
-        track_node_props={"tracklet": "track_id", "lineage": "lineage_id"},
-        related_objects=[
-            RelatedObject(type="labels", path=f"../../labels/{label}", node_prop="seg_id"),
-            RelatedObject(type="image", path="../.."),
-        ],
-        extra={**extra, "trench": int(trench_id), "pixel_size_um": pixel_um,
-               "frame_interval_min": frame_min},
-    )
-    geff_path = Path(str(root.store.root)) / trench_path(trench_id) / "tracks" / f"{run}.geff"
-    n = len(nodes["t"])
-    write_arrays(
-        str(geff_path), np.arange(1, n + 1, dtype=np.int64),
-        {key: {"values": np.asarray(nodes[key]), "missing": None} for key in NODE_PROPS},
-        np.asarray(edges, dtype=np.int64).reshape(-1, 2) + 1,
-        {"score": {"values": np.asarray(scores, dtype=np.float32), "missing": None}},
-        metadata, zarr_format=3, overwrite=True,
-    )
-    return geff_path
-
-
-def has_tracks(root: zarr.Group, trench_id: int, run: str) -> bool:
-    return (f"{trench_path(trench_id)}/tracks/{run}.geff" in root
-            and f"tracks.{run}" in listed_labels(root, trench_id))

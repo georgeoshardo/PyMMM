@@ -12,10 +12,10 @@ import pandas as pd
 import xarray as xr
 import zarr
 
-from pymmm.provenance import SCHEMA_VERSION, plain_json, provenance
+from pymmm.store.provenance import SCHEMA_VERSION, plain_json, provenance
 
 if TYPE_CHECKING:
-    from pymmm.experiment import ND2Experiment
+    from pymmm.source.nd2 import ND2Experiment
 
 _SECTIONS = ("registration", "lane_detection", "trench_detection")
 

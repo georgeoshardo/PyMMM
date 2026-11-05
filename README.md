@@ -64,8 +64,8 @@ After extraction:
 
 - `Segmenter(path, channel, model)` labels every trench with Omnipose, one label image
   per *hypothesis* (alternative settings), the base first.
-- A tracker writes each trench's tracks with `trench_images.write_tracks`: the masks it
-  chose and a GEFF graph.
+- A tracker writes each trench's tracks with `pymmm.store.geff.write_tracks`: the
+  masks it chose and a GEFF graph.
 - mm-track curates the tracks in a curated copy beside them.
 
 `pymmm.config.Experiment` reads an experiment file (TOML) naming the ND2, the experiment
@@ -75,15 +75,15 @@ same file.
 ## Reading an experiment group
 
 ```python
-from pymmm import trench_images as ti
+from pymmm.store import experiment_group as eg
 
-root = ti.open_experiment("experiment.zarr")
-for trench in ti.trench_ids(root):
-    pixels = ti.image(root, trench)                    # (t, c, y, x) zarr array
-    names, labels = ti.segmentation(root, trench, "pc_affinity_ensemble")
+root = eg.open_experiment("experiment.zarr")
+for trench in eg.trench_ids(root):
+    pixels = eg.image(root, trench)                    # (t, c, y, x) zarr array
+    names, labels = eg.segmentation(root, trench, "pc_affinity_ensemble")
 ```
 
-A core install is enough to read and write it. To browse every trench in napari:
+`pymmm.store` needs only numpy and zarr. To browse every trench in napari:
 
 ```bash
 python -m pymmm.view experiment.zarr                   # one slider over all trenches
@@ -94,19 +94,19 @@ napari --plugin napari-ome-zarr experiment.zarr/trench_0007
 
 | module | |
 |---|---|
-| `experiment` | `ND2Experiment`: the ND2 as a lazy xarray, and its subsets |
-| `metadata` | ND2 acquisition and per-frame metadata |
-| `registrator` | `Registrator`: drift transforms (stackreg or OpenCV) |
-| `lane_detector`, `trench_detector` | lane and trench geometry, with their widgets |
-| `extractor` | `Extractor`: writes the experiment group |
-| `segmenter` | `Segmenter`: Omnipose labels per hypothesis, with its widget |
-| `trench_images` | the experiment group: open, read, and write labels and tracks |
-| `tracks` | GEFF tracklet and lineage ids, and reading GEFFs as arrays |
-| `checkpoint` | `CompanionStore`, the detection checkpoints |
+| `source.nd2` | `ND2Experiment`: the ND2 as a lazy xarray, and its subsets |
+| `source.metadata` | ND2 acquisition and per-frame metadata |
+| `store.experiment_group` | the experiment group: open it, read trench images, write and read label images and segmentations |
+| `store.geff` | tracking runs: write their masks and GEFF, tracklet and lineage ids, read a GEFF as arrays |
 | `store.ome` | every OME-Zarr attribute PyMMM writes |
+| `store.companion` | `CompanionStore`, the detection checkpoints beside the ND2 |
+| `store.provenance` | the schema version, provenance records, and attributes as plain JSON |
+| `steps.registration` | `Registrator`: drift transforms (stackreg or OpenCV) |
+| `steps.lanes`, `steps.trenches` | `LaneDetector`, `TrenchDetector`: lane and trench geometry, with their widgets |
+| `steps.extraction` | `Extractor`: writes the experiment group |
+| `steps.segmentation` | `Segmenter`: Omnipose labels per hypothesis, with its widget |
 | `parallel` | where batches run: the active Dask client, a process pool, or this process |
 | `config` | the experiment file |
-| `provenance` | the schema version, provenance records, and attributes as plain JSON |
 | `plotting`, `view` | diagnostic figures; the napari viewer |
 
 ## Tests

@@ -35,25 +35,24 @@ import xarray as xr
 import zarr
 from tqdm.auto import tqdm
 
-from pymmm.experiment import ND2Experiment
-from pymmm.metadata import (
+from pymmm.parallel import Runner
+from pymmm.source.metadata import (
     build_acquisition_dataset,
     build_events_dataset,
     build_source_frames_dataset,
     extract_source_frame_metadata,
 )
-from pymmm.parallel import Runner
-from pymmm.provenance import SCHEMA_VERSION, plain_json, provenance
-from pymmm.registrator import (
+from pymmm.source.nd2 import ND2Experiment
+from pymmm.steps.registration import (
     TRANSFORM_CONVENTION,
     Registrator,
     _rotation_matrix,
 )
+from pymmm.steps.trenches import TrenchDetector
 from pymmm.store import ome
-from pymmm.trench_detector import TrenchDetector
-from pymmm.trench_images import CHUNK_KEYS as _CHUNK_KEYS
-from pymmm.trench_images import trench_path
-
+from pymmm.store.experiment_group import CHUNK_KEYS as _CHUNK_KEYS
+from pymmm.store.experiment_group import trench_path
+from pymmm.store.provenance import SCHEMA_VERSION, plain_json, provenance
 
 # ======================================================================
 # Module-level helpers (picklable for client.submit / ProcessPoolExecutor)

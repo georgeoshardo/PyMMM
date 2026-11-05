@@ -5,7 +5,7 @@ floor so trenches without cells keep their noise dark), then segmented under a f
 preset Omnipose settings, the *hypotheses*. S1 is the primary segmentation; S2–S4
 mostly keep pairs that have just divided as one cell, so downstream tracking can
 choose between them. Each trench gets one ``(t, y, x)`` label image per hypothesis,
-``labels/<name>.<hypothesis>`` beside its pixels (see :mod:`pymmm.trench_images`), and
+``labels/<name>.<hypothesis>`` beside its pixels (see :mod:`pymmm.store.experiment_group`), and
 the experiment group records the segmentation's settings once, in
 ``attrs.pymmm.segmentations[<name>]``.
 """
@@ -26,8 +26,7 @@ import zarr
 from tqdm.auto import tqdm
 
 from pymmm.parallel import SPAWN
-from pymmm.provenance import SCHEMA_VERSION, plain_json, provenance
-from pymmm.trench_images import (
+from pymmm.store.experiment_group import (
     calibration,
     has_segmentation,
     image,
@@ -39,6 +38,7 @@ from pymmm.trench_images import (
     update_experiment,
     write_segmentation,
 )
+from pymmm.store.provenance import SCHEMA_VERSION, plain_json, provenance
 
 LONG_NAME = (
     "cell labels; 0 is background, 1..n are ordered from the trench's closed "
@@ -277,8 +277,8 @@ class Segmenter:
     interrupted run resumes with the unfinished trenches. The settings and hypotheses
     are recorded once, in the experiment group's ``attrs.pymmm.segmentations[<name>]``::
 
-        root = trench_images.open_experiment(path)
-        names, labels = trench_images.segmentation(root, 11, "mcherry")   # S1 first
+        root = experiment_group.open_experiment(path)
+        names, labels = experiment_group.segmentation(root, 11, "mcherry")   # S1 first
 
     Each label image's ``pymmm`` attributes hold the trench's intensity bounds
     (``lower``, ``upper``) and the frames Omnipose failed on (``failed_frames``).
@@ -286,7 +286,7 @@ class Segmenter:
     Parameters
     ----------
     store_path : str | Path
-        Experiment group written by :class:`~pymmm.extractor.Extractor`.
+        Experiment group written by :class:`~pymmm.steps.extraction.Extractor`.
     channel : str
         Channel to segment, a value of the group's ``C``.
     model : str
@@ -531,7 +531,7 @@ class Segmenter:
                 ),
                 "schema_version": SCHEMA_VERSION,
                 "provenance": plain_json(provenance()),
-                "made_by": "pymmm.segmenter.Segmenter",
+                "made_by": "pymmm.steps.segmentation.Segmenter",
                 "created": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
             })
 

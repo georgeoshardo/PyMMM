@@ -4,10 +4,21 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from fake_experiment import (
+    BACKGROUND,
+    CELL,
+    N_T,
+    NOISE,
+    PIXEL_SIZE,
+    TRENCHES,
+    H,
+    W,
+    cell_image,
+    make_experiment,
+)
 from scipy import ndimage
 
-from pymmm import trench_images as ti
-from pymmm.segmenter import (
+from pymmm.steps.segmentation import (
     HYPOTHESES,
     Segmenter,
     background_noise,
@@ -16,10 +27,7 @@ from pymmm.segmenter import (
     order_from_closed_end,
     trench_bounds,
 )
-
-from fake_experiment import (
-    BACKGROUND, CELL, H, N_T, NOISE, PIXEL_SIZE, TRENCHES, W, cell_image, make_experiment,
-)
+from pymmm.store import experiment_group as eg
 
 
 def _bottom_first(mask: np.ndarray) -> np.ndarray:
@@ -80,7 +88,7 @@ def _labels(seg, trench, hypothesis=None):
 
 
 def _record(seg):
-    return ti.records(ti.open_experiment(seg.store_path), "segmentations")[seg.name]
+    return eg.records(eg.open_experiment(seg.store_path), "segmentations")[seg.name]
 
 
 def test_order_from_closed_end_numbers_cells_from_y0():
@@ -148,10 +156,10 @@ def test_segment_writes_one_label_image_per_hypothesis_beside_each_trench(segmen
     assert record["extraction_created"] == "2026-01-01T00:00:00"
     assert segmenter.finished() == TRENCHES and segmenter.is_complete()
 
-    root = ti.open_experiment(segmenter.store_path)
+    root = eg.open_experiment(segmenter.store_path)
     for k, trench in enumerate(TRENCHES):
-        assert ti.listed_labels(root, trench) == [f"mcherry.{h}" for h in HYPOTHESES]
-        names, arrays = ti.segmentation(root, trench, "mcherry")
+        assert eg.listed_labels(root, trench) == [f"mcherry.{h}" for h in HYPOTHESES]
+        names, arrays = eg.segmentation(root, trench, "mcherry")
         assert names == list(HYPOTHESES)
         for hypothesis, labels in zip(names, arrays):
             assert labels.shape == (N_T, H, W) and labels.dtype == np.uint16
@@ -162,12 +170,12 @@ def test_segment_writes_one_label_image_per_hypothesis_beside_each_trench(segmen
                 assert values[0, 2, 2] == 1 and not values[2].any(), hypothesis
             else:
                 assert not values.any(), f"{hypothesis}: cells in the noise-only trench"
-        attrs = root[f"{ti.trench_path(trench)}/labels/mcherry.S2"].attrs["pymmm"]
+        attrs = root[f"{eg.trench_path(trench)}/labels/mcherry.S2"].attrs["pymmm"]
         assert attrs["hypothesis"] == "S2" and attrs["channel"] == "mCherry"
         assert attrs["upper"] >= segmenter.params["floor"]
         assert attrs["failed_frames"] == {}
     assert root["trench_0010/labels/mcherry.S1"].attrs["pymmm"]["lower"] > 0  # zero fill ignored
-    np.testing.assert_array_equal(ti.image(root, 10)[:, 1], cell_image()[0])
+    np.testing.assert_array_equal(eg.image(root, 10)[:, 1], cell_image()[0])
 
 
 def test_hypothesis_settings_reach_omnipose(experiment, fake_model):
@@ -178,7 +186,7 @@ def test_hypothesis_settings_reach_omnipose(experiment, fake_model):
     assert kwargs["mask_threshold"] == -1.0
     assert kwargs["flow_threshold"] == 0.0
     assert kwargs["min_size"] == round(1.75 / PIXEL_SIZE ** 2)
-    assert ti.listed_labels(ti.open_experiment(experiment), 10) == ["mcherry.S3"]
+    assert eg.listed_labels(eg.open_experiment(experiment), 10) == ["mcherry.S3"]
 
 
 def test_a_few_trenches_first_then_the_rest_resumes(segmenter):
@@ -221,11 +229,11 @@ def test_other_hypotheses_replace_the_segmentation_only_when_asked(segmenter, ex
     assert segmenter.is_complete()
 
     fewer.segment(resume=False, show_progress=False)
-    root = ti.open_experiment(experiment)
-    assert ti.hypotheses(root, "mcherry") == ["S1", "S3"]
+    root = eg.open_experiment(experiment)
+    assert eg.hypotheses(root, "mcherry") == ["S1", "S3"]
     for trench in TRENCHES:
-        assert ti.listed_labels(root, trench) == ["mcherry.S1", "mcherry.S3"]
-        assert sorted(name for name, _ in root[f"{ti.trench_path(trench)}/labels"].groups()) == [
+        assert eg.listed_labels(root, trench) == ["mcherry.S1", "mcherry.S3"]
+        assert sorted(name for name, _ in root[f"{eg.trench_path(trench)}/labels"].groups()) == [
             "mcherry.S1", "mcherry.S3"]
 
 
@@ -255,15 +263,15 @@ def test_reopened_segmenter_keeps_saved_params_and_hypotheses(experiment, fake_m
 
 
 def test_worker_writes_the_same_labels_as_in_process(segmenter, monkeypatch):
-    from pymmm import segmenter as module
+    from pymmm.steps import segmentation as module
 
     for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMBA_NUM_THREADS"):
         monkeypatch.delenv(var, raising=False)  # restored after the test
     segmenter.segment(show_progress=False)
-    root = ti.open_experiment(segmenter.store_path, mode="r+")
-    expected = {t: [a[...] for a in ti.segmentation(root, t, "mcherry")[1]] for t in TRENCHES}
+    root = eg.open_experiment(segmenter.store_path, mode="r+")
+    expected = {t: [a[...] for a in eg.segmentation(root, t, "mcherry")[1]] for t in TRENCHES}
     for trench in TRENCHES:
-        ti.remove_segmentation(root, trench, "mcherry")
+        eg.remove_segmentation(root, trench, "mcherry")
     assert segmenter.finished() == []
 
     module._init_worker(str(segmenter.store_path), "mCherry", "bact_fluor_omni", "mcherry",
@@ -274,7 +282,7 @@ def test_worker_writes_the_same_labels_as_in_process(segmenter, monkeypatch):
         assert bounds == segmenter.bounds(trench)
     assert segmenter.finished() == TRENCHES
     for trench in TRENCHES:
-        for want, got in zip(expected[trench], ti.segmentation(root, trench, "mcherry")[1]):
+        for want, got in zip(expected[trench], eg.segmentation(root, trench, "mcherry")[1]):
             np.testing.assert_array_equal(got[...], want)
 
 

@@ -11,8 +11,8 @@ import numpy as np
 import pytest
 from golden_io import check, manifest, scrub
 
-from pymmm import trench_images as ti
-from pymmm.segmenter import Segmenter
+from pymmm.steps.segmentation import Segmenter
+from pymmm.store import experiment_group as eg
 
 pytest.importorskip("omnipose")
 pytestmark = pytest.mark.golden
@@ -26,10 +26,10 @@ def test_segmenter(pipeline, tmp_path):
     segmenter = Segmenter(group, channel="mCherry", model="bact_fluor_omni", gpu=False)
     segmenter.segment(trenches=SEGMENTED, show_progress=False)
 
-    root = ti.open_experiment(group)
+    root = eg.open_experiment(group)
     cells = {}
     for trench in SEGMENTED:
-        names, arrays = ti.segmentation(root, trench, segmenter.name)
+        names, arrays = eg.segmentation(root, trench, segmenter.name)
         for name, labels in zip(names, arrays):
             cells[f"{trench}/{name}"] = [int(frame.max()) for frame in labels[...]]
             assert all(np.unique(frame).size == frame.max() + 1 for frame in labels[...])
@@ -38,8 +38,8 @@ def test_segmenter(pipeline, tmp_path):
         "hypotheses": segmenter.hypotheses,
         "finished": segmenter.finished(),
         "bounds": {trench: segmenter.bounds(trench) for trench in SEGMENTED},
-        "record": scrub(ti.records(root, "segmentations")),
+        "record": scrub(eg.records(root, "segmentations")),
         "cells_per_frame": cells,
-        "labels": {trench: manifest(group / ti.trench_path(trench) / "labels")
+        "labels": {trench: manifest(group / eg.trench_path(trench) / "labels")
                    for trench in SEGMENTED},
     })

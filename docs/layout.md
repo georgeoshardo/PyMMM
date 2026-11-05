@@ -29,8 +29,8 @@ wrote a group; nothing checks it.
     trench_0001/  ...
 ```
 
-`pymmm.trench_images` reads and writes this layout (geff to write tracks), and
-`pymmm.store.ome` builds every `ome` attribute in it.
+`pymmm.store.experiment_group` reads and writes this layout, `pymmm.store.geff` its
+tracks (with the geff package), and `pymmm.store.ome` builds every `ome` attribute in it.
 
 ## The experiment group
 

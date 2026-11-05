@@ -12,10 +12,10 @@ from scipy.signal import convolve, find_peaks
 from scipy.stats import theilslopes
 
 from pymmm._utils import normalize_channel_arg, normalize_fov_arg
-from pymmm.checkpoint import CompanionStore
-from pymmm.experiment import ND2Experiment
-from pymmm.lane_detector import LaneDetector
-from pymmm.registrator import Registrator
+from pymmm.source.nd2 import ND2Experiment
+from pymmm.steps.lanes import LaneDetector
+from pymmm.steps.registration import Registrator
+from pymmm.store.companion import CompanionStore
 
 
 @dataclass
@@ -603,9 +603,9 @@ class TrenchDetector:
         import ipywidgets as widgets
         import matplotlib.pyplot as plt
         import ndv
+        from IPython.display import display
 
         from pymmm.plotting import NDV_CLIMS
-        from IPython.display import display
 
         mean_images: Dict[str, np.ndarray] = {}
         params = self._detection_params

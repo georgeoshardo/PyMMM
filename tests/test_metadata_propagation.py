@@ -12,18 +12,18 @@ import pytest
 import xarray as xr
 import zarr
 
-from pymmm.checkpoint import CompanionStore
-from pymmm.experiment import ND2Experiment
-from pymmm.extractor import Extractor
-from pymmm.provenance import SCHEMA_VERSION
-from pymmm.lane_detector import LaneDetector, LaneInfo
-from pymmm.registrator import Registrator
-from pymmm.trench_detector import TrenchDefinition, TrenchDetector
-from pymmm.metadata import (
-    extract_acquisition_metadata,
+from pymmm.source.metadata import (
     _median_frame_interval_ms,
+    extract_acquisition_metadata,
     extract_source_frame_metadata,
 )
+from pymmm.source.nd2 import ND2Experiment
+from pymmm.steps.extraction import Extractor
+from pymmm.steps.lanes import LaneDetector, LaneInfo
+from pymmm.steps.registration import Registrator
+from pymmm.steps.trenches import TrenchDefinition, TrenchDetector
+from pymmm.store.companion import CompanionStore
+from pymmm.store.provenance import SCHEMA_VERSION
 
 
 @dataclass
@@ -219,7 +219,7 @@ class FakeND2File:
 def test_extract_acquisition_metadata_is_json_serializable(monkeypatch, tmp_path):
     nd2_path = tmp_path / "sample.nd2"
     nd2_path.write_bytes(b"nd2")
-    monkeypatch.setattr("pymmm.metadata.nd2.ND2File", FakeND2File)
+    monkeypatch.setattr("pymmm.source.metadata.nd2.ND2File", FakeND2File)
 
     bundle = extract_acquisition_metadata(
         nd2_path,
@@ -252,8 +252,8 @@ def test_nd2experiment_subset_metadata_tracks_selection(monkeypatch, tmp_path):
         attrs={"metadata": {"placeholder": True}},
     )
 
-    monkeypatch.setattr("pymmm.experiment.nd2.imread", lambda *args, **kwargs: data)
-    monkeypatch.setattr("pymmm.metadata.nd2.ND2File", FakeND2File)
+    monkeypatch.setattr("pymmm.source.nd2.nd2.imread", lambda *args, **kwargs: data)
+    monkeypatch.setattr("pymmm.source.metadata.nd2.ND2File", FakeND2File)
 
     exp = ND2Experiment(nd2_path)
     exp.select_times(0, 1)
@@ -383,8 +383,8 @@ def test_extract_source_frame_metadata_tracks_subset(monkeypatch, tmp_path):
         attrs={"metadata": {"placeholder": True}},
     )
 
-    monkeypatch.setattr("pymmm.experiment.nd2.imread", lambda *args, **kwargs: data)
-    monkeypatch.setattr("pymmm.metadata.nd2.ND2File", FakeND2File)
+    monkeypatch.setattr("pymmm.source.nd2.nd2.imread", lambda *args, **kwargs: data)
+    monkeypatch.setattr("pymmm.source.metadata.nd2.ND2File", FakeND2File)
 
     exp = ND2Experiment(nd2_path)
     exp.select_fovs(["XYPos:1"]).select_times(1, 2)
@@ -425,8 +425,8 @@ def test_extractor_writes_one_ome_zarr_image_per_trench(monkeypatch, tmp_path):
         attrs={"metadata": {"placeholder": True}},
     )
 
-    monkeypatch.setattr("pymmm.experiment.nd2.imread", lambda *args, **kwargs: data)
-    monkeypatch.setattr("pymmm.metadata.nd2.ND2File", FakeND2File)
+    monkeypatch.setattr("pymmm.source.nd2.nd2.imread", lambda *args, **kwargs: data)
+    monkeypatch.setattr("pymmm.source.metadata.nd2.ND2File", FakeND2File)
 
     experiment = ND2Experiment(nd2_path)
     experiment.select_fovs(["XYPos:1"]).select_times(1, 2)

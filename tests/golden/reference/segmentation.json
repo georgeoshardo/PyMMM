@@ -944,7 +944,7 @@
    "description": "Omnipose labels of the mCherry channel under each hypothesis's settings; each trench's labels/mcherry.<hypothesis>",
    "extraction_created": "<volatile>",
    "hypotheses": ["S1", "S2", "S3", "S4"],
-   "made_by": "pymmm.segmenter.Segmenter",
+   "made_by": "pymmm.steps.segmentation.Segmenter",
    "model": "bact_fluor_omni",
    "params": {
     "floor": 374.04200000000003,

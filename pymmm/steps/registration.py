@@ -1,4 +1,4 @@
-"""Registrator – drift-correction via pystackreg, parallelised with ProcessPoolExecutor."""
+"""Registrator – drift correction (stackreg or OpenCV), per FOV and frame."""
 
 from __future__ import annotations
 
@@ -14,9 +14,9 @@ from skimage.transform import warp
 from tqdm.auto import tqdm
 
 from pymmm._utils import normalize_channel_arg, normalize_fov_arg
-from pymmm.checkpoint import CompanionStore
-from pymmm.experiment import ND2Experiment
 from pymmm.parallel import SPAWN, dask_client
+from pymmm.source.nd2 import ND2Experiment
+from pymmm.store.companion import CompanionStore
 
 TRANSFORM_CONVENTION = "raw_translation_then_rotation_v1"
 

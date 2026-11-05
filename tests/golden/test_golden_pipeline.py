@@ -25,7 +25,7 @@ from real_data import (
 )
 
 from pymmm import CompanionStore, Extractor, LaneDetector, Registrator, TrenchDetector
-from pymmm.segmenter import background_noise, normalise, trench_bounds
+from pymmm.steps.segmentation import background_noise, normalise, trench_bounds
 
 pytestmark = pytest.mark.golden
 

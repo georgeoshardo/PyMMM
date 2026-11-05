@@ -10,14 +10,14 @@ import nd2
 import numpy as np
 import xarray as xr
 
-from pymmm.metadata import (
-    extract_acquisition_metadata,
-    slice_to_dict,
-)
 from pymmm._utils import (
     normalize_channel_arg,
     normalize_fov_arg,
     rename_duplicate_coords,
+)
+from pymmm.source.metadata import (
+    extract_acquisition_metadata,
+    slice_to_dict,
 )
 
 

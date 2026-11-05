@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from fake_experiment import make_experiment
 
 from pymmm.config import Experiment
-from pymmm.segmenter import Segmenter
-from fake_experiment import make_experiment
+from pymmm.steps.segmentation import Segmenter
 
 
 def test_experiment_resolves_relative_paths(tmp_path):
