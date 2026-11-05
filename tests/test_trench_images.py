@@ -101,3 +101,19 @@ def test_update_experiment_keeps_other_records(experiment):
     attrs = dict(ti.open_experiment(experiment).attrs)["pymmm"]
     assert attrs["segmentations"] == {"a": {"channel": "PC"}, "b": {"channel": "mCherry"}}
     assert attrs["pixel_size_um"] == 0.1
+    assert ti.records(ti.open_experiment(experiment), "segmentations") == attrs["segmentations"]
+    assert ti.records(root, "tracks") == {}
+
+
+def test_remove_segmentation_unlists_and_deletes_only_its_label_images(experiment):
+    root = ti.open_experiment(experiment, mode="r+")
+    ti.update_experiment(root, "segmentations", "seg", {"hypotheses": ["a", "b"]})
+    stack = np.ones((5, 6, 4), dtype=np.uint16)
+    ti.write_segmentation(root, 3, "seg", {"a": stack, "b": stack})
+    ti.write_label_image(root, 3, "tracks.run", stack)
+    ti.remove_segmentation(root, 4, "seg")  # nothing there: no error
+
+    ti.remove_segmentation(root, 3, "seg")
+    assert not ti.has_segmentation(root, 3, "seg")
+    assert ti.listed_labels(root, 3) == ["tracks.run"]
+    assert [name for name, _ in root["trench_0003/labels"].groups()] == ["tracks.run"]

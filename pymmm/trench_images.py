@@ -82,6 +82,11 @@ def update_experiment(root: zarr.Group, section: str, name: str, record: Mapping
     root.attrs["pymmm"] = attrs
 
 
+def records(root: zarr.Group, section: str) -> dict[str, dict]:
+    """The experiment group's records of one kind (``"segmentations"``, ``"tracks"``), by name."""
+    return dict(dict(root.attrs)["pymmm"].get(section) or {})
+
+
 # ----------------------------------------------------------------------------
 # label images
 # ----------------------------------------------------------------------------
@@ -218,6 +223,19 @@ def segmentation(root: zarr.Group, trench_id: int, name: str) -> tuple[list[str]
     names = hypotheses(root, name)
     labels = root[f"{trench_path(trench_id)}/labels"]
     return names, [labels[f"{label_name(name, h)}/0"] for h in names]
+
+
+def remove_segmentation(root: zarr.Group, trench_id: int, name: str) -> None:
+    """Remove a trench's label images of a segmentation's recorded hypotheses: unlisted
+    first, so the segmentation stops counting as finished before any pixels go."""
+    names = [label_name(name, h) for h in hypotheses(root, name)]
+    _unlist_labels(root, trench_id, names)
+    key = f"{trench_path(trench_id)}/labels"
+    if key in root:
+        labels = root[key]
+        for label in names:
+            if label in labels:
+                del labels[label]
 
 
 # ----------------------------------------------------------------------------
