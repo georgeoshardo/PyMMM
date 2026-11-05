@@ -30,6 +30,7 @@ VOLATILE_KEYS = frozenset({
     "provenance",          # code and library versions, and when
     "created",
     "extraction_created",  # the extraction's "created", copied into a segmentation's record
+    "made_on",             # the machine and GPU that segmented a trench
     "source_nd2",          # the path of the scratch symlink
     "source_mtime_ns",
     "geff_version",

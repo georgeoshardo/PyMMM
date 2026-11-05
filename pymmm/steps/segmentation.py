@@ -1,22 +1,34 @@
 """Segmenter – Omnipose cell labels for every trench of an experiment group.
 
 Each trench is scaled by its own intensity percentiles (with an experiment-wide
-floor so trenches without cells keep their noise dark), then segmented under a few
-preset Omnipose settings, the *hypotheses*. S1 is the primary segmentation; S2–S4
-mostly keep pairs that have just divided as one cell, so downstream tracking can
-choose between them. Each trench gets one ``(t, y, x)`` label image per hypothesis,
-``labels/<name>.<hypothesis>`` beside its pixels (see :mod:`pymmm.store.experiment_group`), and
-the experiment group records the segmentation's settings once, in
-``attrs.pymmm.segmentations[<name>]``.
+floor so trenches without cells can keep their noise dark), then segmented under
+several *hypotheses*. A hypothesis is an Omnipose model with settings: a stock model
+under a preset of settings (:data:`HYPOTHESES`: S1 is the primary segmentation, S2–S4
+mostly keep pairs that have just divided as one cell), or a fine-tuned checkpoint
+(:func:`checkpoint_hypotheses`: several saved epochs of one training run). Downstream
+tracking chooses between them. Each trench gets one ``(t, y, x)`` label image per
+hypothesis, ``labels/<name>.<hypothesis>`` beside its pixels (see
+:mod:`pymmm.store.experiment_group`), and the experiment group records the
+segmentation's settings once, in ``attrs.pymmm.segmentations[<name>]``.
+
+Trenches are segmented where :class:`~pymmm.parallel.Runner` runs tasks: on the
+workers of the active Dask client (on any machine with the same environment: the
+task carries the trench's frames and, once per worker, the checkpoints, and returns
+the labels, which this process writes), in a local process pool, or in this process.
 """
 
 from __future__ import annotations
 
 import datetime
+import hashlib
 import logging
 import os
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, wait
+import socket
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from dataclasses import dataclass
+from importlib import metadata
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
 
@@ -24,7 +36,7 @@ import numpy as np
 import zarr
 from tqdm.auto import tqdm
 
-from pymmm.parallel import SPAWN
+from pymmm.parallel import Runner, shared
 from pymmm.store.experiment_group import (
     calibration,
     has_segmentation,
@@ -52,8 +64,10 @@ DEFAULT_PARAMS: Dict[str, Any] = {
     "floor_sigma": 20.0,
     "gain": 1.0,
     "rescale": 1.0,
+    "masks": "eval",
     "mask_threshold": 0.0,
     "flow_threshold": 0.4,
+    "affinity_angle": 60.0,
     "min_area": 1.75,
     "min_contrast": 5.0,
 }
@@ -62,10 +76,16 @@ DEFAULT_PARAMS: Dict[str, Any] = {
 ``floor``: lowest allowed upper intensity bound, in counts; ``None`` estimates it
 as background + ``floor_sigma`` background-noise SDs (median over sampled
 trenches). ``gain``: multiplies the trench's intensity range (above 1 lowers
-contrast). ``rescale``: Omnipose ``rescale_factor``. ``min_area``: smallest mask
-kept, in µm². ``min_contrast``: masks whose mean is fewer than this many
-background-noise SDs above the frame's background are dropped.
+contrast). ``rescale``: Omnipose ``rescale_factor``. ``masks``: how masks are built
+from the network's output, ``"eval"`` (``OmniModel.eval``'s own) or ``"affinity"``
+(:func:`pymmm.steps.omnipose.affinity_masks`, with ``affinity_angle``).
+``min_area``: smallest mask kept, in µm². ``min_contrast``: masks whose mean is
+fewer than this many background-noise SDs above the frame's background are dropped
+(``None``: none are, as for phase contrast, where cells are darker than the
+background).
 """
+
+MASKS = ("eval", "affinity")
 
 HYPOTHESES: Dict[str, Dict[str, Any]] = {
     "S1": {},
@@ -73,18 +93,16 @@ HYPOTHESES: Dict[str, Dict[str, Any]] = {
     "S3": {"rescale": 0.8, "mask_threshold": -1.0, "flow_threshold": 0.0},
     "S4": {"gain": 2.5, "rescale": 0.8, "mask_threshold": -1.0, "flow_threshold": 0.0},
 }
-"""Preset overrides of the base settings. Chosen from a sweep of 360 settings on
-mCherry: S1 splits dividing cells the most; S2–S4 cover the alternative
-segmentations (mostly just-divided pairs kept as one cell, fuller masks in
-crowded trenches) without adding masks on noise."""
+"""Preset overrides of the base settings, for a stock model. Chosen from a sweep of
+360 settings on mCherry: S1 splits dividing cells the most; S2–S4 cover the
+alternative segmentations (mostly just-divided pairs kept as one cell, fuller masks
+in crowded trenches) without adding masks on noise."""
+
+_SOURCE_KEYS = ("model", "checkpoint")
 
 # Omnipose 2.0 logs mask building through the top-level "core" and "gpu" loggers.
 _OMNIPOSE_LOGGERS = ("omnipose", "core", "gpu")
 
-# Omnipose imports the ``dbscan`` package, whose parlay scheduler threads spin
-# at full CPU even when idle (about 9 cores in an idle Jupyter kernel). One
-# thread costs nothing measurable in segmentation speed.
-_PARLAY_THREADS = {"PARLAY_NUM_THREADS": "1"}
 # What each process-pool worker gets: one thread per library, so ``workers``
 # processes use ``workers`` cores.
 _WORKER_THREADS = {
@@ -93,6 +111,63 @@ _WORKER_THREADS = {
         "NUMBA_NUM_THREADS", "PARLAY_NUM_THREADS",
     )
 }
+
+# Dask warns about any task argument over 10 MB; a trench's frames are tens of MB,
+# sent once to the one worker that segments them.
+_LARGE_TASK = {"distributed.admin.large-graph-warning-threshold": "4GB"}
+
+
+def preset_hypotheses(
+    model: str = "bact_fluor_omni", names: Optional[Sequence[str]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """The :data:`HYPOTHESES` (all, or ``names``) for the stock Omnipose ``model``."""
+    names = list(HYPOTHESES) if names is None else [str(h) for h in names]
+    unknown = [h for h in names if h not in HYPOTHESES]
+    if unknown or not names:
+        raise ValueError(f"unknown hypotheses {unknown}; choose from {list(HYPOTHESES)}")
+    return {h: {"model": model, **HYPOTHESES[h]} for h in names}
+
+
+def checkpoint_hypotheses(checkpoints: Mapping[str, str]) -> Dict[str, Dict[str, Any]]:
+    """One hypothesis per fine-tuned checkpoint, ``{hypothesis: checkpoint file name}``
+    (in the Segmenter's ``models`` folder), the base first; all under the base settings."""
+    return {str(h): {"checkpoint": str(c)} for h, c in checkpoints.items()}
+
+
+def overrides(spec: Mapping[str, Any]) -> Dict[str, Any]:
+    """A hypothesis's overrides of the base settings (its spec without its model)."""
+    return {k: v for k, v in spec.items() if k not in _SOURCE_KEYS}
+
+
+def _check_spec(name: str, spec: Mapping[str, Any]) -> Dict[str, Any]:
+    spec = dict(spec)
+    if sum(k in spec for k in _SOURCE_KEYS) != 1:
+        raise ValueError(f"hypothesis {name}: give one of 'model' or 'checkpoint', not {spec}")
+    unknown = sorted(set(overrides(spec)) - set(DEFAULT_PARAMS))
+    if unknown:
+        raise ValueError(f"hypothesis {name}: unknown settings {unknown}")
+    return spec
+
+
+def _clean_params(params: Mapping[str, Any]) -> Dict[str, Any]:
+    """Base settings: known keys only; ``min_contrast`` ``"off"`` (TOML has no null) is ``None``."""
+    unknown = sorted(set(params) - set(DEFAULT_PARAMS))
+    if unknown:
+        raise ValueError(f"unknown settings {unknown}; choose from {list(DEFAULT_PARAMS)}")
+    out = {**DEFAULT_PARAMS, **params}
+    if out["min_contrast"] in ("off", False):
+        out["min_contrast"] = None
+    if out["masks"] not in MASKS:
+        raise ValueError(f"masks {out['masks']!r}: choose from {list(MASKS)}")
+    return out
+
+
+def sha256(path: Union[str, Path]) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as file:
+        for block in iter(lambda: file.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 @contextmanager
@@ -234,18 +309,92 @@ def order_from_closed_end(masks: np.ndarray) -> np.ndarray:
     return out
 
 
+def segment_with(
+    model: Any,
+    settings: Mapping[str, Any],
+    stack: np.ndarray,
+    bounds: Tuple[float, float],
+    pixel_size: float,
+    batch_size: int = 64,
+) -> Tuple[np.ndarray, List[int]]:
+    """Segment a ``(T, Y, X)`` stack with one model under one hypothesis's settings.
+
+    Returns the ``uint16`` labels ordered from the closed end and the frames
+    Omnipose failed on (left empty). Omnipose 2.0 can raise ``IndexError`` while
+    building masks for some frames; with ``masks="eval"`` the stack is then retried
+    frame by frame, with ``masks="affinity"`` each frame is built on its own anyway.
+    """
+    s = settings
+    x = normalise(stack, *bounds, gain=s["gain"])
+    min_size = max(1, int(round(s["min_area"] / pixel_size ** 2)))
+    failed: List[int] = []
+    with _quiet_omnipose():
+        if s["masks"] == "affinity":
+            masks = _affinity(model, x, s, min_size, batch_size, failed)
+        else:
+            masks = _eval(model, x, s, min_size, batch_size, failed)
+    if s["min_contrast"] is not None:
+        masks = drop_faint(masks, stack, s["min_contrast"])
+    return order_from_closed_end(masks), failed
+
+
+def _eval(model, x, s, min_size, batch_size, failed) -> np.ndarray:
+    kwargs = {
+        "normalize": False,
+        "show_progress": False,
+        "batch_size": batch_size,
+        "rescale_factor": s["rescale"],
+        "mask_threshold": s["mask_threshold"],
+        "flow_threshold": s["flow_threshold"],
+        "min_size": min_size,
+    }
+    try:
+        return np.asarray(model.eval(x, **kwargs).masks)
+    except IndexError:
+        masks = np.zeros(x.shape, dtype=np.int32)
+        for t, frame in enumerate(x):
+            try:
+                masks[t] = np.asarray(model.eval(frame[None], **kwargs).masks)[0]
+            except IndexError:
+                failed.append(t)
+        return masks
+
+
+def _affinity(model, x, s, min_size, batch_size, failed) -> np.ndarray:
+    """The network's flows, ``batch_size`` frames at a time; then each frame's masks."""
+    from pymmm.steps.omnipose import affinity_masks
+
+    if s["rescale"] != 1.0:
+        raise ValueError("masks='affinity' builds masks at the image's own scale: set rescale to 1")
+    masks = np.zeros(x.shape, dtype=np.int32)
+    for start in range(0, len(x), batch_size):
+        out = model.eval(x[start:start + batch_size], normalize=False, compute_masks=False,
+                         show_progress=False, batch_size=batch_size)
+        for k, flows in enumerate(out.flows):
+            try:
+                masks[start + k] = affinity_masks(
+                    np.asarray(flows.dP), np.asarray(flows.dist), model.device,
+                    mask_threshold=s["mask_threshold"], flow_threshold=s["flow_threshold"],
+                    angle=s["affinity_angle"], min_size=min_size,
+                )
+            except IndexError:
+                failed.append(start + k)
+    return masks
+
+
 class Segmenter:
     """Segment one channel of an experiment group with Omnipose, under several hypotheses.
 
-    A segmentation is a fixed set of hypotheses (by default all of :data:`HYPOTHESES`),
-    segmented and written together for each trench: one ``(t, y, x)`` label image per
-    hypothesis, ``trench_NNNN/labels/<name>.<hypothesis>``, beside the trench's pixels.
-    A trench is finished once all of them are listed in its ``labels/``, so an
-    interrupted run resumes with the unfinished trenches. The settings and hypotheses
-    are recorded once, in the experiment group's ``attrs.pymmm.segmentations[<name>]``::
+    A segmentation is a fixed set of hypotheses, segmented and written together for
+    each trench: one ``(t, y, x)`` label image per hypothesis,
+    ``trench_NNNN/labels/<name>.<hypothesis>``, beside the trench's pixels. A trench
+    is finished once all of them are listed in its ``labels/``, so an interrupted run
+    resumes with the unfinished trenches. The settings and hypotheses (each with its
+    model, and each checkpoint's sha256) are recorded once, in the experiment group's
+    ``attrs.pymmm.segmentations[<name>]``::
 
         root = experiment_group.open_experiment(path)
-        names, labels = experiment_group.segmentation(root, 11, "mcherry")   # S1 first
+        names, labels = experiment_group.segmentation(root, 11, "mcherry")   # base first
 
     Each label image's ``pymmm`` attributes hold the trench's intensity bounds
     (``lower``, ``upper``) and the frames Omnipose failed on (``failed_frames``).
@@ -257,13 +406,19 @@ class Segmenter:
     channel : str
         Channel to segment, a value of the group's ``C``.
     model : str
-        Omnipose pretrained model name.
+        Stock Omnipose model of the preset hypotheses (:data:`HYPOTHESES`).
     name : str | None
         Segmentation name; defaults to ``channel.lower()``.
-    hypotheses : sequence of str | None
-        The hypotheses of :data:`HYPOTHESES` that make up the segmentation, the base
-        first. ``None``: the recorded ones if the segmentation exists with this channel
-        and model, else all.
+    hypotheses : sequence of str | mapping | None
+        The hypotheses, the base first: names of :data:`HYPOTHESES` (for ``model``),
+        or ``{name: spec}`` with each spec a ``model`` or ``checkpoint`` and its
+        overrides of the base settings (:func:`checkpoint_hypotheses`). ``None``: the
+        recorded ones if the segmentation exists with this channel, else every preset.
+    models : str | Path | None
+        Folder of the checkpoint files the hypotheses name.
+    params : mapping | None
+        Base settings of a new segmentation, over :data:`DEFAULT_PARAMS` (an existing
+        one keeps its recorded settings; change them with :meth:`set_params`).
     gpu : bool
         Run Omnipose on the GPU.
     """
@@ -274,7 +429,9 @@ class Segmenter:
         channel: str = "mCherry",
         model: str = "bact_fluor_omni",
         name: Optional[str] = None,
-        hypotheses: Optional[Sequence[str]] = None,
+        hypotheses: Union[Sequence[str], Mapping[str, Mapping[str, Any]], None] = None,
+        models: Union[str, Path, None] = None,
+        params: Optional[Mapping[str, Any]] = None,
         gpu: bool = True,
     ) -> None:
         self.store_path = Path(store_path)
@@ -287,20 +444,30 @@ class Segmenter:
         self.model_name = model
         self.name = name or channel.lower()
         self.gpu = gpu
+        self.models_dir = None if models is None else Path(models)
         self.pixel_size = calibration(self.root)[0]
         self.trench_ids = trench_ids(self.root)
-        self._model = None
+        self._models: Dict[str, Any] = {}
         self._bounds: Dict[int, Tuple[float, float]] = {}
+        self._sha: Dict[str, str] = {}
+        self._loader: Optional[str] = None  # "module:function" loading models in tasks (tests)
 
         saved = self._saved_record()
-        same = saved is not None and saved.get("channel") == channel and saved.get("model") == model
+        same = saved is not None and saved.get("channel") == channel and "specs" in saved
         if hypotheses is None:
-            hypotheses = saved["hypotheses"] if same else list(HYPOTHESES)
-        unknown = [h for h in hypotheses if h not in HYPOTHESES]
-        if unknown or not hypotheses:
-            raise ValueError(f"unknown hypotheses {unknown}; choose from {list(HYPOTHESES)}")
-        self._hypotheses = [str(h) for h in hypotheses]
-        self._params = dict(saved["params"]) if same else dict(DEFAULT_PARAMS)
+            specs = saved["specs"] if same else preset_hypotheses(model)
+        elif isinstance(hypotheses, Mapping):
+            specs = hypotheses
+        else:
+            specs = preset_hypotheses(model, hypotheses)
+        if not specs:
+            raise ValueError("a segmentation needs at least one hypothesis")
+        self._specs = {str(h): _check_spec(str(h), s) for h, s in specs.items()}
+        for h in self._specs:
+            path = self.checkpoint_path(h)
+            if path is not None and not path.is_file():
+                raise FileNotFoundError(f"hypothesis {h}: no checkpoint {path}")
+        self._params = _clean_params(saved["params"] if same else (params or {}))
         if self._params["floor"] is None:
             self._params["floor"] = self.estimate_floor(self._params["floor_sigma"])
 
@@ -327,20 +494,43 @@ class Segmenter:
     @property
     def hypotheses(self) -> List[str]:
         """The segmentation's hypotheses, the base first."""
-        return list(self._hypotheses)
+        return list(self._specs)
+
+    def spec(self, hypothesis: str) -> Dict[str, Any]:
+        """A hypothesis's model (``model`` or ``checkpoint``) and its overrides."""
+        return dict(self._specs[hypothesis])
+
+    def checkpoint_path(self, hypothesis: str) -> Optional[Path]:
+        """The hypothesis's checkpoint file, or None for a stock model."""
+        checkpoint = self._specs[hypothesis].get("checkpoint")
+        if checkpoint is None:
+            return None
+        if self.models_dir is None:
+            raise ValueError(f"hypothesis {hypothesis} is a checkpoint: give models=<folder>")
+        return self.models_dir / checkpoint
 
     def settings(self, hypothesis: str, params: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
         """Base settings with ``hypothesis``'s overrides applied."""
-        return {**(self._params if params is None else params), **HYPOTHESES[hypothesis]}
+        return {**(self._params if params is None else params), **overrides(self._specs[hypothesis])}
+
+    def _checkpoint_sha(self, hypothesis: str) -> Optional[str]:
+        path = self.checkpoint_path(hypothesis)
+        if path is None:
+            return None
+        if str(path) not in self._sha:
+            self._sha[str(path)] = sha256(path)
+        return self._sha[str(path)]
 
     def _record(self) -> Dict[str, Any]:
         """What identifies the labels (compared with the saved record on resume)."""
         extraction = dict(self.root.attrs)["pymmm"].get("provenance") or {}
+        shas = {h: self._checkpoint_sha(h) for h in self.hypotheses}
         return plain_json({
             "channel": self.channel,
-            "model": self.model_name,
             "params": self._params,
             "hypotheses": self.hypotheses,
+            "specs": self._specs,
+            "checkpoint_sha256": {h: s for h, s in shas.items() if s is not None},
             "settings": {h: self.settings(h) for h in self.hypotheses},
             "extraction_created": extraction.get("created"),
         })
@@ -358,7 +548,7 @@ class Segmenter:
         Returns the finished trenches whose labels were made with other settings:
         :meth:`segment` will ask for them to be re-segmented too.
         """
-        self._params = {k: v for k, v in params.items() if k in DEFAULT_PARAMS}
+        self._params = _clean_params({k: v for k, v in params.items() if k in DEFAULT_PARAMS})
         self._bounds.clear()
         saved = self._saved_record() or {}
         done = self.finished()
@@ -406,74 +596,34 @@ class Segmenter:
     # Omnipose
     # ------------------------------------------------------------------
 
-    def _get_model(self):
-        if self._model is None:
-            for var, value in _PARLAY_THREADS.items():
-                os.environ.setdefault(var, value)
-            from omnipose.models import OmniModel
+    def _source(self, hypothesis: str, data: Any = None) -> "_ModelSource":
+        path = self.checkpoint_path(hypothesis)
+        return _ModelSource(
+            hypothesis=hypothesis,
+            model=self._specs[hypothesis].get("model"),
+            checkpoint=None if path is None else str(path),
+            sha256=self._checkpoint_sha(hypothesis),
+            data=data,
+        )
 
-            with _quiet_omnipose():
-                self._model = OmniModel(gpu=self.gpu, model_type=self.model_name)
-        return self._model
+    def _get_model(self, hypothesis: str) -> Any:
+        """The hypothesis's model, loaded once in this process."""
+        return _model_for(self._source(hypothesis), self.gpu, self._loader)
 
     def segment_stack(
         self,
         stack: np.ndarray,
         bounds: Tuple[float, float],
-        hypothesis: str = "S1",
+        hypothesis: Optional[str] = None,
         params: Optional[Mapping[str, Any]] = None,
         batch_size: int = 64,
     ) -> Tuple[np.ndarray, List[int]]:
-        """Segment a ``(T, Y, X)`` stack of one trench under one hypothesis.
-
-        Returns the labels ordered from the closed end and the frames Omnipose
-        failed on (left empty). Omnipose 2.0 can raise ``IndexError`` while
-        building masks for some frames; the stack is then retried frame by frame.
-        """
-        s = self.settings(hypothesis, params)
-        x = normalise(stack, *bounds, gain=s["gain"])
-        kwargs = {
-            "normalize": False,
-            "show_progress": False,
-            "batch_size": batch_size,
-            "rescale_factor": s["rescale"],
-            "mask_threshold": s["mask_threshold"],
-            "flow_threshold": s["flow_threshold"],
-            "min_size": max(1, int(round(s["min_area"] / self.pixel_size ** 2))),
-        }
-        model = self._get_model()
-        failed: List[int] = []
-        with _quiet_omnipose():
-            try:
-                masks = np.asarray(model.eval(x, **kwargs).masks)
-            except IndexError:
-                masks = np.zeros(x.shape, dtype=np.int32)
-                for t, frame in enumerate(x):
-                    try:
-                        masks[t] = np.asarray(model.eval(frame[None], **kwargs).masks)[0]
-                    except IndexError:
-                        failed.append(t)
-        masks = drop_faint(masks, stack, s["min_contrast"])
-        return order_from_closed_end(masks), failed
-
-    def _segment_trench(
-        self, root: zarr.Group, trench_id: int, stack: np.ndarray, batch_size: int,
-    ) -> Tuple[Tuple[float, float], Dict[str, List[int]]]:
-        """Segment a trench under every hypothesis and write its label images."""
-        bounds = self.bounds(trench_id, stack)
-        labels: Dict[str, np.ndarray] = {}
-        failed: Dict[str, List[int]] = {}
-        for hypothesis in self.hypotheses:
-            labels[hypothesis], frames = self.segment_stack(
-                stack, bounds, hypothesis, batch_size=batch_size,
-            )
-            if frames:
-                failed[hypothesis] = frames
-        write_segmentation(root, trench_id, self.name, labels, attrs={
-            "long_name": LONG_NAME, "channel": self.channel, "model": self.model_name,
-            "lower": bounds[0], "upper": bounds[1], "failed_frames": failed,
-        })
-        return bounds, failed
+        """Segment a ``(T, Y, X)`` stack of one trench under one hypothesis (the base if
+        ``None``), in this process: the labels ordered from the closed end and the
+        frames Omnipose failed on (see :func:`segment_with`)."""
+        hypothesis = hypothesis or self.hypotheses[0]
+        return segment_with(self._get_model(hypothesis), self.settings(hypothesis, params),
+                            stack, bounds, self.pixel_size, batch_size)
 
     # ------------------------------------------------------------------
     # Batch segmentation
@@ -506,7 +656,7 @@ class Segmenter:
                 **current,
                 "description": (
                     f"Omnipose labels of the {self.channel} channel under each hypothesis's "
-                    f"settings; each trench's labels/{self.name}.<hypothesis>"
+                    f"model and settings; each trench's labels/{self.name}.<hypothesis>"
                 ),
                 "schema_version": SCHEMA_VERSION,
                 "provenance": plain_json(provenance()),
@@ -514,12 +664,45 @@ class Segmenter:
                 "created": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
             })
 
+    def _recipe(self, runner: Runner, threads: Optional[int]) -> Tuple["_Recipe", Dict[str, Any]]:
+        """What every task needs, and the checkpoints' bytes (sent once per Dask worker,
+        which may be on another machine; pool workers read the files)."""
+        weights = {}
+        if runner.kind == "dask":
+            for h in self.hypotheses:
+                path = self.checkpoint_path(h)
+                if path is not None:
+                    weights[h] = runner.share(np.fromfile(path, dtype=np.uint8))
+        recipe = _Recipe(
+            sources=tuple(self._source(h) for h in self.hypotheses),
+            settings={h: self.settings(h) for h in self.hypotheses},
+            pixel_size=float(self.pixel_size),
+            gpu=self.gpu,
+            threads=threads,
+            digest=code_digest(),
+            loader=self._loader,
+        )
+        return recipe, weights
+
+    def _read(self, trench_id: int) -> Tuple[int, np.ndarray, Tuple[float, float]]:
+        stack = self.read(trench_id)
+        return trench_id, stack, self.bounds(trench_id, stack)
+
+    def _write(self, root: zarr.Group, trench_id: int, bounds: Tuple[float, float],
+               packed: Mapping[str, Any], failed: Mapping[str, List[int]],
+               made_on: Mapping[str, str]) -> None:
+        write_segmentation(root, trench_id, self.name, {h: _unpack(p) for h, p in packed.items()},
+                           attrs={"long_name": LONG_NAME, "channel": self.channel,
+                                  "lower": bounds[0], "upper": bounds[1],
+                                  "failed_frames": dict(failed), "made_on": dict(made_on)})
+
     def segment(
         self,
         trenches: Optional[Sequence[int]] = None,
         resume: bool = True,
         batch_size: int = 64,
         workers: int = 1,
+        threads: int = 1,
         show_progress: bool = True,
     ) -> None:
         """Segment the trenches under every hypothesis and write their label images.
@@ -527,10 +710,14 @@ class Segmenter:
         Each trench is finished once its label images are all written, so an
         interrupted run resumes with the trenches not finished.
 
-        Most of each trench's time is Omnipose building masks on the CPU, which
-        runs no faster with more threads; ``workers > 1`` segments that many
-        trenches at once in separate single-threaded processes, each with its
-        own copy of the model on the GPU, each writing its own trenches.
+        Trenches go where :class:`~pymmm.parallel.Runner` sends tasks: to the active
+        Dask client's workers when there is one (on this machine or others with the
+        same environment and PyMMM), else to ``workers`` local processes, else (1) to
+        this process. Each task gets a trench's frames and returns its labels; this
+        process alone writes the experiment group. A worker loads each model once.
+        Most of each trench's time is Omnipose building masks on the CPU, which runs
+        no faster with more threads, so workers use ``threads`` each and more
+        workers segment more trenches at once.
 
         Parameters
         ----------
@@ -538,16 +725,17 @@ class Segmenter:
             Trench ids to segment (a few, to check the settings before the rest);
             all if ``None``.
         resume : bool
-            Keep the trenches already finished with the same channel, model,
-            settings, hypotheses and extraction. ``False`` re-segments
-            ``trenches``. Results are never cleared otherwise: if the settings
-            changed, every trench that has results must be re-segmented
-            (``segment(resume=False)``), or this raises.
+            Keep the trenches already finished with the same channel, hypotheses,
+            settings, checkpoints and extraction. ``False`` re-segments ``trenches``.
+            Results are never cleared otherwise: if the settings changed, every
+            trench that has results must be re-segmented (``segment(resume=False)``),
+            or this raises.
         batch_size : int
             Frames per Omnipose GPU batch.
         workers : int
-            Trenches segmented at once, each in its own process (1: in this
-            process).
+            Local worker processes when there is no Dask client (1: this process).
+        threads : int
+            CPU threads of each worker (this process, alone, uses them all).
         show_progress : bool
             Show a tqdm progress bar.
         """
@@ -564,56 +752,48 @@ class Segmenter:
             total=len(todo), desc=f"{self.name} {', '.join(self.hypotheses)}",
             disable=not show_progress,
         )
-        with _environment(_WORKER_THREADS if workers > 1 else {}):
-            pool = None
-            if workers > 1 and todo:
-                pool = ProcessPoolExecutor(
-                    max_workers=workers,
-                    mp_context=SPAWN,
-                    initializer=_init_worker,
-                    initargs=(str(self.store_path), self.channel, self.model_name,
-                              self.name, self.hypotheses, self.gpu, self._params),
-                )
-            reader = ThreadPoolExecutor(max_workers=1)
-            try:
-                if pool is None:
-                    pending = reader.submit(self.read, todo[0]) if todo else None
-                    for k, trench_id in enumerate(todo):
-                        stack = pending.result()
-                        if k + 1 < len(todo):
-                            pending = reader.submit(self.read, todo[k + 1])
-                        _, failed = self._segment_trench(root, trench_id, stack, batch_size)
+        runner = Runner(workers=workers)
+        pool = runner.kind == "pool"
+        reader = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pymmm-read")
+        writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pymmm-write")
+        writes: List[Any] = []
+        try:
+            with _environment(_WORKER_THREADS if pool else {}), runner, \
+                    _dask_config(_LARGE_TASK if runner.kind == "dask" else None):
+                recipe, weights = self._recipe(runner, None if runner.kind == "serial" else threads)
+                queue = iter(todo)
+
+                def _read_next():
+                    trench_id = next(queue, None)
+                    return None if trench_id is None else reader.submit(self._read, trench_id)
+
+                pending = _read_next()
+                running: Dict[Any, Tuple[int, Tuple[float, float]]] = {}
+                while pending is not None or running:
+                    # at most two trenches per worker thread: one running, one waiting
+                    while pending is not None and len(running) < 2 * runner.slots:
+                        trench_id, stack, bounds = pending.result()
+                        pending = _read_next()
+                        future = runner.submit(_segment_task, recipe, weights, stack, bounds, batch_size)
+                        running[future] = (trench_id, bounds)
+                    # the finished ones first, so a failure does not drop labels already made
+                    for future in sorted(runner.wait_first(list(running)), key=_failed):
+                        trench_id, bounds = running.pop(future)
+                        packed, failed, made_on = future.result()
                         if failed:
                             failed_frames[trench_id] = failed
+                        writes.append(writer.submit(self._write, root, trench_id, bounds, packed,
+                                                    failed, made_on))
                         progress.update()
-                else:
-                    # Workers write their own trenches' label images (never shared).
-                    queue = iter(todo)
-                    running = {}
-
-                    def _submit_next() -> None:
-                        trench_id = next(queue, None)
-                        if trench_id is not None:
-                            task = (trench_id, self._bounds.get(trench_id), batch_size)
-                            running[pool.submit(_segment_in_worker, task)] = trench_id
-
-                    for _ in range(2 * workers):
-                        _submit_next()
-                    while running:
-                        finished, _ = wait(running, return_when=FIRST_COMPLETED)
-                        for future in finished:
-                            running.pop(future)
-                            trench_id, bounds, failed = future.result()
-                            self._bounds[trench_id] = bounds
-                            if failed:
-                                failed_frames[trench_id] = failed
-                            progress.update()
-                            _submit_next()
-            finally:
-                progress.close()
-                reader.shutdown(wait=False, cancel_futures=True)
-                if pool is not None:
-                    pool.shutdown(wait=True, cancel_futures=True)
+                    for write in [w for w in writes if w.done()]:
+                        writes.remove(write)
+                        write.result()
+                for write in writes:
+                    write.result()
+        finally:
+            progress.close()
+            reader.shutdown(wait=False, cancel_futures=True)
+            writer.shutdown(wait=True)  # the labels already made are kept
 
         done = self.finished()
         print(
@@ -635,8 +815,8 @@ class Segmenter:
         Uses ipywidgets for the controls, ndv for the channel with label
         outlines (all frames of the selected trench, under the selected
         hypothesis), and matplotlib for the number of cells per frame. The
-        sliders set the base settings; S2–S4 override some of them (shown under
-        the hypothesis). **Apply** keeps the settings for :meth:`segment`.
+        sliders set the base settings; a hypothesis may override some of them
+        (shown under it). **Apply** keeps the settings for :meth:`segment`.
         """
         from pymmm.widgets.segmentation import segmentation_widget
 
@@ -650,50 +830,218 @@ class Segmenter:
         return label_viewer(self)
 
     def __repr__(self) -> str:
+        models = sorted({s.get("model") or "checkpoints" for s in self._specs.values()})
         return (
             f"Segmenter({self.store_path.name}, labels/{self.name}.<{'|'.join(self.hypotheses)}>, "
-            f"channel={self.channel!r}, model={self.model_name!r}, "
+            f"channel={self.channel!r}, model={'+'.join(models)!r}, "
             f"{len(self.finished())}/{len(self.trench_ids)} trenches finished)"
         )
 
 
 # ----------------------------------------------------------------------
-# Worker processes for Segmenter.segment(workers > 1)
+# Tasks: one trench under every hypothesis, wherever the Runner runs it
 # ----------------------------------------------------------------------
 
-_WORKER: Optional[Segmenter] = None
+
+@dataclass(frozen=True)
+class _ModelSource:
+    """A hypothesis's model: a stock model by name, or a checkpoint (its file on the
+    machine that made the task, its sha256, and ``data``: its bytes, shared with the
+    Runner, for workers on other machines)."""
+
+    hypothesis: str
+    model: Optional[str]
+    checkpoint: Optional[str]
+    sha256: Optional[str]
+    data: Any = None
 
 
-def _init_worker(
-    store_path: str, channel: str, model: str, name: str, hypotheses: List[str],
-    gpu: bool, params: Dict[str, Any],
-) -> None:
-    """Process-pool initializer: a single-threaded Segmenter with its own model.
+@dataclass(frozen=True)
+class _Recipe:
+    """What every task of a run needs besides the trench."""
 
-    The thread limits come from the parent's environment (``_WORKER_THREADS``).
-    """
-    global _WORKER
-    _WORKER = Segmenter(store_path, channel=channel, model=model, name=name,
-                        hypotheses=hypotheses, gpu=gpu)
-    _WORKER._params = dict(params)
-    _WORKER._get_model()
+    sources: Tuple[_ModelSource, ...]
+    settings: Dict[str, Dict[str, Any]]
+    pixel_size: float
+    gpu: bool
+    threads: Optional[int]
+    digest: str
+    loader: Optional[str] = None
+
+
+_MODELS: Dict[Tuple[str, bool], Any] = {}  # in each process: the models it loaded
+_DIGEST: Optional[str] = None
+
+
+def code_digest() -> str:
+    """This process's segmentation code and Omnipose version, as a short hash: a task
+    made by another process (another machine's notebook) must find the same."""
+    global _DIGEST
+    if _DIGEST is None:
+        digest = hashlib.sha256()
+        here = Path(__file__).resolve().parent
+        for name in ("segmentation.py", "omnipose.py"):
+            digest.update((here / name).read_bytes())
+        try:
+            digest.update(metadata.version("omnipose").encode())
+        except metadata.PackageNotFoundError:
+            digest.update(b"no omnipose")
+        _DIGEST = digest.hexdigest()[:16]
+    return _DIGEST
+
+
+def _load_model(source: _ModelSource, path: Optional[str], gpu: bool) -> Any:
+    from pymmm.steps.omnipose import load_model
+
+    with _quiet_omnipose():
+        if path is not None:
+            return load_model(checkpoint=path, gpu=gpu)
+        return load_model(model=source.model, gpu=gpu)
+
+
+def _model_for(source: _ModelSource, gpu: bool, loader: Optional[str] = None) -> Any:
+    """The source's model, loaded once per process. A checkpoint sent as bytes is
+    written once to this machine's temporary folder, under its own file name."""
+    key = (source.sha256 or f"model:{source.model}", gpu)
+    if key not in _MODELS:
+        path = source.checkpoint
+        if source.data is not None:
+            path = _materialise(source)
+        load = _load_model
+        if loader is not None:
+            import importlib
+
+            module, _, function = loader.partition(":")
+            load = getattr(importlib.import_module(module), function)
+        _MODELS[key] = load(source, path, gpu)
+    return _MODELS[key]
+
+
+def _materialise(source: _ModelSource) -> str:
+    folder = Path(tempfile.gettempdir()) / "pymmm_models" / str(source.sha256)
+    path = folder / Path(str(source.checkpoint)).name
+    if not path.is_file() or sha256(path) != source.sha256:
+        folder.mkdir(parents=True, exist_ok=True)
+        part = path.with_name(f"{path.name}.{os.getpid()}.part")
+        np.asarray(shared(source.data), dtype=np.uint8).tofile(part)
+        if sha256(part) != source.sha256:
+            part.unlink()
+            raise RuntimeError(f"checkpoint {source.checkpoint} arrived damaged on {socket.gethostname()}")
+        part.replace(path)
+    return str(path)
+
+
+@contextmanager
+def _limit_threads(threads: Optional[int]) -> Iterator[None]:
+    """At most ``threads`` CPU threads in BLAS/OpenMP, torch and numba (None: no limit)."""
+    if threads is None:
+        yield
+        return
+    from pymmm.steps.omnipose import PARLAY_THREADS
+
+    for var, value in PARLAY_THREADS.items():
+        os.environ.setdefault(var, value)
+    try:  # in the segment extra's environment (scikit-learn brings it)
+        from threadpoolctl import threadpool_limits
+    except ImportError:
+        threadpool_limits = None
     try:
         import torch
+    except ImportError:
+        torch = None
+    previous = torch.get_num_threads() if torch is not None else None
+    if torch is not None:
+        torch.set_num_threads(threads)
+    try:
+        import numba
 
-        torch.set_num_threads(1)
+        numba.set_num_threads(min(threads, numba.config.NUMBA_NUM_THREADS))
     except ImportError:
         pass
+    try:
+        with threadpool_limits(limits=threads) if threadpool_limits else _nothing():
+            yield
+    finally:
+        if torch is not None:
+            torch.set_num_threads(previous)
 
 
-def _segment_in_worker(
-    task: Tuple[int, Optional[Tuple[float, float]], int],
-) -> Tuple[int, Tuple[float, float], Dict[str, List[int]]]:
-    """Segment one trench under every hypothesis in a worker; write its label images."""
-    trench_id, bounds, batch_size = task
-    seg = _WORKER
-    if bounds is not None:
-        seg._bounds[trench_id] = bounds
-    bounds, failed = seg._segment_trench(
-        seg._open(mode="r+"), trench_id, seg.read(trench_id), batch_size,
-    )
-    return trench_id, bounds, failed
+@contextmanager
+def _nothing() -> Iterator[None]:
+    yield
+
+
+@contextmanager
+def _dask_config(values: Optional[Mapping[str, Any]]) -> Iterator[None]:
+    if not values:
+        yield
+        return
+    import dask
+
+    with dask.config.set(values):
+        yield
+
+
+def _failed(future: Any) -> bool:
+    return future.exception() is not None
+
+
+def _pack(labels: np.ndarray) -> Tuple[bytes, Tuple[int, ...]]:
+    """``uint16`` labels, compressed for the way back (mostly background: a few % of their size)."""
+    from numcodecs import Blosc
+
+    labels = np.ascontiguousarray(labels, dtype=np.uint16)
+    codec = Blosc(cname="zstd", clevel=3, shuffle=Blosc.BITSHUFFLE)
+    return codec.encode(labels), labels.shape
+
+
+def _unpack(packed: Tuple[bytes, Tuple[int, ...]]) -> np.ndarray:
+    from numcodecs import Blosc
+
+    data, shape = packed
+    return np.frombuffer(Blosc().decode(data), dtype=np.uint16).reshape(shape)
+
+
+def _segment_task(
+    recipe: _Recipe,
+    weights: Mapping[str, Any],
+    stack: np.ndarray,
+    bounds: Tuple[float, float],
+    batch_size: int,
+) -> Tuple[Dict[str, Tuple[bytes, Tuple[int, ...]]], Dict[str, List[int]], Dict[str, str]]:
+    """Segment one trench's frames under every hypothesis: each one's packed labels,
+    the frames Omnipose failed on, and the machine and device that made them (GPUs
+    differ in the last bits, so masks may differ by a boundary pixel between
+    machines). Store-free, so it runs on any machine."""
+    if code_digest() != recipe.digest:
+        raise RuntimeError(
+            f"{socket.gethostname()} runs other segmentation code or another Omnipose "
+            "than the notebook: copy this PyMMM there (rsync) and restart its workers"
+        )
+    packed: Dict[str, Tuple[bytes, Tuple[int, ...]]] = {}
+    failed: Dict[str, List[int]] = {}
+    model = None
+    with _limit_threads(recipe.threads):
+        for source in recipe.sources:
+            if source.hypothesis in weights:
+                source = _ModelSource(source.hypothesis, source.model, source.checkpoint,
+                                      source.sha256, weights[source.hypothesis])
+            model = _model_for(source, recipe.gpu, recipe.loader)
+            labels, frames = segment_with(model, recipe.settings[source.hypothesis], stack,
+                                          bounds, recipe.pixel_size, batch_size)
+            packed[source.hypothesis] = _pack(labels)
+            if frames:
+                failed[source.hypothesis] = frames
+    return packed, failed, {"host": socket.gethostname(), "device": _device_name(model)}
+
+
+def _device_name(model: Any) -> str:
+    device = str(getattr(model, "device", "cpu"))
+    if device.startswith("cuda"):
+        try:
+            import torch
+
+            return torch.cuda.get_device_name(torch.device(device))
+        except Exception:  # noqa: BLE001 - a name for the record only
+            pass
+    return device

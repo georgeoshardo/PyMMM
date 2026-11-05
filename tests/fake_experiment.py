@@ -372,9 +372,15 @@ class FakeModel:
         self.frame_calls = 0
         self.kwargs = []
 
+    device = "cpu"
+
     def eval(self, x, **kwargs):
         assert kwargs["normalize"] is False
         self.kwargs.append(kwargs)
+        if kwargs.get("compute_masks") is False:  # masks="affinity": the network's maps
+            self.stack_calls += 1
+            return SimpleNamespace(flows=[SimpleNamespace(dP=np.zeros((2,) + f.shape), dist=f)
+                                          for f in x])
         if x.shape[0] > 1:
             self.stack_calls += 1
             if self.fail_stack:
@@ -385,3 +391,14 @@ class FakeModel:
             if t in self.fail_frames:
                 raise IndexError("index 1 is out of bounds")
         return SimpleNamespace(masks=np.stack([bottom_first(f > self.THRESHOLD) for f in x]))
+
+
+def fake_affinity_masks(dP, dist, device, *, mask_threshold, flow_threshold, angle, min_size):
+    """Stands in for ``omnipose.affinity_masks``: thresholds the distance map (here the
+    normalised image) as :class:`FakeModel` does."""
+    return bottom_first(dist > FakeModel.THRESHOLD)
+
+
+def load_fake_model(source, path, gpu):
+    """A Segmenter task's model loader in a worker process (``segmenter._loader``)."""
+    return FakeModel()

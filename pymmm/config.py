@@ -18,10 +18,18 @@ a new dataset means writing one file::
     [curation]
     kymograph_channel = "PC"
 
+or, for hypotheses that are fine-tuned checkpoints, in place of ``model`` and
+``hypotheses``::
+
+    models = "models"                       # the checkpoints' folder
+    checkpoints = {e250 = "omni_epoch_250", e050 = "omni_epoch_50"}   # the base first
+    params = {masks = "affinity", floor = 0.0, min_contrast = "off"}
+
 ``store`` is the experiment group the Extractor writes: one OME-Zarr image per
 trench, with each trench's segmentations and tracks beside its pixels (see
-:mod:`pymmm.store.experiment_group`). Relative paths are relative to the TOML file's
-folder. ``experiment.segmenter()`` builds the Segmenter from it.
+:mod:`pymmm.store.experiment_group`). Relative paths (``models`` too) are relative to
+the TOML file's folder. ``experiment.segmenter()`` builds the Segmenter from it;
+``params`` are the base settings of a new segmentation.
 """
 
 from __future__ import annotations
@@ -78,9 +86,20 @@ class Experiment:
         """A :class:`~pymmm.steps.segmentation.Segmenter` for the experiment group."""
         from pymmm.steps.segmentation import Segmenter
 
+        from pymmm.steps.segmentation import checkpoint_hypotheses
+
         seg = self.segmentation
-        kwargs = {"channel": seg.get("channel", "mCherry"), "name": self.segmentation_name}
-        for key in ("model", "hypotheses"):
+        kwargs: Dict[str, Any] = {"channel": seg.get("channel", "mCherry"), "name": self.segmentation_name}
+        for key in ("model", "hypotheses", "params"):
             if key in seg:
                 kwargs[key] = seg[key]
+        if "checkpoints" in seg:
+            if "hypotheses" in seg:
+                raise ValueError(f"{self.source}: [segmentation] gives both hypotheses and checkpoints")
+            kwargs["hypotheses"] = checkpoint_hypotheses(seg["checkpoints"])
+        if "models" in seg:
+            models = Path(seg["models"]).expanduser()
+            if not models.is_absolute() and self.source is not None:
+                models = self.source.parent / models
+            kwargs["models"] = models.resolve()
         return Segmenter(self.store, **{**kwargs, **overrides})

@@ -66,8 +66,13 @@ is one, else in a process pool.
 
 After extraction:
 
-- `Segmenter(path, channel, model)` labels every trench with Omnipose, one label image
-  per *hypothesis* (alternative settings), the base first.
+- `Segmenter(path, channel, ...)` labels every trench with Omnipose, one label image
+  per *hypothesis*, the base first. A hypothesis is a model under some settings: a stock
+  model under the S1–S4 presets, or a fine-tuned checkpoint (`checkpoint_hypotheses`).
+  It runs on the active Dask client's workers if there is one, else in a process pool or
+  in this process. A Dask worker on another machine needs only the environment and
+  PyMMM: each task carries a trench's frames and returns its labels, the checkpoints go
+  to each worker once, and the notebook alone writes the experiment group.
 - A tracker writes each trench's tracks with `pymmm.store.geff.write_tracks`: the
   masks it chose and a GEFF graph.
 - mm-track curates the tracks in a curated copy beside them.
@@ -109,6 +114,7 @@ napari --plugin napari-ome-zarr experiment.zarr/trench_0007
 | `steps.lanes`, `steps.trenches` | `LaneDetector`, `TrenchDetector`: lane and trench geometry |
 | `steps.extraction` | `Extractor`: writes the experiment group |
 | `steps.segmentation` | `Segmenter`: Omnipose labels per hypothesis |
+| `steps.omnipose` | loading Omnipose models (stock or checkpoint files) and building masks by affinity |
 | `widgets` | the notebook UIs the steps open: lane, trench and segmentation tuning, the label viewer |
 | `parallel` | where batches run: the active Dask client, a process pool, or this process; `local_cluster`, a notebook's Dask cluster, whose workers outlive the Interrupt button (it then drops the queued batches) |
 | `config` | the experiment file |

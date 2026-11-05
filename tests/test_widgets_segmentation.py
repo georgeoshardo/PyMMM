@@ -30,10 +30,10 @@ def test_segmentation_widget_segments_the_chosen_trench(notebook, segmenter):
     np.testing.assert_array_equal(viewer.data, label_overlay(stack, masks))
     assert notebook.text("Segmented").startswith("Segmented 4 frames in")
     assert notebook.text("Trench").startswith("<b>Trench 10</b> (f0), S1 — up to 2 cells")
-    assert notebook.text("sliders") == "uses the sliders as they are"
+    assert notebook.text("sliders") == "model bact_fluor_omni; uses the sliders as they are"
 
     notebook.control("hypothesis").value = "S2"
-    assert notebook.text("overrides") == "overrides: " + ", ".join(
+    assert notebook.text("overrides") == "model bact_fluor_omni; overrides: " + ", ".join(
         f"{k} {v}" for k, v in HYPOTHESES["S2"].items())
     notebook.control("trench (index)").value = 2
     assert notebook.text("Trench").startswith("<b>Trench 12</b> (f1), S2")
@@ -46,9 +46,9 @@ def test_segmentation_widget_apply_keeps_the_settings(notebook, segmenter):
     notebook.control("gain").value = 2.0
     notebook.control("Apply").click()
     assert segmenter.params["gain"] == 2.0
-    assert set(segmenter.params) == {"floor", "floor_sigma", "gain", "rescale",
-                                     "mask_threshold", "flow_threshold", "min_area",
-                                     "min_contrast"}
+    assert set(segmenter.params) == {"floor", "floor_sigma", "gain", "rescale", "masks",
+                                     "mask_threshold", "flow_threshold", "affinity_angle",
+                                     "min_area", "min_contrast"}
     assert notebook.text("Applied").startswith(
         "<b>Applied</b> — base settings kept for segment()<br>1 trenches already have "
         "results with the previous settings")

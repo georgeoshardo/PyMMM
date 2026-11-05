@@ -33,11 +33,16 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 
 @pytest.fixture
 def fake_model(monkeypatch) -> FakeModel:
-    """Every Segmenter's Omnipose model, thresholding the image (:class:`FakeModel`)."""
-    from pymmm.steps.segmentation import Segmenter
+    """Every Omnipose model in this process, thresholding the image (:class:`FakeModel`);
+    affinity masks threshold the same way."""
+    from fake_experiment import fake_affinity_masks
+
+    from pymmm.steps import omnipose, segmentation
 
     model = FakeModel()
-    monkeypatch.setattr(Segmenter, "_get_model", lambda self: model)
+    monkeypatch.setattr(segmentation, "_MODELS", {})
+    monkeypatch.setattr(segmentation, "_load_model", lambda source, path, gpu: model)
+    monkeypatch.setattr(omnipose, "affinity_masks", fake_affinity_masks)
     return model
 
 

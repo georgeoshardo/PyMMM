@@ -33,3 +33,21 @@ def test_experiment_builds_the_segmenter_from_its_settings(tmp_path, monkeypatch
     assert segmenter.store_path == tmp_path / "exp.zarr"
     assert (segmenter.channel, segmenter.name, segmenter.hypotheses) == ("mCherry", "mc", ["S1", "S3"])
     assert segmenter.model_name == "bact_fluor_omni"
+
+
+def test_experiment_builds_a_checkpoint_segmenter(tmp_path, fake_model):
+    make_experiment(tmp_path)
+    models = tmp_path / "models"
+    models.mkdir()
+    (models / "omni_epoch_250").write_bytes(b"weights")
+    (tmp_path / "exp.toml").write_text(
+        'name = "exp"\nnd2 = "exp.nd2"\nstore = "exp.zarr"\n'
+        '[segmentation]\nchannel = "mCherry"\nname = "ens"\nmodels = "models"\n'
+        'checkpoints = {e250 = "omni_epoch_250"}\n'
+        'params = {masks = "affinity", floor = 0.0, min_contrast = "off"}\n'
+    )
+    segmenter = Experiment.load(tmp_path / "exp.toml").segmenter(gpu=False)
+    assert segmenter.hypotheses == ["e250"]
+    assert segmenter.checkpoint_path("e250") == (models / "omni_epoch_250").resolve()
+    assert segmenter.params["masks"] == "affinity" and segmenter.params["min_contrast"] is None
+    assert segmenter.params["floor"] == 0.0

@@ -25,11 +25,12 @@ import os
 import signal
 import tempfile
 import weakref
-from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor
 from concurrent.futures import as_completed as _futures_completed
+from concurrent.futures import wait as _futures_wait
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, Optional, Set, Tuple
 
 import numpy as np
 
@@ -165,6 +166,16 @@ class Runner:
         if isinstance(handle, SharedFile):
             os.unlink(handle.path)
 
+    @property
+    def slots(self) -> int:
+        """How many tasks run at once now: the Dask workers' threads (workers may join or
+        leave during a run), the pool's processes, or 1."""
+        if self.client is not None:
+            return max(1, sum(self.client.nthreads().values()))
+        if self.workers == 1:
+            return 1
+        return self.workers or os.cpu_count() or 1
+
     def as_completed(self, futures: Iterable[Any]) -> Iterator[Any]:
         """The futures, as they finish."""
         if self.client is not None:
@@ -172,6 +183,15 @@ class Runner:
 
             return iter(as_completed(list(futures)))
         return _futures_completed(list(futures))
+
+    def wait_first(self, futures: Iterable[Any]) -> Set[Any]:
+        """Wait until at least one of the futures is done; the done ones."""
+        futures = list(futures)
+        if self.client is not None:
+            from dask.distributed import wait
+
+            return set(wait(futures, return_when="FIRST_COMPLETED").done)
+        return set(_futures_wait(futures, return_when=FIRST_COMPLETED).done)
 
     def cancel(self) -> None:
         """Drop the tasks not started yet: the queued Dask tasks (and shared arrays) and

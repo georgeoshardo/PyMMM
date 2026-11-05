@@ -50,6 +50,23 @@ def _total(reference, extra):
     return float(shared(reference).sum()) + extra
 
 
+def test_slots_and_wait_first_wherever_tasks_run():
+    with Runner(workers=1) as runner:
+        future = runner.submit(sum, [1, 2])
+        assert runner.slots == 1 and runner.wait_first([future]) == {future}
+    with Runner(workers=3, dask=False) as runner:
+        futures = [runner.submit(sum, [i]) for i in range(3)]
+        done = runner.wait_first(futures)
+        assert runner.slots == 3 and done and done <= set(futures)
+    distributed = pytest.importorskip("dask.distributed")
+    with distributed.Client(processes=False, n_workers=2, threads_per_worker=1,
+                            dashboard_address=None):
+        with Runner(workers=1) as runner:
+            futures = [runner.submit(sum, [i, 1]) for i in range(3)]
+            done = runner.wait_first(futures)
+            assert runner.slots == 2 and done and done <= set(futures)
+
+
 def test_a_shared_array_reaches_every_task_wherever_it_runs(tmp_path):
     import numpy as np
 
