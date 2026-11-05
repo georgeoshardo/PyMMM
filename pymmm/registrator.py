@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import multiprocessing
 import os
 import tempfile
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
@@ -17,25 +16,14 @@ from tqdm.auto import tqdm
 from pymmm._utils import normalize_channel_arg, normalize_fov_arg
 from pymmm.checkpoint import CompanionStore
 from pymmm.experiment import ND2Experiment
+from pymmm.parallel import SPAWN, dask_client
 
-# Spawn context — fresh Python interpreters that know nothing about
-# the parent's dask Client, event loops, or thread state.
-_mp_ctx = multiprocessing.get_context("spawn")
 TRANSFORM_CONVENTION = "raw_translation_then_rotation_v1"
 
 
 # ======================================================================
 # Pure-function helpers (module-level for pickling across spawn workers)
 # ======================================================================
-
-
-def _try_get_dask_client():
-    """Return the active dask distributed Client, or None."""
-    try:
-        from dask.distributed import get_client
-        return get_client()
-    except (ImportError, ValueError):
-        return None
 
 
 def _register_and_get_matrix(
@@ -668,7 +656,7 @@ class Registrator:
             finally:
                 if thread_pool is not None:
                     thread_pool.shutdown()
-        elif (client := _try_get_dask_client()) is not None:
+        elif (client := dask_client()) is not None:
             # Dask path — reuse the user's existing distributed cluster
             from dask.distributed import as_completed as dask_as_completed
 
@@ -724,7 +712,7 @@ class Registrator:
         else:
             # PPE fallback — pool + tmpdir created once, reused across FOVs
             with tempfile.TemporaryDirectory(prefix="pymmm_reg_") as tmpdir, \
-                 ProcessPoolExecutor(max_workers=max_workers, mp_context=_mp_ctx) as pool:
+                 ProcessPoolExecutor(max_workers=max_workers, mp_context=SPAWN) as pool:
                 for fov in tqdm(fov_names, desc="Registering FOVs"):
                     fov_str = str(fov) if fov is not None else None
                     fov_idx = exp.raw_fov_index(fov_str) if fov_str is not None else 0
@@ -834,7 +822,7 @@ class Registrator:
                 fov_da = _collect_pairs(fov, fov_idx, pair_mats)
                 parts.append(fov_da)
                 self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
-        elif (client := _try_get_dask_client()) is not None:
+        elif (client := dask_client()) is not None:
             # Dask path — no scatter needed, workers load their own frames
             from dask.distributed import as_completed as dask_as_completed
 
@@ -864,7 +852,7 @@ class Registrator:
                 parts.append(fov_da)
                 self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
         else:
-            with ProcessPoolExecutor(max_workers=max_workers, mp_context=_mp_ctx) as pool:
+            with ProcessPoolExecutor(max_workers=max_workers, mp_context=SPAWN) as pool:
                 for fov in tqdm(fov_names, desc="Registering FOVs"):
                     fov_str = str(fov) if fov is not None else None
                     fov_idx = exp.raw_fov_index(fov_str) if fov_str is not None else 0
@@ -1050,7 +1038,7 @@ class Registrator:
                     str(exp.path), exp.raw_fov_index(fov_name), time_indices,
                     channel_idx, y_roi, x_roi, matrices,
                 ))
-            client = _try_get_dask_client()
+            client = dask_client()
             if client is not None:
                 futures = [client.submit(_registered_mean, *task, pure=False) for task in tasks]
                 results = client.gather(futures)

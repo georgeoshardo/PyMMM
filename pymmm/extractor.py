@@ -25,8 +25,6 @@ from __future__ import annotations
 
 import json
 import math
-import multiprocessing
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -44,31 +42,22 @@ from pymmm.metadata import (
     build_source_frames_dataset,
     extract_source_frame_metadata,
 )
-from pymmm.provenance import SCHEMA_VERSION, provenance
+from pymmm.parallel import Runner
+from pymmm.provenance import SCHEMA_VERSION, plain_json, provenance
 from pymmm.registrator import (
     TRANSFORM_CONVENTION,
     Registrator,
     _rotation_matrix,
 )
+from pymmm.store import ome
 from pymmm.trench_detector import TrenchDetector
 from pymmm.trench_images import CHUNK_KEYS as _CHUNK_KEYS
-from pymmm.trench_images import OME_VERSION, trench_path
-
-_mp_ctx = multiprocessing.get_context("spawn")
+from pymmm.trench_images import trench_path
 
 
 # ======================================================================
 # Module-level helpers (picklable for client.submit / ProcessPoolExecutor)
 # ======================================================================
-
-
-def _try_get_dask_client():
-    """Return the active dask distributed Client, or None."""
-    try:
-        from dask.distributed import get_client
-        return get_client()
-    except (ImportError, ValueError):
-        return None
 
 
 def _extract_frame_batch(
@@ -124,10 +113,6 @@ def _extract_frame_batch(
                         result[batch_t, local_idx, channel_idx] = crop
 
     return result
-
-
-def _json(value):
-    return json.loads(json.dumps(value, default=str))
 
 
 _TABLE_ATTRS = {
@@ -204,7 +189,7 @@ class Extractor:
         self, *, channel_names: list[str], pixel_size_um: float, frame_interval_ms: float,
     ) -> dict[str, Any]:
         """The experiment group's ``pymmm`` attributes."""
-        return _json({
+        return plain_json({
             "schema_version": SCHEMA_VERSION,
             "layout": "experiment",
             "description": (
@@ -229,49 +214,15 @@ class Extractor:
         frame_interval_ms: float,
         dtype: np.dtype,
         fov_index: int,
-        windows: list[tuple[float, float]] | None = None,
     ) -> dict[str, Any]:
         """A trench image's attributes: OME multiscales and omero, and its table row."""
         trench_id = int(row["trench_id"])
-        time_axis = {"name": "t", "type": "time"}
-        space = [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]
-        scale = [1.0, 1.0, 1.0, 1.0]
-        if np.isfinite(frame_interval_ms) and frame_interval_ms > 0:
-            time_axis["unit"] = "minute"
-            scale[0] = frame_interval_ms / 60_000.0
-        if np.isfinite(pixel_size_um) and pixel_size_um > 0:
-            for axis in space:
-                axis["unit"] = "micrometer"
-            scale[2:] = [pixel_size_um, pixel_size_um]
-        top = float(np.iinfo(dtype).max) if np.issubdtype(dtype, np.integer) else 1.0
-        channels = [
-            {
-                "label": label,
-                "color": color,
-                "active": label == self.registrator.channel,
-                "window": {
-                    "min": 0.0, "max": top,
-                    "start": windows[c][0] if windows else 0.0,
-                    "end": windows[c][1] if windows else top,
-                },
-            }
-            for c, (label, color) in enumerate(zip(channel_names, colors, strict=True))
-        ]
-        return _json({
-            "ome": {
-                "version": OME_VERSION,
-                "multiscales": [{
-                    "name": trench_path(trench_id),
-                    "type": "none",
-                    "metadata": {"description": "one resolution level: nothing was downsampled"},
-                    "axes": [time_axis, {"name": "c", "type": "channel"}, *space],
-                    "datasets": [{
-                        "path": "0",
-                        "coordinateTransformations": [{"type": "scale", "scale": scale}],
-                    }],
-                }],
-                "omero": {"channels": channels, "rdefs": {"model": "color", "defaultT": 0}},
-            },
+        return plain_json({
+            "ome": ome.image(
+                trench_path(trench_id), channels=channel_names, colors=colors,
+                active=self.registrator.channel, dtype=dtype,
+                frame_interval_ms=frame_interval_ms, pixel_size_um=pixel_size_um,
+            ),
             "pymmm": {
                 "trench": trench_id,
                 "fov_name": str(row["fov"]),
@@ -285,16 +236,6 @@ class Extractor:
                 "experiment": "..",
             },
         })
-
-    @staticmethod
-    def _windows(image: np.ndarray) -> list[tuple[float, float]]:
-        """Display window per channel of a (T, C, Y, X) trench: its 0.5th and 99.9th
-        percentiles, from every tenth frame or so."""
-        step = max(1, image.shape[0] // 26)
-        return [
-            tuple(float(v) for v in np.percentile(image[::step, c], [0.5, 99.9]))
-            for c in range(image.shape[1])
-        ]
 
     def _is_experiment_group(self) -> bool:
         try:
@@ -327,7 +268,7 @@ class Extractor:
                 f"(current 'experiment', {SCHEMA_VERSION})"
             ]
 
-        current_attrs = _json(self._source_attrs())
+        current_attrs = plain_json(self._source_attrs())
         mismatches = [
             key for key in (
                 "source_nd2", "source_file_size_bytes", "source_mtime_ns",
@@ -383,7 +324,7 @@ class Extractor:
             self.experiment.source_axes
         )
         for key in ("rotation", "backend", "transform_convention"):
-            if stored_reg.attrs.get(key) != _json(current_reg.attrs[key]):
+            if stored_reg.attrs.get(key) != plain_json(current_reg.attrs[key]):
                 mismatches.append(f"registration {key}")
         if not np.array_equal(stored_reg["tmats"][:], current_reg["tmats"].values):
             mismatches.append("registration transforms")
@@ -599,10 +540,8 @@ class Extractor:
         def _settings(detector) -> dict[str, Any] | None:
             if detector is None or not hasattr(detector, "_detection_params"):
                 return None
-            return json.loads(json.dumps(
-                {"channel": detector.channel, "params": detector._detection_params},
-                default=str,
-            ))
+            return plain_json(
+                {"channel": detector.channel, "params": detector._detection_params})
 
         attrs = {
             "layout": "detection",
@@ -808,11 +747,9 @@ class Extractor:
             if str(fov) not in completed_fovs
         ]
 
-        client = _try_get_dask_client()
-        pool = None
-        if client is None and grouped and n_times > batch_size:
-            pool = ProcessPoolExecutor(mp_context=_mp_ctx)
-
+        # A FOV's frames in one batch run here; more batches run on the Dask
+        # cluster or in a process pool.
+        runner = Runner(workers=1 if n_times <= batch_size else None)
         try:
             fov_iter = grouped
             if show_progress:
@@ -852,49 +789,26 @@ class Extractor:
                     dtype=dtype,
                 )
 
-                if client is None and pool is None:
-                    batch = _extract_frame_batch(
-                        nd2_path, fov_idx, original_t_indices,
-                        y_roi, x_roi, fov_tmats,
-                        band_specs, trench_specs, image_width, dtype,
+                future_to_start = {}
+                for start in range(0, n_times, batch_size):
+                    stop = min(start + batch_size, n_times)
+                    future = runner.submit(
+                        _extract_frame_batch, nd2_path, fov_idx,
+                        original_t_indices[start:stop], y_roi, x_roi,
+                        fov_tmats[start:stop], band_specs, trench_specs, image_width, dtype,
                     )
-                    fov_output[:] = batch.transpose(1, 0, 2, 3, 4)
-                else:
-                    future_to_start = {}
-                    for start in range(0, n_times, batch_size):
-                        stop = min(start + batch_size, n_times)
-                        args = (
-                            nd2_path, fov_idx, original_t_indices[start:stop],
-                            y_roi, x_roi, fov_tmats[start:stop],
-                            band_specs, trench_specs, image_width, dtype,
-                        )
-                        future = (
-                            client.submit(_extract_frame_batch, *args)
-                            if client is not None
-                            else pool.submit(_extract_frame_batch, *args)
-                        )
-                        future_to_start[future] = start
-
-                    if client is not None:
-                        from dask.distributed import as_completed as dask_as_completed
-                        completed = dask_as_completed(future_to_start)
-                    else:
-                        completed = as_completed(future_to_start)
-
-                    for future in completed:
-                        start = future_to_start[future]
-                        batch = future.result()
-                        stop = start + batch.shape[0]
-                        fov_output[:, start:stop] = batch.transpose(1, 0, 2, 3, 4)
+                    future_to_start[future] = start
+                for future in runner.as_completed(future_to_start):
+                    start = future_to_start[future]
+                    batch = future.result()
+                    stop = start + batch.shape[0]
+                    fov_output[:, start:stop] = batch.transpose(1, 0, 2, 3, 4)
 
                 for local_idx, (_, row) in enumerate(fov_df.iterrows()):
                     image = store[trench_path(row["trench_id"])]
                     image["0"][...] = fov_output[local_idx]
-                    ome = dict(image.attrs)["ome"]
-                    windows = self._windows(fov_output[local_idx])
-                    for channel, (start, end) in zip(ome["omero"]["channels"], windows):
-                        channel["window"].update(start=start, end=end)
-                    image.attrs["ome"] = ome
+                    image.attrs["ome"] = ome.with_windows(
+                        dict(image.attrs)["ome"], ome.display_windows(fov_output[local_idx]))
 
                 completed_fovs.add(fov_str)
                 store.attrs["pymmm"] = {
@@ -902,8 +816,7 @@ class Extractor:
                     "completed_fovs": [name for name in all_fovs if name in completed_fovs],
                 }
         finally:
-            if pool is not None:
-                pool.shutdown(wait=True)
+            runner.close()
 
         store.attrs["pymmm"] = {
             **dict(store.attrs)["pymmm"],

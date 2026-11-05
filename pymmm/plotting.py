@@ -42,11 +42,9 @@ def save_figures(plot_func, jobs: List[dict]) -> None:
     cluster when there is one (each worker is its own process, so matplotlib
     runs safely in parallel), otherwise one after another.
     """
-    try:
-        from dask.distributed import get_client
-        client = get_client()
-    except (ImportError, ValueError):
-        client = None
+    from pymmm.parallel import dask_client
+
+    client = dask_client()
     if client is None:
         for kwargs in jobs:
             _save_figure(plot_func, kwargs)

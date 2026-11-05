@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +12,7 @@ import pandas as pd
 import xarray as xr
 import zarr
 
-from pymmm.provenance import SCHEMA_VERSION, provenance
+from pymmm.provenance import SCHEMA_VERSION, plain_json, provenance
 
 if TYPE_CHECKING:
     from pymmm.experiment import ND2Experiment
@@ -36,11 +35,6 @@ _TRENCH_COLUMNS = {
     "orientation": {"long_name": "trench opening direction (1 = opens downward, -1 = upward)"},
     "needs_flip": {"long_name": "crop is flipped vertically so trenches share one orientation"},
 }
-
-
-def _json_native(value: Any) -> Any:
-    """Normalise a value to plain JSON types (tuples become lists, etc.)."""
-    return json.loads(json.dumps(value, default=str))
 
 
 class CompanionStore:
@@ -113,7 +107,7 @@ class CompanionStore:
         if name in self._store:
             del self._store[name]
         dataset = dataset.copy()
-        dataset.attrs = _json_native({
+        dataset.attrs = plain_json({
             "layout": name,
             "params": params,
             "source_subset_metadata": source_subset_metadata,

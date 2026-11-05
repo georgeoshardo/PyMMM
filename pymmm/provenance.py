@@ -1,7 +1,9 @@
-"""Schema version and provenance records written into PyMMM stores."""
+"""What PyMMM writes into its stores' attributes: the schema version, provenance
+records, and values as plain JSON."""
 
 from __future__ import annotations
 
+import json
 import subprocess
 from datetime import datetime
 from functools import lru_cache
@@ -25,6 +27,12 @@ _LIBRARIES = {
     "omnipose": "omnipose",
     "torch": "torch",
 }
+
+
+def plain_json(value: Any) -> Any:
+    """``value`` as zarr attributes store it: plain JSON types, tuples as lists, and
+    anything else JSON cannot encode (numpy integers, paths) as its ``str``."""
+    return json.loads(json.dumps(value, default=str))
 
 
 def _distribution_version(name: str) -> str | None:

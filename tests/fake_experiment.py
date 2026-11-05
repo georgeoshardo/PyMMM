@@ -7,6 +7,7 @@ import numpy as np
 import zarr
 
 from pymmm import trench_images as ti
+from pymmm.store import ome
 
 N_TRENCH, N_T, H, W = 3, 4, 12, 6
 TRENCHES = [10, 11, 12]
@@ -47,7 +48,7 @@ def make_experiment(tmp_path):
     for k, trench in enumerate(TRENCHES):
         group = root.create_group(ti.trench_path(trench))
         group.attrs["ome"] = {
-            "version": ti.OME_VERSION,
+            "version": ome.OME_VERSION,
             "multiscales": [{
                 "name": ti.trench_path(trench),
                 "axes": [{"name": "t", "type": "time", "unit": "minute"},

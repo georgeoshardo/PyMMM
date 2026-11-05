@@ -34,7 +34,8 @@ from typing import Any, Mapping, Optional, Sequence, Union
 import numpy as np
 import zarr
 
-OME_VERSION = "0.5"
+from pymmm.store import ome
+
 CHUNK_KEYS = {"name": "default", "separator": "."}
 LABEL_COMPRESSORS = (zarr.codecs.BloscCodec(cname="zstd", clevel=3, shuffle="bitshuffle"),)
 NODE_PROPS = ("t", "y", "x", "seg_id", "track_id", "lineage_id")
@@ -104,28 +105,14 @@ def _list_labels(root: zarr.Group, trench_id: int, names: Sequence[str]) -> None
     listed = listed_labels(root, trench_id)
     new = [n for n in names if n not in listed]
     if new:
-        labels.attrs["ome"] = {"version": OME_VERSION, "labels": [*listed, *new]}
+        labels.attrs["ome"] = ome.labels([*listed, *new])
 
 
 def _unlist_labels(root: zarr.Group, trench_id: int, names: Sequence[str]) -> None:
     listed = listed_labels(root, trench_id)
     if any(n in listed for n in names):
-        root[f"{trench_path(trench_id)}/labels"].attrs["ome"] = {
-            "version": OME_VERSION, "labels": [n for n in listed if n not in names]}
-
-
-def _multiscale(root: zarr.Group, name: str) -> dict:
-    pixel_um, frame_min = calibration(root)
-    return {
-        "name": name,
-        "type": "none",
-        "metadata": {"description": "one resolution level: nothing was downsampled"},
-        "axes": [{"name": "t", "type": "time", "unit": "minute"},
-                 {"name": "y", "type": "space", "unit": "micrometer"},
-                 {"name": "x", "type": "space", "unit": "micrometer"}],
-        "datasets": [{"path": "0", "coordinateTransformations": [
-            {"type": "scale", "scale": [frame_min, pixel_um, pixel_um]}]}],
-    }
+        root[f"{trench_path(trench_id)}/labels"].attrs["ome"] = ome.labels(
+            [n for n in listed if n not in names])
 
 
 def write_label_image(
@@ -149,12 +136,9 @@ def write_label_image(
     if labels.ndim != 3:
         raise ValueError(f"{name}: labels {labels.shape} are not (t, y, x)")
     group = root.require_group(f"{trench_path(trench_id)}/labels/{name}")
+    pixel_um, frame_min = calibration(root)
     group.attrs.put({
-        "ome": {
-            "version": OME_VERSION,
-            "multiscales": [_multiscale(root, name)],
-            "image-label": {"source": {"image": "../../"}},
-        },
+        "ome": ome.label_image(name, minutes_per_frame=frame_min, um_per_pixel=pixel_um),
         "pymmm": dict(attrs or {}),
     })
     array = group.create_array(

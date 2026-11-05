@@ -29,8 +29,8 @@ wrote a group; nothing checks it.
     trench_0001/  ...
 ```
 
-`pymmm.trench_images` reads and writes this layout and needs only numpy and zarr
-(geff to write tracks).
+`pymmm.trench_images` reads and writes this layout (geff to write tracks), and
+`pymmm.store.ome` builds every `ome` attribute in it.
 
 ## The experiment group
 

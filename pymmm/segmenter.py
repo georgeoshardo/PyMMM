@@ -13,9 +13,7 @@ the experiment group records the segmentation's settings once, in
 from __future__ import annotations
 
 import datetime
-import json
 import logging
-import multiprocessing
 import os
 import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, wait
@@ -27,7 +25,8 @@ import numpy as np
 import zarr
 from tqdm.auto import tqdm
 
-from pymmm.provenance import SCHEMA_VERSION, provenance
+from pymmm.parallel import SPAWN
+from pymmm.provenance import SCHEMA_VERSION, plain_json, provenance
 from pymmm.trench_images import (
     calibration,
     has_segmentation,
@@ -95,10 +94,6 @@ _WORKER_THREADS = {
         "NUMBA_NUM_THREADS", "PARLAY_NUM_THREADS",
     )
 }
-
-
-def _json_native(value: Any) -> Any:
-    return json.loads(json.dumps(value, default=str))
 
 
 @contextmanager
@@ -374,7 +369,7 @@ class Segmenter:
     def _record(self) -> Dict[str, Any]:
         """What identifies the labels (compared with the saved record on resume)."""
         extraction = dict(self.root.attrs)["pymmm"].get("provenance") or {}
-        return _json_native({
+        return plain_json({
             "channel": self.channel,
             "model": self.model_name,
             "params": self._params,
@@ -535,7 +530,7 @@ class Segmenter:
                     f"settings; each trench's labels/{self.name}.<hypothesis>"
                 ),
                 "schema_version": SCHEMA_VERSION,
-                "provenance": _json_native(provenance()),
+                "provenance": plain_json(provenance()),
                 "made_by": "pymmm.segmenter.Segmenter",
                 "created": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
             })
@@ -595,7 +590,7 @@ class Segmenter:
             if workers > 1 and todo:
                 pool = ProcessPoolExecutor(
                     max_workers=workers,
-                    mp_context=multiprocessing.get_context("spawn"),
+                    mp_context=SPAWN,
                     initializer=_init_worker,
                     initargs=(str(self.store_path), self.channel, self.model_name,
                               self.name, self.hypotheses, self.gpu, self._params),
@@ -789,7 +784,7 @@ class Segmenter:
             status_label.value = "<b>Applied</b> — base settings kept for segment()"
             saved = self._saved_record() or {}
             done = self.finished()
-            if done and saved.get("params") != _json_native(self._params):
+            if done and saved.get("params") != plain_json(self._params):
                 status_label.value += (
                     f"<br>{len(done)} trenches already have results with the previous "
                     "settings; segment() will ask you to re-segment them too."

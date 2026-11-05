@@ -83,7 +83,7 @@ for trench in ti.trench_ids(root):
     names, labels = ti.segmentation(root, trench, "pc_affinity_ensemble")
 ```
 
-`pymmm.trench_images` needs only numpy and zarr. To browse every trench in napari:
+A core install is enough to read and write it. To browse every trench in napari:
 
 ```bash
 python -m pymmm.view experiment.zarr                   # one slider over all trenches
@@ -103,8 +103,10 @@ napari --plugin napari-ome-zarr experiment.zarr/trench_0007
 | `trench_images` | the experiment group: open, read, and write labels and tracks |
 | `tracks` | GEFF tracklet and lineage ids, and reading GEFFs as arrays |
 | `checkpoint` | `CompanionStore`, the detection checkpoints |
+| `store.ome` | every OME-Zarr attribute PyMMM writes |
+| `parallel` | where batches run: the active Dask client, a process pool, or this process |
 | `config` | the experiment file |
-| `provenance` | the schema version and provenance written into stores |
+| `provenance` | the schema version, provenance records, and attributes as plain JSON |
 | `plotting`, `view` | diagnostic figures; the napari viewer |
 
 ## Tests
