@@ -696,7 +696,7 @@ def test_lane_orientation_can_be_forced():
     detector = LaneDetector(experiment, None, None, detection_channel="PC")
 
     def orientations(orientation):
-        *_, lanes = detector._detect_lanes_single_fov(
+        *_, lanes = detector.detect_fov(
             image, 0, 50, 5, 20, "XYPos:0", orientation=orientation,
         )
         return [lane.orientation for lane in lanes]

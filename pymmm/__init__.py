@@ -28,14 +28,14 @@ _PUBLIC = {
 
 __all__ = list(_PUBLIC)
 
-if TYPE_CHECKING:
-    from pymmm.source.nd2 import ND2Experiment
-    from pymmm.steps.extraction import Extractor
-    from pymmm.steps.lanes import LaneDetector
-    from pymmm.steps.registration import Registrator
-    from pymmm.steps.segmentation import Segmenter
-    from pymmm.steps.trenches import TrenchDetector
-    from pymmm.store.companion import CompanionStore
+if TYPE_CHECKING:  # for type checkers and editors; at run time __getattr__ imports them
+    from pymmm.source.nd2 import ND2Experiment  # noqa: F401
+    from pymmm.steps.extraction import Extractor  # noqa: F401
+    from pymmm.steps.lanes import LaneDetector  # noqa: F401
+    from pymmm.steps.registration import Registrator  # noqa: F401
+    from pymmm.steps.segmentation import Segmenter  # noqa: F401
+    from pymmm.steps.trenches import TrenchDetector  # noqa: F401
+    from pymmm.store.companion import CompanionStore  # noqa: F401
 
 
 def __getattr__(name: str) -> Any:

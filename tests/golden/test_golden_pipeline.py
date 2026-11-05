@@ -44,12 +44,12 @@ def registration_summary(reg: Registrator) -> dict:
 def lanes_summary(lanes: LaneDetector) -> dict:
     return {"lanes": {fov: [asdict(lane) for lane in fov_lanes]
                       for fov, fov_lanes in lanes.lanes.items()},
-            "params": lanes._detection_params}
+            "params": lanes.detection_params}
 
 
 def trenches_summary(trenches: TrenchDetector) -> dict:
     return {"trenches": trenches.get_trench_table().to_dict(orient="records"),
-            "params": trenches._detection_params}
+            "params": trenches.detection_params}
 
 
 def extraction_detail(node: str) -> bool:

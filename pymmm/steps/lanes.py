@@ -77,11 +77,16 @@ class LaneDetector:
     def is_detected(self) -> bool:
         return self._lanes is not None
 
+    @property
+    def detection_params(self) -> Dict[str, Any]:
+        """The settings of the last detection (or the saved one)."""
+        return dict(self._detection_params)
+
     # ------------------------------------------------------------------
     # Detection
     # ------------------------------------------------------------------
 
-    def _detect_lanes_single_fov(
+    def detect_fov(
         self,
         mean_img: np.ndarray,
         sigma: float,
@@ -91,7 +96,8 @@ class LaneDetector:
         fov: str,
         orientation: str = "auto",
     ) -> tuple:
-        """Run lane detection on a single FOV mean image.
+        """Lane detection on one FOV's registered mean image, with these settings
+        (what :meth:`detect_lanes` does for every FOV; the widget's preview).
 
         Returns
         -------
@@ -189,7 +195,7 @@ class LaneDetector:
         mean_images = self.registrator.compute_registered_means(channel=self.channel)
         for fov in self.experiment.fov_names:
             mean_img = mean_images[fov]
-            _, _, _, fov_lanes = self._detect_lanes_single_fov(
+            _, _, _, fov_lanes = self.detect_fov(
                 mean_img, sigma, distance, height, orientation_window_um, fov,
                 orientation=orientation,
             )
@@ -261,178 +267,11 @@ class LaneDetector:
     # ------------------------------------------------------------------
 
     def interactive_detect_lanes(self) -> None:
-        """Display an interactive widget for lane detection tuning.
+        """Tune the settings on one FOV at a time in a notebook widget, then apply them
+        to every FOV (:func:`pymmm.widgets.lanes.lane_widget`; the notebook extra)."""
+        from pymmm.widgets.lanes import lane_widget
 
-        Uses ipywidgets for controls, ndv for the registered image and
-        candidate-lane masks, and matplotlib for the intensity profile.
-        """
-        import ipywidgets as widgets
-        import matplotlib.pyplot as plt
-        import ndv
-        from IPython.display import display
-
-        from pymmm.plotting import NDV_CLIMS
-
-        mean_images: Dict[str, np.ndarray] = {}
-        params = self._detection_params
-
-        def _mean_image(fov: str) -> np.ndarray:
-            if fov not in mean_images:
-                mean_images[fov] = self.registrator.get_registered_mean_of_timestack(
-                    fov=fov, channel=self.channel
-                )
-            return mean_images[fov]
-
-        # --- Widgets ---
-        fov_select = widgets.Dropdown(
-            options=list(self.experiment.fov_names),
-            value=self.experiment.fov_names[0],
-            description="FOV",
-        )
-        sigma_slider = widgets.FloatSlider(
-            value=params.get("sigma", 40), min=0, max=200, step=1,
-            description="sigma",
-            continuous_update=False, style={"description_width": "initial"},
-        )
-        distance_slider = widgets.FloatSlider(
-            value=params.get("distance", 300), min=10, max=1000, step=10,
-            description="distance",
-            continuous_update=False, style={"description_width": "initial"},
-        )
-        height_slider = widgets.FloatSlider(
-            value=params.get("height", 5000), min=0, max=50000, step=100,
-            description="height",
-            continuous_update=False, style={"description_width": "initial"},
-        )
-        orientation_slider = widgets.FloatSlider(
-            value=params.get("orientation_window_um", 20),
-            min=1, max=100, step=1, description="orient. window (µm)",
-            continuous_update=False, style={"description_width": "initial"},
-        )
-        orientation_select = widgets.Dropdown(
-            options=[
-                ("auto (compare brightness)", "auto"),
-                ("trenches above lane, open down (red)", "down"),
-                ("trenches below lane, open up (cyan)", "up"),
-            ],
-            value=params.get("orientation", "auto"),
-            description="orientation",
-            style={"description_width": "initial"},
-        )
-        orientation_slider.disabled = orientation_select.value != "auto"
-        apply_btn = widgets.Button(
-            description="Apply to all FOVs", button_style="primary",
-        )
-        preview_label = widgets.HTML(value="")
-        status_label = widgets.HTML(value="")
-        output = widgets.Output()
-
-        viewer_data = np.zeros(
-            (
-                3,
-                self.experiment.data.sizes["Y"],
-                self.experiment.data.sizes["X"],
-            ),
-            dtype=np.float32,
-        )
-        image_viewer = ndv.ArrayViewer(
-            viewer_data,
-            channel_axis=0,
-            channel_mode="composite",
-            luts={
-                0: {"name": self.channel, "cmap": "gray", "clims": NDV_CLIMS},
-                1: {
-                    "name": "open down", "cmap": "red", "clims": (0, 1),
-                },
-                2: {
-                    "name": "open up", "cmap": "cyan", "clims": (0, 1),
-                },
-            },
-        )
-
-        def _update(_change: Any = None) -> None:
-            fov = fov_select.value
-            mean_img = _mean_image(fov)
-            y_profile, y_profile_smooth, peaks, fov_lanes = self._detect_lanes_single_fov(
-                mean_img,
-                sigma_slider.value,
-                distance_slider.value,
-                height_slider.value,
-                orientation_slider.value,
-                fov,
-                orientation=orientation_select.value,
-            )
-            orientation_slider.disabled = orientation_select.value != "auto"
-            n_lanes = len(fov_lanes)
-
-            viewer_data[0] = mean_img
-            viewer_data[1:].fill(0)
-            for lane in fov_lanes:
-                channel_idx = 1 if lane.orientation == 1 else 2
-                y_start = max(0, lane.y_center - 2)
-                y_stop = min(viewer_data.shape[1], lane.y_center + 3)
-                viewer_data[channel_idx, y_start:y_stop, :] = 1
-            # Lanes sit on the bright feeding channel, which the percentile
-            # contrast saturates; the composite view adds colours, so blank the
-            # image under the lines to keep them visible.
-            viewer_data[0][viewer_data[1:].any(axis=0)] = mean_img.min()
-            image_viewer.data_wrapper.data_changed.emit()
-            preview_label.value = (
-                f"<b>{fov}</b> — {n_lanes} candidate "
-                f"lane{'s' if n_lanes != 1 else ''}"
-            )
-
-            with output:
-                output.clear_output(wait=True)
-                fig, ax_prof = plt.subplots(1, 1, figsize=(7, 4))
-
-                # Y-profile
-                xs = np.arange(len(y_profile))
-                ax_prof.plot(xs, y_profile, color="grey", alpha=0.5, label="raw")
-                ax_prof.plot(xs, y_profile_smooth, color="blue", label="smoothed")
-                if len(peaks) > 0:
-                    ax_prof.plot(
-                        peaks, y_profile_smooth[peaks], "rv",
-                        markersize=8, label="peaks",
-                    )
-                ax_prof.set_xlabel("y pixel")
-                ax_prof.set_ylabel("intensity")
-                ax_prof.set_title("Y-profile")
-                ax_prof.legend()
-
-                fig.tight_layout()
-                plt.show()
-
-        def _on_apply(_btn: Any) -> None:
-            status_label.value = "<b>Applying…</b>"
-            self.detect_lanes(
-                sigma=sigma_slider.value,
-                distance=distance_slider.value,
-                height=height_slider.value,
-                orientation_window_um=orientation_slider.value,
-                orientation=orientation_select.value,
-            )
-            total = sum(len(v) for v in self._lanes.values())
-            status_label.value = (
-                f"<b>Applied</b> — {total} lanes across {len(self._lanes)} FOVs"
-            )
-
-        apply_btn.on_click(_on_apply)
-
-        for w in [fov_select, sigma_slider, distance_slider,
-                  height_slider, orientation_slider, orientation_select]:
-            w.observe(_update, names="value")
-
-        controls = widgets.VBox([
-            fov_select, sigma_slider, distance_slider,
-            height_slider, orientation_select, orientation_slider,
-            apply_btn, status_label,
-        ])
-        image_and_profile = widgets.VBox([
-            preview_label, image_viewer.widget(), output,
-        ])
-        display(widgets.HBox([controls, image_and_profile]))
-        _update()
+        lane_widget(self)
 
     # ------------------------------------------------------------------
     # Checkpoint save / load

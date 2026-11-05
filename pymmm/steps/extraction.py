@@ -537,10 +537,10 @@ class Extractor:
     def _build_detection_dataset(self) -> xr.Dataset:
         """Build the ``/detection`` group: lane and trench detection settings."""
         def _settings(detector) -> dict[str, Any] | None:
-            if detector is None or not hasattr(detector, "_detection_params"):
+            if detector is None or not hasattr(detector, "detection_params"):
                 return None
             return plain_json(
-                {"channel": detector.channel, "params": detector._detection_params})
+                {"channel": detector.channel, "params": detector.detection_params})
 
         attrs = {
             "layout": "detection",

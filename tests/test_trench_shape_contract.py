@@ -123,7 +123,7 @@ def test_profile_uses_trench_rows_only(monkeypatch):
     lane_detector = SimpleNamespace(lanes={"f0": [LaneInfo(100, 1, "f0", 0)]})
     detector = TrenchDetector(experiment, None, lane_detector, object(), "PC")
 
-    _, lane_profiles, _ = detector._detect_trenches_single_fov(
+    _, lane_profiles, _ = detector.detect_fov(
         image, "f0", sigma=0, distance=1, prominence=0, height=0,
         trench_width=20, trench_length=60, trench_bottom_offset=10,
     )

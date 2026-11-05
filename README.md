@@ -102,9 +102,10 @@ napari --plugin napari-ome-zarr experiment.zarr/trench_0007
 | `store.companion` | `CompanionStore`, the detection checkpoints beside the ND2 |
 | `store.provenance` | the schema version, provenance records, and attributes as plain JSON |
 | `steps.registration` | `Registrator`: drift transforms (stackreg or OpenCV) |
-| `steps.lanes`, `steps.trenches` | `LaneDetector`, `TrenchDetector`: lane and trench geometry, with their widgets |
+| `steps.lanes`, `steps.trenches` | `LaneDetector`, `TrenchDetector`: lane and trench geometry |
 | `steps.extraction` | `Extractor`: writes the experiment group |
-| `steps.segmentation` | `Segmenter`: Omnipose labels per hypothesis, with its widget |
+| `steps.segmentation` | `Segmenter`: Omnipose labels per hypothesis |
+| `widgets` | the notebook UIs the steps open: lane, trench and segmentation tuning, the label viewer |
 | `parallel` | where batches run: the active Dask client, a process pool, or this process |
 | `config` | the experiment file |
 | `plotting`, `view` | diagnostic figures; the napari viewer |

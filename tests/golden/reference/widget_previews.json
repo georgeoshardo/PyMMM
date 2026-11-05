@@ -1,0 +1,24 @@
+{
+ "lanes": {
+  "image": {
+   "dtype": "<f4",
+   "max": 48245.69921875,
+   "min": 0.0,
+   "sha256": "923f59b42046ac16166336dabcc08d4465d4bd4b7dee5ad8d68179de55f0b6de",
+   "shape": [3, 1560, 2304],
+   "sum": 18660185109.97412
+  },
+  "text": "<b>XYPos:2</b> \u2014 1 candidate lane"
+ },
+ "trenches": {
+  "image": {
+   "dtype": "<f4",
+   "max": 48245.69921875,
+   "min": 0.0,
+   "sha256": "6dbf269ed048296411b7baaa09d40d6c4faa839e24dc22e709a951d07a607f17",
+   "shape": [2, 1560, 2304],
+   "sum": 18654363961.54785
+  },
+  "text": "<b>XYPos:2</b> \u2014 14 candidate trenches"
+ }
+}
