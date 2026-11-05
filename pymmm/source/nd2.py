@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Sequence, Union
 
 import nd2
 import numpy as np
@@ -275,30 +275,56 @@ class ND2Experiment:
     # Subsetting
     # ------------------------------------------------------------------
 
-    def select_fovs(self, fov_names: List[str]) -> "ND2Experiment":
+    def _named_fovs(self, fovs: Sequence[Union[str, int]]) -> List[str]:
+        """The names of ``fovs``, each a FOV name or the FOV's integer P index in the ND2
+        (``10`` is ``P`` 10, whatever is selected). A name or index the ND2 does not have
+        raises ``ValueError``: it would otherwise select or discard nothing, silently."""
+        all_fovs = self._all_fov_names()
+        names = []
+        for fov in fovs:
+            if isinstance(fov, (int, np.integer)) and not isinstance(fov, bool):
+                if not 0 <= fov < len(all_fovs):
+                    raise ValueError(
+                        f"FOV index {fov} is out of range: the ND2 has {len(all_fovs)} FOVs "
+                        f"(P 0-{len(all_fovs) - 1})")
+                names.append(all_fovs[fov])
+            elif str(fov) in all_fovs:
+                names.append(str(fov))
+            else:
+                shown = ", ".join(all_fovs if len(all_fovs) <= 6
+                                  else all_fovs[:3] + ["...", all_fovs[-1]])
+                raise ValueError(f"no FOV named {fov!r} in the ND2 ({shown}); give a name, "
+                                 f"or a P index from 0 to {len(all_fovs) - 1}")
+        return names
+
+    def _all_fov_names(self) -> List[str]:
+        """Every FOV's name, in the ND2's ``P`` order."""
+        if "P" not in self._raw_data.dims:
+            return []
+        return [str(v) for v in self._raw_data.coords["P"].values]
+
+    def select_fovs(self, fovs: Sequence[Union[str, int]]) -> "ND2Experiment":
         """Keep only the listed FOVs, discarding all others. Returns self for chaining.
 
-        Accepts FOV names or integer indices.
+        Each is a FOV name or its integer P index in the ND2; one the ND2 does not have
+        raises ``ValueError``.
 
         Examples
         --------
-        >>> exp.select_fovs(["xy001", "xy002"])  # by name
-        >>> exp.select_fovs([0, 1])               # first two FOVs
+        >>> exp.select_fovs(["XYPos:0", "XYPos:1"])  # by name
+        >>> exp.select_fovs([0, 1])                   # P 0 and 1
         """
-        all_fovs = [str(v) for v in self._raw_data.coords["P"].values] if "P" in self._raw_data.dims else []
-        resolved = []
-        for f in fov_names:
-            if isinstance(f, int):
-                resolved.append(all_fovs[f])
-            else:
-                resolved.append(str(f))
-        to_discard = [f for f in all_fovs if f not in resolved]
-        self._discarded_fovs.extend(to_discard)
+        keep = self._named_fovs(fovs)
+        self._discarded_fovs.extend(f for f in self._all_fov_names() if f not in keep)
         return self
 
-    def discard_fovs(self, fov_names: List[str]) -> "ND2Experiment":
-        """Mark FOVs to be excluded from ``data``. Returns self for chaining."""
-        self._discarded_fovs.extend(fov_names)
+    def discard_fovs(self, fovs: Sequence[Union[str, int]]) -> "ND2Experiment":
+        """Leave the listed FOVs out of ``data``. Returns self for chaining.
+
+        Each is a FOV name or its integer P index in the ND2 (``[10, 11]`` or
+        ``["XYPos:10", "XYPos:11"]``); one the ND2 does not have raises ``ValueError``.
+        """
+        self._discarded_fovs.extend(self._named_fovs(fovs))
         return self
 
     def select_times(self, start: int, end: int) -> "ND2Experiment":
