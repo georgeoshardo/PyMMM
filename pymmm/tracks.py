@@ -31,7 +31,7 @@ import io
 import logging
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 
 import numpy as np
 import xarray as xr
@@ -276,6 +276,9 @@ class Tracker:
         ``"ilp"``, ``"greedy"`` or ``"greedy_nodiv"``.
     name : str | None
         Collection name; defaults to ``trackastra_<hypothesis>``.
+    trenches : sequence of int | None
+        Trench ids to track; every trench if ``None``. Only these need to be
+        segmented (listed in the segmentation's ``completed`` attr).
     """
 
     def __init__(
@@ -289,6 +292,7 @@ class Tracker:
         mode: str = "ilp",
         name: Optional[str] = None,
         device: str = "cuda",
+        trenches: Optional[Sequence[int]] = None,
     ) -> None:
         self.store_path = Path(store_path)
         self.tracks_store = Path(tracks_store)
@@ -317,8 +321,20 @@ class Tracker:
         hypotheses = [str(h) for h in seg_group["Hypothesis"][:]]
         if hypothesis not in hypotheses:
             raise ValueError(f"hypothesis {hypothesis!r} not in {hypotheses}")
-        if not dict(seg_group.attrs).get("complete", {}).get(hypothesis):
-            raise RuntimeError(f"{hypothesis} is not segmented in every trench yet")
+        seg_attrs = dict(seg_group.attrs)
+        if trenches is None:
+            if not seg_attrs.get("complete", {}).get(hypothesis):
+                raise RuntimeError(f"{hypothesis} is not segmented in every trench yet")
+            self.trenches = list(self.trench_ids)
+        else:
+            self.trenches = [int(t) for t in trenches]
+            unknown = [t for t in self.trenches if t not in self.trench_ids]
+            if unknown:
+                raise ValueError(f"trenches {unknown} are not in the store")
+            missing = [t for t in self.trenches
+                       if t not in seg_attrs.get("completed", {}).get(hypothesis, [])]
+            if missing:
+                raise RuntimeError(f"{hypothesis} is not segmented in trenches {missing} yet")
         self._labels = seg_group["labels"]
         self._h_index = hypotheses.index(hypothesis)
         self._c_index = self.channels.index(image_channel)
@@ -341,6 +357,7 @@ class Tracker:
             "trench_store": str(self.store_path),
             "labels": f"segmentation/{self.segmentation}/labels",
             "hypothesis": self.hypothesis,
+            "trenches": None if self.trenches == self.trench_ids else self.trenches,
         }
 
     def _get_model(self):
@@ -457,7 +474,7 @@ class Tracker:
         failed = dict(group.attrs.get("failed", {}))
         extra = {**settings, "channels": self.channels}
 
-        todo = [i for i, tid in enumerate(self.trench_ids)
+        todo = [self.trench_ids.index(tid) for tid in self.trenches
                 if tid not in completed and tid not in empty]
         for index in tqdm(todo, desc=f"Tracking {self.hypothesis}", disable=not show_progress):
             tid = self.trench_ids[index]
@@ -483,7 +500,7 @@ class Tracker:
                 "completed": [t for t in self.trench_ids if t in completed],
                 "failed": failed,
             })
-        group.attrs["complete"] = all(t in completed or t in empty for t in self.trench_ids)
+        group.attrs["complete"] = all(t in completed or t in empty for t in self.trenches)
         return {"tracked": len(completed), "empty": len(empty), "failed": len(failed)}
 
 
