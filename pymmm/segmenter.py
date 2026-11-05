@@ -1,15 +1,18 @@
-"""Segmenter – Omnipose cell labels for every trench crop in a trench store.
+"""Segmenter – Omnipose cell labels for every trench of an experiment group.
 
-Each trench is scaled by its own intensity percentiles (with a store-wide floor
-so trenches without cells keep their noise dark), then segmented under a few
+Each trench is scaled by its own intensity percentiles (with an experiment-wide
+floor so trenches without cells keep their noise dark), then segmented under a few
 preset Omnipose settings, the *hypotheses*. S1 is the primary segmentation; S2–S4
 mostly keep pairs that have just divided as one cell, so downstream tracking can
-choose between them. Labels are written to ``/segmentation/<name>`` inside the
-trench store as ``labels(Hypothesis, Trench, T, Y, X)``.
+choose between them. Each trench gets one ``(t, y, x)`` label image per hypothesis,
+``labels/<name>.<hypothesis>`` beside its pixels (see :mod:`pymmm.trench_images`), and
+the experiment group records the segmentation's settings once, in
+``attrs.pymmm.segmentations[<name>]``.
 """
 
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import multiprocessing
@@ -20,22 +23,28 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
 
-import dask.array as da
 import numpy as np
-import xarray as xr
 import zarr
 from tqdm.auto import tqdm
 
 from pymmm.provenance import SCHEMA_VERSION, provenance
+from pymmm.trench_images import (
+    calibration,
+    has_segmentation,
+    image,
+    open_experiment,
+    records,
+    remove_segmentation,
+    segmentation,
+    trench_ids,
+    update_experiment,
+    write_segmentation,
+)
 
-_LABEL_DIMS = ("Hypothesis", "Trench", "T", "Y", "X")
-
-_LABELS_ATTRS = {
-    "long_name": (
-        "cell labels; 0 is background, 1..n are ordered from the trench's closed "
-        "end (Y = 0), so 1 is the cell nearest the closed end"
-    ),
-}
+LONG_NAME = (
+    "cell labels; 0 is background, 1..n are ordered from the trench's closed "
+    "end (y = 0), so 1 is the cell nearest the closed end"
+)
 
 PERCENTILES = (1.0, 99.0)
 """Per-trench intensity percentiles mapped to 0 and 1 (before the gain)."""
@@ -264,27 +273,35 @@ def label_overlay(images: np.ndarray, labels: np.ndarray) -> np.ndarray:
 
 
 class Segmenter:
-    """Segment one channel of a trench store with Omnipose, under several hypotheses.
+    """Segment one channel of an experiment group with Omnipose, under several hypotheses.
 
-    Labels are written to ``/segmentation/<name>`` inside the trench store, as
-    ``labels(Hypothesis, Trench, T, Y, X)`` with the root dataset's coordinates
-    and one chunk per hypothesis and trench, so they line up with ``data``::
+    A segmentation is a fixed set of hypotheses (by default all of :data:`HYPOTHESES`),
+    segmented and written together for each trench: one ``(t, y, x)`` label image per
+    hypothesis, ``trench_NNNN/labels/<name>.<hypothesis>``, beside the trench's pixels.
+    A trench is finished once all of them are listed in its ``labels/``, so an
+    interrupted run resumes with the unfinished trenches. The settings and hypotheses
+    are recorded once, in the experiment group's ``attrs.pymmm.segmentations[<name>]``::
 
-        tree = xr.open_datatree(store, engine="zarr", consolidated=False)
-        labels = tree["segmentation/mcherry"].ds["labels"].sel(Hypothesis="S1")
+        root = trench_images.open_experiment(path)
+        names, labels = trench_images.segmentation(root, 11, "mcherry")   # S1 first
 
-    The group also holds each trench's intensity bounds (``lower``, ``upper``).
+    Each label image's ``pymmm`` attributes hold the trench's intensity bounds
+    (``lower``, ``upper``) and the frames Omnipose failed on (``failed_frames``).
 
     Parameters
     ----------
     store_path : str | Path
-        Trench store written by :class:`~pymmm.extractor.Extractor`.
+        Experiment group written by :class:`~pymmm.extractor.Extractor`.
     channel : str
-        Channel to segment, a value of the root ``C`` coordinate.
+        Channel to segment, a value of the group's ``C``.
     model : str
         Omnipose pretrained model name.
     name : str | None
-        Segmentation group name; defaults to ``channel.lower()``.
+        Segmentation name; defaults to ``channel.lower()``.
+    hypotheses : sequence of str | None
+        The hypotheses of :data:`HYPOTHESES` that make up the segmentation, the base
+        first. ``None``: the recorded ones if the segmentation exists with this channel
+        and model, else all.
     gpu : bool
         Run Omnipose on the GPU.
     """
@@ -295,49 +312,50 @@ class Segmenter:
         channel: str = "mCherry",
         model: str = "bact_fluor_omni",
         name: Optional[str] = None,
+        hypotheses: Optional[Sequence[str]] = None,
         gpu: bool = True,
     ) -> None:
         self.store_path = Path(store_path)
-        self.root = xr.open_zarr(self.store_path, consolidated=False)
-        channels = [str(c) for c in self.root["C"].values]
+        self.root = open_experiment(self.store_path)
+        channels = [str(c) for c in self.root["C"][:]]
         if channel not in channels:
-            raise ValueError(f"channel {channel!r} not in store channels {channels}")
+            raise ValueError(f"channel {channel!r} not in the experiment's channels {channels}")
         self.channel = channel
         self.channel_index = channels.index(channel)
         self.model_name = model
         self.name = name or channel.lower()
-        self.group = f"segmentation/{self.name}"
         self.gpu = gpu
-        self.pixel_size = float(
-            xr.open_zarr(self.store_path, group="acquisition", consolidated=False)["pixel_size"]
-        )
+        self.pixel_size = calibration(self.root)[0]
+        self.trench_ids = trench_ids(self.root)
         self._model = None
         self._bounds: Dict[int, Tuple[float, float]] = {}
 
-        saved = self._saved_attrs()
-        if (
-            saved is not None
-            and saved.get("channel") == channel
-            and saved.get("model") == model
-        ):
-            self._params = dict(saved["params"])
-        else:
-            self._params = dict(DEFAULT_PARAMS)
+        saved = self._saved_record()
+        same = saved is not None and saved.get("channel") == channel and saved.get("model") == model
+        if hypotheses is None:
+            hypotheses = saved["hypotheses"] if same else list(HYPOTHESES)
+        unknown = [h for h in hypotheses if h not in HYPOTHESES]
+        if unknown or not hypotheses:
+            raise ValueError(f"unknown hypotheses {unknown}; choose from {list(HYPOTHESES)}")
+        self._hypotheses = [str(h) for h in hypotheses]
+        self._params = dict(saved["params"]) if same else dict(DEFAULT_PARAMS)
         if self._params["floor"] is None:
             self._params["floor"] = self.estimate_floor(self._params["floor_sigma"])
 
     # ------------------------------------------------------------------
-    # Store access
+    # Experiment group access
     # ------------------------------------------------------------------
 
-    def _open_store(self, mode: str = "r") -> zarr.Group:
-        return zarr.open_group(str(self.store_path), mode=mode, zarr_format=3)
+    def _open(self, mode: str = "r") -> zarr.Group:
+        """A fresh handle, so attributes written since are seen."""
+        return open_experiment(self.store_path, mode=mode)
 
-    def _saved_attrs(self) -> Optional[Dict[str, Any]]:
-        store = self._open_store()
-        if self.group not in store:
-            return None
-        return dict(store[self.group].attrs)
+    def _saved_record(self) -> Optional[Dict[str, Any]]:
+        return records(self._open(), "segmentations").get(self.name)
+
+    def _read(self, trench_id: int) -> np.ndarray:
+        """The trench's ``(t, y, x)`` frames of the channel."""
+        return np.asarray(image(self.root, trench_id)[:, self.channel_index])
 
     @property
     def params(self) -> Dict[str, Any]:
@@ -346,130 +364,69 @@ class Segmenter:
 
     @property
     def hypotheses(self) -> List[str]:
-        return list(HYPOTHESES)
+        """The segmentation's hypotheses, the base first."""
+        return list(self._hypotheses)
 
     def settings(self, hypothesis: str, params: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
         """Base settings with ``hypothesis``'s overrides applied."""
         return {**(self._params if params is None else params), **HYPOTHESES[hypothesis]}
 
-    def is_complete(self, hypothesis: Optional[str] = None) -> bool:
-        attrs = self._saved_attrs() or {}
-        complete = attrs.get("complete", {})
-        names = [hypothesis] if hypothesis else self.hypotheses
-        return all(complete.get(h, False) for h in names)
-
-    def _group_attrs(self) -> Dict[str, Any]:
-        """Attrs that identify what produced the labels (checked on resume)."""
-        root_provenance = self.root.attrs.get("provenance", {})
+    def _record(self) -> Dict[str, Any]:
+        """What identifies the labels (compared with the saved record on resume)."""
+        extraction = dict(self.root.attrs)["pymmm"].get("provenance") or {}
         return _json_native({
             "channel": self.channel,
             "model": self.model_name,
             "params": self._params,
-            "hypotheses": {h: self.settings(h) for h in self.hypotheses},
-            "extraction_created": root_provenance.get("created"),
+            "hypotheses": self.hypotheses,
+            "settings": {h: self.settings(h) for h in self.hypotheses},
+            "extraction_created": extraction.get("created"),
         })
 
-    def _resume_mismatches(self, attrs: Mapping[str, Any]) -> List[str]:
-        current = self._group_attrs()
-        return [key for key, value in current.items() if attrs.get(key) != value]
+    def finished(self) -> List[int]:
+        """The trenches whose segmentation is finished, in table order."""
+        root = self._open()
+        if self.name not in records(root, "segmentations"):
+            return []
+        return [t for t in self.trench_ids if has_segmentation(root, t, self.name)]
 
-    def _create_group(self) -> None:
-        """(Re)write ``/segmentation/<name>`` with empty labels; root is untouched."""
-        sizes = self.root.sizes
-        shape = (len(self.hypotheses),) + tuple(sizes[d] for d in _LABEL_DIMS[1:])
-        chunks = (1, 1) + shape[2:]
-        n_trenches = sizes["Trench"]
-        dataset = xr.Dataset(
-            data_vars={
-                "labels": (
-                    _LABEL_DIMS,
-                    da.zeros(shape, chunks=chunks, dtype=np.uint16),
-                    _LABELS_ATTRS,
-                ),
-                "lower": (("Trench",), np.zeros(n_trenches, np.float32), {
-                    "long_name": "intensity mapped to 0 (0 until the trench is segmented)",
-                }),
-                "upper": (("Trench",), np.zeros(n_trenches, np.float32), {
-                    "long_name": "intensity mapped to 1 at gain 1 (0 until the trench is segmented)",
-                }),
-            },
-            coords={
-                "Hypothesis": np.asarray(self.hypotheses, dtype=object),
-                **{dim: self.root[dim].variable for dim in _LABEL_DIMS[1:]},
-            },
-            attrs={
-                "schema_version": SCHEMA_VERSION,
-                "layout": "segmentation",
-                "description": (
-                    f"Omnipose labels of the {self.channel} channel for each trench "
-                    "crop in the root dataset, under each hypothesis's settings."
-                ),
-                "provenance": provenance(),
-                **self._group_attrs(),
-                "completed": {h: [] for h in self.hypotheses},
-                "complete": {h: False for h in self.hypotheses},
-                "failed_frames": {h: {} for h in self.hypotheses},
-            },
-        )
-        dataset.to_zarr(
-            str(self.store_path),
-            group=self.group,
-            mode="w",
-            compute=False,
-            consolidated=False,
-            zarr_format=3,
-            encoding={
-                "labels": {
-                    "chunks": chunks,
-                    "compressors": [
-                        zarr.codecs.BloscCodec(
-                            cname="zstd", clevel=3, shuffle="bitshuffle",
-                        )
-                    ],
-                },
-            },
-        )
+    def is_complete(self) -> bool:
+        return len(self.finished()) == len(self.trench_ids)
 
-    def _reset(self, hypotheses: Sequence[str]) -> None:
-        """Clear the labels and progress of ``hypotheses`` only."""
-        group = self._open_store(mode="r+")[self.group]
-        attrs = {key: dict(group.attrs.get(key, {})) for key in ("completed", "complete", "failed_frames")}
-        for hypothesis in hypotheses:
-            group["labels"][self.hypotheses.index(hypothesis)] = 0
-            attrs["completed"][hypothesis] = []
-            attrs["complete"][hypothesis] = False
-            attrs["failed_frames"][hypothesis] = {}
-        group.attrs.update(attrs)
+    def labels(self, trench_id: int, hypothesis: Optional[str] = None) -> zarr.Array:
+        """A finished trench's ``(t, y, x)`` labels under one hypothesis (the base if ``None``)."""
+        names, arrays = segmentation(self._open(), trench_id, self.name)
+        return arrays[names.index(hypothesis or names[0])]
 
     # ------------------------------------------------------------------
     # Normalisation
     # ------------------------------------------------------------------
 
     def estimate_floor(self, floor_sigma: float = 20.0, n_trenches: int = 32, seed: int = 0) -> float:
-        """Store-wide floor for the upper intensity bound, in counts.
+        """Experiment-wide floor for the upper intensity bound, in counts.
 
         For each of a random sample of trenches, background + ``floor_sigma``
         noise SDs (:func:`background_noise`, every 5th frame); the median over
         trenches, so a few crowded trenches (whose median pixel is a cell) do not
         move it.
         """
-        data = self._open_store()["data"]
-        n_total = self.root.sizes["Trench"]
         rng = np.random.default_rng(seed)
+        n_total = len(self.trench_ids)
         picks = np.sort(rng.choice(n_total, size=min(n_trenches, n_total), replace=False))
         floors = []
         for i in picks:
-            background, noise = background_noise(data[int(i), ::5, self.channel_index])
+            frames = image(self.root, self.trench_ids[int(i)])[::5, self.channel_index]
+            background, noise = background_noise(frames)
             floors.append(background + floor_sigma * noise)
         return float(np.median(floors))
 
-    def bounds(self, index: int, stack: Optional[np.ndarray] = None) -> Tuple[float, float]:
-        """Intensity bounds of the trench at position ``index`` (cached)."""
-        if index not in self._bounds:
+    def bounds(self, trench_id: int, stack: Optional[np.ndarray] = None) -> Tuple[float, float]:
+        """Intensity bounds of a trench (cached)."""
+        if trench_id not in self._bounds:
             if stack is None:
-                stack = self._open_store()["data"][index, :, self.channel_index]
-            self._bounds[index] = trench_bounds(stack, self._params["floor"])
-        return self._bounds[index]
+                stack = self._read(trench_id)
+            self._bounds[trench_id] = trench_bounds(stack, self._params["floor"])
+        return self._bounds[trench_id]
 
     # ------------------------------------------------------------------
     # Omnipose
@@ -525,183 +482,174 @@ class Segmenter:
         masks = drop_faint(masks, stack, s["min_contrast"])
         return order_from_closed_end(masks), failed
 
+    def _segment_trench(
+        self, root: zarr.Group, trench_id: int, stack: np.ndarray, batch_size: int,
+    ) -> Tuple[Tuple[float, float], Dict[str, List[int]]]:
+        """Segment a trench under every hypothesis and write its label images."""
+        bounds = self.bounds(trench_id, stack)
+        labels: Dict[str, np.ndarray] = {}
+        failed: Dict[str, List[int]] = {}
+        for hypothesis in self.hypotheses:
+            labels[hypothesis], frames = self.segment_stack(
+                stack, bounds, hypothesis, batch_size=batch_size,
+            )
+            if frames:
+                failed[hypothesis] = frames
+        write_segmentation(root, trench_id, self.name, labels, attrs={
+            "long_name": LONG_NAME, "channel": self.channel, "model": self.model_name,
+            "lower": bounds[0], "upper": bounds[1], "failed_frames": failed,
+        })
+        return bounds, failed
+
     # ------------------------------------------------------------------
     # Batch segmentation
     # ------------------------------------------------------------------
 
+    def _prepare(self, root: zarr.Group, wanted: Sequence[int], resume: bool) -> None:
+        """Check the saved record against the current settings; clear what is re-run."""
+        current = self._record()
+        saved = records(root, "segmentations").get(self.name)
+        mismatches: List[str] = []
+        if saved is not None:
+            done = [t for t in self.trench_ids if has_segmentation(root, t, self.name)]
+            mismatches = [key for key, value in current.items() if saved.get(key) != value]
+            if mismatches and done:
+                left_behind = sorted(set(done) - set(wanted))
+                if resume or left_behind:
+                    raise RuntimeError(
+                        f"{self.name} was segmented with different settings "
+                        f"({', '.join(mismatches)} differ), and {len(done)} trenches have "
+                        "results with the saved settings. To use the current settings, "
+                        "re-segment every trench: segment(resume=False). To keep the saved "
+                        "results, set the saved settings back instead."
+                    )
+            if mismatches or not resume:
+                # Unlisted before the record changes, so no trench mixes settings.
+                for trench_id in self.trench_ids if mismatches else wanted:
+                    remove_segmentation(root, trench_id, self.name)
+        if saved is None or mismatches:
+            update_experiment(root, "segmentations", self.name, {
+                **current,
+                "description": (
+                    f"Omnipose labels of the {self.channel} channel under each hypothesis's "
+                    f"settings; each trench's labels/{self.name}.<hypothesis>"
+                ),
+                "schema_version": SCHEMA_VERSION,
+                "provenance": _json_native(provenance()),
+                "made_by": "pymmm.segmenter.Segmenter",
+                "created": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+            })
+
     def segment(
         self,
-        hypotheses: Optional[Sequence[str]] = None,
+        trenches: Optional[Sequence[int]] = None,
         resume: bool = True,
         batch_size: int = 64,
         workers: int = 1,
         show_progress: bool = True,
     ) -> None:
-        """Segment every trench and write ``/segmentation/<name>/labels``.
+        """Segment the trenches under every hypothesis and write their label images.
 
-        Hypotheses are done one after another, each over all trenches, so the
-        first is complete before the next starts. Each finished trench is
-        recorded in the group's ``completed`` attr, so an interrupted run
-        resumes.
+        Each trench is finished once its label images are all written, so an
+        interrupted run resumes with the trenches not finished.
 
         Most of each trench's time is Omnipose building masks on the CPU, which
         runs no faster with more threads; ``workers > 1`` segments that many
         trenches at once in separate single-threaded processes, each with its
-        own copy of the model on the GPU.
+        own copy of the model on the GPU, each writing its own trenches.
 
         Parameters
         ----------
-        hypotheses : sequence of str | None
-            Which of :data:`HYPOTHESES` to run, in order; all if ``None``.
+        trenches : sequence of int | None
+            Trench ids to segment (a few, to check the settings before the rest);
+            all if ``None``.
         resume : bool
-            Continue an existing group made with the same channel, model,
-            settings and extraction. ``False`` clears and re-runs only
-            ``hypotheses``. Results of other hypotheses are never cleared: if
-            the settings changed, every hypothesis that already has results must
-            be among ``hypotheses``, or this raises.
+            Keep the trenches already finished with the same channel, model,
+            settings, hypotheses and extraction. ``False`` re-segments
+            ``trenches``. Results are never cleared otherwise: if the settings
+            changed, every trench that has results must be re-segmented
+            (``segment(resume=False)``), or this raises.
         batch_size : int
             Frames per Omnipose GPU batch.
         workers : int
             Trenches segmented at once, each in its own process (1: in this
             process).
         show_progress : bool
-            Show a tqdm progress bar per hypothesis.
+            Show a tqdm progress bar.
         """
-        hypotheses = list(hypotheses or self.hypotheses)
-        unknown = [h for h in hypotheses if h not in HYPOTHESES]
+        wanted = list(self.trench_ids) if trenches is None else [int(t) for t in trenches]
+        unknown = sorted(set(wanted) - set(self.trench_ids))
         if unknown:
-            raise ValueError(f"unknown hypotheses {unknown}; choose from {self.hypotheses}")
+            raise ValueError(f"no trenches {unknown} in {self.store_path.name}")
+        root = self._open(mode="r+")
+        self._prepare(root, wanted, resume)
+        todo = [t for t in wanted if not has_segmentation(root, t, self.name)]
+        failed_frames: Dict[int, Dict[str, List[int]]] = {}
 
-        saved = self._saved_attrs()
-        if saved is None:
-            self._create_group()
-        else:
-            mismatches = self._resume_mismatches(saved)
-            with_results = [h for h in self.hypotheses if saved.get("completed", {}).get(h)]
-            if mismatches:
-                left_behind = [h for h in with_results if h not in hypotheses]
-                if resume or left_behind:
-                    rerun = [h for h in self.hypotheses if h in with_results or h in hypotheses]
-                    raise RuntimeError(
-                        f"{self.group} was segmented with different settings "
-                        f"({', '.join(mismatches)} differ). "
-                        + (f"{', '.join(with_results)} already have results with the saved settings. "
-                           if with_results else "")
-                        + f"To use the current settings, re-run them together: "
-                        f"segment(hypotheses={rerun}, resume=False). "
-                        "To keep the saved results, set the saved settings back instead."
-                    )
-                # Every hypothesis with results is being re-run: start the group afresh.
-                self._create_group()
-            elif not resume:
-                self._reset(hypotheses)
-
-        store = self._open_store(mode="r+")
-        data = store["data"]
-        group = store[self.group]
-        labels = group["labels"]
-        lower_arr, upper_arr = group["lower"], group["upper"]
-        stored_upper = upper_arr[:]
-        stored_bounds = {int(i) for i in np.flatnonzero(stored_upper > 0)}
-        for index in stored_bounds:
-            self._bounds[index] = (float(lower_arr[index]), float(stored_upper[index]))
-
-        trench_ids = [int(i) for i in self.root["Trench"].values]
-        completed = {h: set(v) for h, v in group.attrs.get("completed", {}).items()}
-        failed_frames = dict(group.attrs.get("failed_frames", {}))
-
-        def _read(index: int) -> np.ndarray:
-            return data[index, :, self.channel_index]
-
-        def _record(hypothesis: str, index: int, bounds: Tuple[float, float], failed: List[int]) -> None:
-            self._bounds[index] = bounds
-            if index not in stored_bounds:
-                lower_arr[index], upper_arr[index] = bounds
-                stored_bounds.add(index)
-            tid = trench_ids[index]
-            completed[hypothesis].add(tid)
-            if failed:
-                failed_frames.setdefault(hypothesis, {})[str(tid)] = failed
-                group.attrs["failed_frames"] = failed_frames
-            group.attrs["completed"] = {
-                h: [t for t in trench_ids if t in completed.get(h, set())]
-                for h in self.hypotheses
-            }
-
+        progress = tqdm(
+            total=len(todo), desc=f"{self.name} {', '.join(self.hypotheses)}",
+            disable=not show_progress,
+        )
         with _environment(_WORKER_THREADS if workers > 1 else {}):
             pool = None
-            if workers > 1:
+            if workers > 1 and todo:
                 pool = ProcessPoolExecutor(
                     max_workers=workers,
                     mp_context=multiprocessing.get_context("spawn"),
                     initializer=_init_worker,
                     initargs=(str(self.store_path), self.channel, self.model_name,
-                              self.name, self.gpu, self._params),
+                              self.name, self.hypotheses, self.gpu, self._params),
                 )
             reader = ThreadPoolExecutor(max_workers=1)
             try:
-                for hypothesis in hypotheses:
-                    h_index = self.hypotheses.index(hypothesis)
-                    done = completed.setdefault(hypothesis, set())
-                    todo = [i for i, tid in enumerate(trench_ids) if tid not in done]
-                    progress = tqdm(
-                        total=len(todo), desc=f"{hypothesis} {self.channel}", disable=not show_progress,
-                    )
-                    if pool is None:
-                        pending = reader.submit(_read, todo[0]) if todo else None
-                        for k, index in enumerate(todo):
-                            stack = pending.result()
-                            if k + 1 < len(todo):
-                                pending = reader.submit(_read, todo[k + 1])
-                            bounds = self.bounds(index, stack)
-                            masks, failed = self.segment_stack(
-                                stack, bounds, hypothesis, batch_size=batch_size,
-                            )
-                            labels[h_index, index] = masks
-                            _record(hypothesis, index, bounds, failed)
+                if pool is None:
+                    pending = reader.submit(self._read, todo[0]) if todo else None
+                    for k, trench_id in enumerate(todo):
+                        stack = pending.result()
+                        if k + 1 < len(todo):
+                            pending = reader.submit(self._read, todo[k + 1])
+                        _, failed = self._segment_trench(root, trench_id, stack, batch_size)
+                        if failed:
+                            failed_frames[trench_id] = failed
+                        progress.update()
+                else:
+                    # Workers write their own trenches' label images (never shared).
+                    queue = iter(todo)
+                    running = {}
+
+                    def _submit_next() -> None:
+                        trench_id = next(queue, None)
+                        if trench_id is not None:
+                            task = (trench_id, self._bounds.get(trench_id), batch_size)
+                            running[pool.submit(_segment_in_worker, task)] = trench_id
+
+                    for _ in range(2 * workers):
+                        _submit_next()
+                    while running:
+                        finished, _ = wait(running, return_when=FIRST_COMPLETED)
+                        for future in finished:
+                            running.pop(future)
+                            trench_id, bounds, failed = future.result()
+                            self._bounds[trench_id] = bounds
+                            if failed:
+                                failed_frames[trench_id] = failed
                             progress.update()
-                    else:
-                        # Workers write their own label chunks (one per trench, so
-                        # never shared); progress and bounds are recorded here.
-                        queue = iter(todo)
-                        running = {}
-
-                        def _submit_next() -> None:
-                            index = next(queue, None)
-                            if index is not None:
-                                task = (hypothesis, index, self._bounds.get(index), batch_size)
-                                running[pool.submit(_segment_trench, task)] = index
-
-                        for _ in range(2 * workers):
                             _submit_next()
-                        while running:
-                            finished, _ = wait(running, return_when=FIRST_COMPLETED)
-                            for future in finished:
-                                running.pop(future)
-                                index, bounds, failed = future.result()
-                                _record(hypothesis, index, bounds, failed)
-                                progress.update()
-                                _submit_next()
-                    progress.close()
-                    complete = dict(group.attrs.get("complete", {}))
-                    complete[hypothesis] = done.issuperset(trench_ids)
-                    group.attrs["complete"] = complete
             finally:
+                progress.close()
                 reader.shutdown(wait=False, cancel_futures=True)
                 if pool is not None:
                     pool.shutdown(wait=True, cancel_futures=True)
 
-        print(f"Segmentation written: {self.store_path / self.group} ({', '.join(hypotheses)})")
-        n_failed = sum(len(v) for h in hypotheses for v in failed_frames.get(h, {}).values())
+        done = self.finished()
+        print(
+            f"Segmentation {self.name} ({', '.join(self.hypotheses)}) written to "
+            f"{self.store_path}/trench_NNNN/labels: {len(done)}/{len(self.trench_ids)} trenches finished"
+        )
+        n_failed = sum(len(v) for f in failed_frames.values() for v in f.values())
         if n_failed:
-            print(f"  Omnipose failed on {n_failed} frames (left empty); see attrs['failed_frames']")
-
-    def labels(self, hypothesis: Optional[str] = None) -> xr.DataArray:
-        """Lazy ``labels(Hypothesis, Trench, T, Y, X)``, or one hypothesis's."""
-        labels = xr.open_zarr(
-            self.store_path, group=self.group, consolidated=False,
-        )["labels"]
-        return labels if hypothesis is None else labels.sel(Hypothesis=hypothesis)
+            print(f"  Omnipose failed on {n_failed} frames (left empty) in trenches "
+                  f"{sorted(failed_frames)}; see each label image's attrs['pymmm']['failed_frames']")
 
     # ------------------------------------------------------------------
     # Interactive tuning and viewing
@@ -724,13 +672,13 @@ class Segmenter:
         from pymmm.plotting import NDV_CLIMS
 
         params = self._params
-        trench_ids = [int(i) for i in self.root["Trench"].values]
-        data = self._open_store()["data"]
-        sizes = self.root.sizes
+        trench_ids = self.trench_ids
+        fov_names = [str(f) for f in self.root["trenches/fov_name"][:]]
+        n_t, _, n_y, n_x = image(self.root, trench_ids[0]).shape
         style = {"description_width": "initial"}
 
         hypothesis_select = widgets.Dropdown(
-            options=self.hypotheses, value=self.hypotheses[0], description="hypothesis",
+            options=list(HYPOTHESES), value=self.hypotheses[0], description="hypothesis",
         )
         overrides_label = widgets.HTML(value="")
         trench_slider = widgets.IntSlider(
@@ -771,9 +719,7 @@ class Segmenter:
         status_label = widgets.HTML(value="")
         output = widgets.Output()
 
-        viewer_data = np.zeros(
-            (sizes["T"], 2, sizes["Y"], sizes["X"]), dtype=np.float32,
-        )
+        viewer_data = np.zeros((n_t, 2, n_y, n_x), dtype=np.float32)
         image_viewer = ndv.ArrayViewer(
             viewer_data,
             channel_axis=1,
@@ -810,7 +756,7 @@ class Segmenter:
             hypothesis = hypothesis_select.value
             current = _widget_params()
             status_label.value = f"<b>Segmenting trench {tid} ({hypothesis})…</b>"
-            stack = data[index, :, self.channel_index]
+            stack = self._read(tid)
             bounds = trench_bounds(stack, current["floor"])
             start = time.perf_counter()
             masks, failed = self.segment_stack(stack, bounds, hypothesis, current, batch_size)
@@ -819,12 +765,11 @@ class Segmenter:
             image_viewer.data_wrapper.data_changed.emit()
 
             n_cells = masks.reshape(masks.shape[0], -1).max(axis=1)
-            fov = str(self.root["fov_name"].values[index])
             preview_label.value = (
-                f"<b>Trench {tid}</b> ({fov}), {hypothesis} — up to {int(n_cells.max())} cells; "
-                f"bounds {bounds[0]:.0f}–{bounds[1]:.0f}"
+                f"<b>Trench {tid}</b> ({fov_names[index]}), {hypothesis} — up to "
+                f"{int(n_cells.max())} cells; bounds {bounds[0]:.0f}–{bounds[1]:.0f}"
             )
-            status_label.value = f"Segmented {sizes['T']} frames in {elapsed:.1f} s"
+            status_label.value = f"Segmented {n_t} frames in {elapsed:.1f} s"
             if failed:
                 status_label.value += f"; Omnipose failed on frames {failed}"
 
@@ -842,12 +787,12 @@ class Segmenter:
             self._params = {k: v for k, v in _widget_params().items() if k in DEFAULT_PARAMS}
             self._bounds.clear()
             status_label.value = "<b>Applied</b> — base settings kept for segment()"
-            saved = self._saved_attrs() or {}
-            done = [h for h in self.hypotheses if saved.get("completed", {}).get(h)]
+            saved = self._saved_record() or {}
+            done = self.finished()
             if done and saved.get("params") != _json_native(self._params):
                 status_label.value += (
-                    f"<br>{', '.join(done)} already have results with the previous "
-                    "settings; segment() will ask you to re-run them too."
+                    f"<br>{len(done)} trenches already have results with the previous "
+                    "settings; segment() will ask you to re-segment them too."
                 )
 
         run_btn.on_click(_update)
@@ -868,7 +813,8 @@ class Segmenter:
         _update()
 
     def view(self):
-        """Browse the stored labels as outlines over the channel: any hypothesis, trench and frame."""
+        """Browse the written labels as outlines over the channel: any hypothesis,
+        trench and frame (unfinished trenches show no outlines)."""
         import ndv
 
         from pymmm.plotting import NDV_CLIMS
@@ -884,16 +830,10 @@ class Segmenter:
         )
 
     def __repr__(self) -> str:
-        attrs = self._saved_attrs()
-        if attrs is None:
-            state = "not segmented"
-        else:
-            n = self.root.sizes["Trench"]
-            done = attrs.get("completed", {})
-            state = ", ".join(f"{h} {len(done.get(h, []))}/{n}" for h in self.hypotheses)
         return (
-            f"Segmenter({self.store_path.name}, {self.group}, channel={self.channel!r}, "
-            f"model={self.model_name!r}, {state})"
+            f"Segmenter({self.store_path.name}, labels/{self.name}.<{'|'.join(self.hypotheses)}>, "
+            f"channel={self.channel!r}, model={self.model_name!r}, "
+            f"{len(self.finished())}/{len(self.trench_ids)} trenches finished)"
         )
 
 
@@ -905,14 +845,16 @@ _WORKER: Optional[Segmenter] = None
 
 
 def _init_worker(
-    store_path: str, channel: str, model: str, name: str, gpu: bool, params: Dict[str, Any],
+    store_path: str, channel: str, model: str, name: str, hypotheses: List[str],
+    gpu: bool, params: Dict[str, Any],
 ) -> None:
     """Process-pool initializer: a single-threaded Segmenter with its own model.
 
     The thread limits come from the parent's environment (``_WORKER_THREADS``).
     """
     global _WORKER
-    _WORKER = Segmenter(store_path, channel=channel, model=model, name=name, gpu=gpu)
+    _WORKER = Segmenter(store_path, channel=channel, model=model, name=name,
+                        hypotheses=hypotheses, gpu=gpu)
     _WORKER._params = dict(params)
     _WORKER._get_model()
     try:
@@ -923,32 +865,34 @@ def _init_worker(
         pass
 
 
-def _segment_trench(
-    task: Tuple[str, int, Optional[Tuple[float, float]], int],
-) -> Tuple[int, Tuple[float, float], List[int]]:
-    """Segment one trench under one hypothesis in a worker; write its label chunk."""
-    hypothesis, index, bounds, batch_size = task
+def _segment_in_worker(
+    task: Tuple[int, Optional[Tuple[float, float]], int],
+) -> Tuple[int, Tuple[float, float], Dict[str, List[int]]]:
+    """Segment one trench under every hypothesis in a worker; write its label images."""
+    trench_id, bounds, batch_size = task
     seg = _WORKER
-    store = seg._open_store(mode="r+")
-    stack = store["data"][index, :, seg.channel_index]
-    if bounds is None:
-        bounds = trench_bounds(stack, seg._params["floor"])
-    masks, failed = seg.segment_stack(stack, bounds, hypothesis, batch_size=batch_size)
-    store[seg.group]["labels"][seg.hypotheses.index(hypothesis), index] = masks
-    return index, bounds, failed
+    if bounds is not None:
+        seg._bounds[trench_id] = bounds
+    bounds, failed = seg._segment_trench(
+        seg._open(mode="r+"), trench_id, seg._read(trench_id), batch_size,
+    )
+    return trench_id, bounds, failed
 
 
 def _label_overlay_wrapper(segmenter: Segmenter):
     """ndv data ``(Hypothesis, Trench, T, C, Y, X)``: the channel and label
-    outlines, read from the store only for the frames ndv asks for."""
+    outlines, read from the trench images only for the frames ndv asks for."""
     import ndv
 
-    store = segmenter._open_store()
-    data = store["data"]
-    labels = store[segmenter.group]["labels"]
-    channel_index = segmenter.channel_index
-    sizes = segmenter.root.sizes
-    n_hypotheses = labels.shape[0]
+    ids = segmenter.trench_ids
+    hypotheses = segmenter.hypotheses
+    n_t, _, n_y, n_x = image(segmenter.root, ids[0]).shape
+
+    def _labels(trench_id: int) -> Optional[List[zarr.Array]]:
+        root = segmenter._open()
+        if not has_segmentation(root, trench_id, segmenter.name):
+            return None
+        return segmentation(root, trench_id, segmenter.name)[1]
 
     class _LabelOverlay(ndv.DataWrapper):
         @classmethod
@@ -963,12 +907,12 @@ def _label_overlay_wrapper(segmenter: Segmenter):
         def coords(self) -> Dict[str, Sequence]:
             # ndv's Jupyter sliders only take ranges: Hypothesis and Trench are by position.
             return {
-                "Hypothesis": range(n_hypotheses),
-                "Trench": range(sizes["Trench"]),
-                "T": range(sizes["T"]),
+                "Hypothesis": range(len(hypotheses)),
+                "Trench": range(len(ids)),
+                "T": range(n_t),
                 "C": range(2),
-                "Y": range(sizes["Y"]),
-                "X": range(sizes["X"]),
+                "Y": range(n_y),
+                "X": range(n_x),
             }
 
         def channel_names(self, channel_axis: Optional[int]) -> Dict[int, str]:
@@ -979,12 +923,20 @@ def _label_overlay_wrapper(segmenter: Segmenter):
             return np.dtype(np.float32)
 
         def isel(self, index: Mapping[int, Union[int, slice]]) -> np.ndarray:
-            h, trench, t, c, y, x = (index.get(axis, slice(None)) for axis in range(6))
-            images = data[trench, t, channel_index]
-            frame_labels = labels[h, trench, t]
-            if isinstance(h, slice):
-                images = np.broadcast_to(images, frame_labels.shape)
-            overlay = label_overlay(images, frame_labels)
-            return overlay[..., c, y, x]
+            # ndv asks with a slice on every axis (an index k as k:k+1).
+            h, trench, t, c, y, x = (
+                slice(i, i + 1) if isinstance(i, (int, np.integer)) else i
+                for i in (index.get(axis, slice(None)) for axis in range(6))
+            )
+            per_trench = []
+            for k in range(len(ids))[trench]:
+                frames = np.asarray(image(segmenter.root, ids[k])[t, segmenter.channel_index])
+                arrays = _labels(ids[k])
+                per_trench.append(np.stack([
+                    label_overlay(frames, np.zeros(frames.shape, np.uint16) if arrays is None
+                                  else np.asarray(arrays[j][t]))
+                    for j in range(len(hypotheses))[h]
+                ]))
+            return np.stack(per_trench, axis=1)[..., c, y, x]
 
     return _LabelOverlay(segmenter)
