@@ -866,7 +866,7 @@ class Extractor:
         without writing anything. Browse it before committing to the full extraction
         (the notebook extra)::
 
-            ndv.imshow(extractor.preview())
+            pymmm.widgets.imshow(extractor.preview())
 
         Parameters
         ----------

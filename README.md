@@ -113,10 +113,15 @@ napari --plugin napari-ome-zarr experiment.zarr/trench_0007
 ## Tests
 
 ```bash
-python -m pytest tests                         # all
-python -m pytest tests -m "not golden"         # without the golden tests (seconds)
+python -m pytest -n 4 tests                    # all, on 4 workers (pytest-xdist)
+python -m pytest -n 4 tests -m "not golden"    # without the golden tests (seconds)
 python -m pytest tests -m segment              # the Omnipose tests (the seg environment)
 ```
+
+Four workers is the fastest: each worker runs the golden pipeline's setup (about 12 s)
+itself, so more workers repeat it more often, and `--dist loadfile` runs the golden
+pipeline's file on one worker, end to end. In the main repo, run the default and seg
+environments at the same time (about 45 s for both).
 
 One test file per module, named after it (`test_steps_extraction.py` for
 `pymmm/steps/extraction.py`, `test_widgets_lanes.py` for `pymmm/widgets/lanes.py`). Their
@@ -131,5 +136,8 @@ an intended change of output, regenerate the references with `PYMMM_GOLDEN_UPDAT
 and review their diff.
 
 The widget tests drive the controls without a browser and check what the widgets
-compute and show (the `notebook` fixture in `tests/conftest.py`). How the widgets and
-viewers look and respond in Jupyter, and napari's window, are checked by hand.
+compute and show (the `notebook` fixture in `tests/conftest.py`, whose ndv viewers are
+fakes). `tests/test_widgets_viewers.py` makes real ndv viewers in a real Jupyter kernel
+and sends them the events a browser sends (`tests/browser_events.py`): each must handle
+them and draw. How the widgets and viewers look in JupyterLab, and napari's window, are
+checked by hand.

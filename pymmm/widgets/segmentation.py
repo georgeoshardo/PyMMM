@@ -16,7 +16,7 @@ from pymmm.store.experiment_group import (
     open_experiment,
     segmentation,
 )
-from pymmm.widgets._common import overlay_luts, overlay_viewer, show, slider
+from pymmm.widgets._common import imshow, overlay_luts, overlay_viewer, show, slider
 
 if TYPE_CHECKING:
     from pymmm.steps.segmentation import Segmenter
@@ -165,9 +165,7 @@ def segmentation_widget(segmenter: "Segmenter", batch_size: int = 64) -> None:
 def label_viewer(segmenter: "Segmenter") -> Any:
     """An ndv viewer of the written labels as outlines over the channel (see
     :meth:`Segmenter.view`)."""
-    import ndv
-
-    return ndv.imshow(
+    return imshow(
         _label_overlay(segmenter),
         channel_axis=3,
         channel_mode="composite",
