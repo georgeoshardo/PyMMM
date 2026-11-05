@@ -1,8 +1,30 @@
-"""Extractor – crop trenches from stabilised data and write to output zarr."""
+"""Extractor – crop trenches from stabilised data, one OME-Zarr image per trench.
+
+The output is one zarr group per experiment::
+
+    <experiment>.zarr/          plain group; attrs["pymmm"]: what was extracted from
+                                which ND2, and how far the extraction got
+        T  C                    original ND2 frame index, channel names
+        trenches/               the trench table: one 1-D array per column, dimension
+                                "trench"; column "path" names the trench's image
+        acquisition/ detection/ events/ registration/ source_frames/
+                                experiment metadata (xarray datasets)
+        trench_0000/            OME-Zarr 0.5 image: multiscales (t, c, y, x) + omero;
+            0                   attrs["pymmm"] is the trench's row of the table
+        trench_0001/  ...
+
+Each trench is an image of its own, so OME-Zarr readers open it as it is, and what
+later steps make of it (segmentations in ``labels/``, GEFF tracks) sits beside its
+pixels. A trench's ``0`` array is one shard file with an inner chunk per channel
+(and time chunk), so reading one channel reads only that channel. Chunk keys use
+"." (``0/c.0.0.0.0``), so a chunk is one file rather than nested directories. The
+experiment as one (trench, t, c, y, x) array is a lazy stack of the trench arrays.
+"""
 
 from __future__ import annotations
 
 import json
+import math
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -102,8 +124,25 @@ def _extract_frame_batch(
     return result
 
 
-_ROOT_ATTRS = {
-    "data": {"long_name": "trench image crops"},
+OME_VERSION = "0.5"
+_CHUNK_KEYS = {"name": "default", "separator": "."}
+_TRENCH_COLUMNS = (
+    "fov_name", "fov_index", "lane_index", "x_left", "x_right", "y_top", "y_bottom",
+    "orientation", "needs_flip",
+)
+
+
+def trench_path(trench_id: int) -> str:
+    """The trench's image group within the experiment group: ``trench_0007``."""
+    return f"trench_{int(trench_id):04d}"
+
+
+def _json(value):
+    return json.loads(json.dumps(value, default=str))
+
+
+_TABLE_ATTRS = {
+    "path": {"long_name": "the trench's OME-Zarr image, relative to the experiment group"},
     "fov_name": {"long_name": "field of view the trench was cut from"},
     "fov_index": {"long_name": "index into the FOV dimension of /source_frames and /registration"},
     "lane_index": {"long_name": "lane the trench belongs to within its FOV"},
@@ -113,22 +152,23 @@ _ROOT_ATTRS = {
     "y_bottom": {"units": "pixel", "long_name": "trench bottom edge in the registered FOV"},
     "orientation": {"long_name": "trench opening direction (1 = opens downward, -1 = upward)"},
     "needs_flip": {"long_name": "crop was flipped vertically so trenches share one orientation"},
-    "Trench": {"long_name": "trench id"},
-    "T": {"long_name": "frame index (original ND2 T index); times are in /source_frames"},
-    "C": {"long_name": "channel"},
-    "Y": {"units": "pixel", "long_name": "row within the trench crop"},
-    "X": {"units": "pixel", "long_name": "column within the trench crop"},
+    "trench": {"long_name": "trench id"},
+}
+_ROOT_ATTRS = {
+    "T": {"long_name": "frame index (original ND2 T index) of each t of the trench images; "
+                       "times are in /source_frames"},
+    "C": {"long_name": "channel of each c of the trench images"},
 }
 
 
-def _annotate_root_dataset(dataset: xr.Dataset) -> xr.Dataset:
-    for name, attrs in _ROOT_ATTRS.items():
-        dataset[name].attrs.update(attrs)
+def _annotate(dataset: xr.Dataset, attrs: dict[str, dict[str, str]]) -> xr.Dataset:
+    for name, values in attrs.items():
+        dataset[name].attrs.update(values)
     return dataset
 
 
 class Extractor:
-    """Crop trenches from the lazy stabilised DataArray and write to zarr.
+    """Crop trenches from the lazy stabilised DataArray, one OME-Zarr image each.
 
     Parameters
     ----------
@@ -139,8 +179,8 @@ class Extractor:
     trench_detector : TrenchDetector
         Completed trench detector.
     output_path : str | Path | None
-        Path for the output zarr store. Defaults to
-        ``<nd2_dir>/<experiment_name>.trenches.zarr``.
+        Path for the experiment group (see the module docstring). Defaults to
+        ``<nd2_dir>/<experiment_name>.zarr``.
     """
 
     def __init__(
@@ -156,17 +196,14 @@ class Extractor:
 
         if output_path is None:
             nd2_dir = experiment.path.parent
-            output_path = nd2_dir / f"{experiment.experiment_name}.trenches.zarr"
+            output_path = nd2_dir / f"{experiment.experiment_name}.zarr"
         self.output_path = Path(output_path)
 
-    def _root_store_attrs(self) -> dict[str, Any]:
-        """Return the small root-attrs bundle for the final trench store."""
+    def _source_attrs(self) -> dict[str, Any]:
+        """What was extracted: the ND2 and the subset of it."""
         exp = self.experiment
         source_stat = exp.path.stat()
         return {
-            "schema_version": SCHEMA_VERSION,
-            "layout": "trench_store",
-            "provenance": provenance(),
             "source_nd2": str(exp.path),
             "source_file_size_bytes": int(source_stat.st_size),
             "source_mtime_ns": int(source_stat.st_mtime_ns),
@@ -174,12 +211,109 @@ class Extractor:
             "source_subset_metadata": exp.source_subset_metadata,
         }
 
+    def _experiment_attrs(
+        self, *, channel_names: list[str], pixel_size_um: float, frame_interval_ms: float,
+    ) -> dict[str, Any]:
+        """The experiment group's ``pymmm`` attributes."""
+        return _json({
+            "schema_version": SCHEMA_VERSION,
+            "layout": "experiment",
+            "description": (
+                "A mother-machine experiment: one OME-Zarr image per trench (column "
+                "'path' of the trench table trenches/), and the experiment metadata."
+            ),
+            "image_path": "trench_{trench:04d}",
+            "provenance": provenance(),
+            **self._source_attrs(),
+            "channels": list(channel_names),
+            "pixel_size_um": pixel_size_um,
+            "frame_interval_ms": frame_interval_ms,
+        })
+
+    def _image_attrs(
+        self,
+        row,
+        *,
+        channel_names: list[str],
+        colors: list[str],
+        pixel_size_um: float,
+        frame_interval_ms: float,
+        dtype: np.dtype,
+        fov_index: int,
+        windows: list[tuple[float, float]] | None = None,
+    ) -> dict[str, Any]:
+        """A trench image's attributes: OME multiscales and omero, and its table row."""
+        trench_id = int(row["trench_id"])
+        time_axis = {"name": "t", "type": "time"}
+        space = [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]
+        scale = [1.0, 1.0, 1.0, 1.0]
+        if np.isfinite(frame_interval_ms) and frame_interval_ms > 0:
+            time_axis["unit"] = "minute"
+            scale[0] = frame_interval_ms / 60_000.0
+        if np.isfinite(pixel_size_um) and pixel_size_um > 0:
+            for axis in space:
+                axis["unit"] = "micrometer"
+            scale[2:] = [pixel_size_um, pixel_size_um]
+        top = float(np.iinfo(dtype).max) if np.issubdtype(dtype, np.integer) else 1.0
+        channels = [
+            {
+                "label": label,
+                "color": color,
+                "active": label == self.registrator.channel,
+                "window": {
+                    "min": 0.0, "max": top,
+                    "start": windows[c][0] if windows else 0.0,
+                    "end": windows[c][1] if windows else top,
+                },
+            }
+            for c, (label, color) in enumerate(zip(channel_names, colors, strict=True))
+        ]
+        return _json({
+            "ome": {
+                "version": OME_VERSION,
+                "multiscales": [{
+                    "name": trench_path(trench_id),
+                    "type": "none",
+                    "metadata": {"description": "one resolution level: nothing was downsampled"},
+                    "axes": [time_axis, {"name": "c", "type": "channel"}, *space],
+                    "datasets": [{
+                        "path": "0",
+                        "coordinateTransformations": [{"type": "scale", "scale": scale}],
+                    }],
+                }],
+                "omero": {"channels": channels, "rdefs": {"model": "color", "defaultT": 0}},
+            },
+            "pymmm": {
+                "trench": trench_id,
+                "fov_name": str(row["fov"]),
+                "fov_index": int(fov_index),
+                **{
+                    key: row[key].item() if hasattr(row[key], "item") else row[key]
+                    for key in ("lane_index", "x_left", "x_right", "y_top", "y_bottom",
+                                "orientation", "needs_flip")
+                },
+                "units": {key: "pixel" for key in ("x_left", "x_right", "y_top", "y_bottom")},
+                "experiment": "..",
+            },
+        })
+
+    @staticmethod
+    def _windows(image: np.ndarray) -> list[tuple[float, float]]:
+        """Display window per channel of a (T, C, Y, X) trench: its 0.5th and 99.9th
+        percentiles, from every tenth frame or so."""
+        step = max(1, image.shape[0] // 26)
+        return [
+            tuple(float(v) for v in np.percentile(image[::step, c], [0.5, 99.9]))
+            for c in range(image.shape[1])
+        ]
+
     def _resume_mismatches(
         self,
         store: zarr.Group,
         trench_table,
         shape: tuple[int, ...],
         chunks: tuple[int, ...],
+        shards: tuple[int, ...],
         dtype: np.dtype,
         compressor: str,
         clevel: int,
@@ -190,14 +324,14 @@ class Extractor:
         Returns a description of every input that differs; empty means the
         store can be resumed.
         """
-        attrs = store.attrs
-        if attrs.get("schema_version") != SCHEMA_VERSION:
-            return [f"schema version {attrs.get('schema_version')} (current {SCHEMA_VERSION})"]
+        attrs = dict(store.attrs).get("pymmm") or {}
+        if attrs.get("layout") != "experiment" or attrs.get("schema_version") != SCHEMA_VERSION:
+            return [
+                f"layout {attrs.get('layout')!r}, schema version {attrs.get('schema_version')} "
+                f"(current 'experiment', {SCHEMA_VERSION})"
+            ]
 
-        def _json(value):
-            return json.loads(json.dumps(value, default=str))
-
-        current_attrs = _json(self._root_store_attrs())
+        current_attrs = _json(self._source_attrs())
         mismatches = [
             key for key in (
                 "source_nd2", "source_file_size_bytes", "source_mtime_ns",
@@ -209,29 +343,33 @@ class Extractor:
         if store["C"][:].tolist() != list(self.experiment.channel_names):
             mismatches.append("channels")
 
+        table = store["trenches"]
         trench_columns = {
-            "Trench": "trench_id", "fov_name": "fov", "lane_index": "lane_index",
+            "trench": "trench_id", "fov_name": "fov", "lane_index": "lane_index",
             "x_left": "x_left", "x_right": "x_right", "y_top": "y_top",
             "y_bottom": "y_bottom", "orientation": "orientation",
             "needs_flip": "needs_flip",
         }
-        stored_trench_count = store["Trench"].shape[0]
+        stored_trench_count = table["trench"].shape[0]
         if stored_trench_count != len(trench_table):
             mismatches.append(
                 f"trench count ({stored_trench_count} stored, {len(trench_table)} now)"
             )
-        else:
-            for var, column in trench_columns.items():
-                if store[var][:].tolist() != trench_table[column].tolist():
-                    mismatches.append(f"trench {column}")
+            return mismatches
+        for var, column in trench_columns.items():
+            if table[var][:].tolist() != trench_table[column].tolist():
+                mismatches.append(f"trench {column}")
 
-        data = store["data"]
+        data = store[f"{trench_path(trench_table['trench_id'].iloc[0])}/0"]
         if data.shape != tuple(shape):
-            mismatches.append(f"data shape ({data.shape} stored, {tuple(shape)} now)")
-        if data.chunks != tuple(chunks):
-            mismatches.append(f"data chunks ({data.chunks} stored, {tuple(chunks)} now)")
+            mismatches.append(f"image shape ({data.shape} stored, {tuple(shape)} now)")
+        if data.chunks != tuple(chunks) or data.shards != tuple(shards):
+            mismatches.append(
+                f"image chunks/shards ({data.chunks}/{data.shards} stored, "
+                f"{tuple(chunks)}/{tuple(shards)} now)"
+            )
         if np.dtype(data.dtype) != dtype:
-            mismatches.append(f"data dtype ({data.dtype} stored, {dtype} now)")
+            mismatches.append(f"image dtype ({data.dtype} stored, {dtype} now)")
         blosc = [c for c in data.compressors if isinstance(c, zarr.codecs.BloscCodec)]
         if compressor == "zstd":
             want_shuffle = "shuffle" if byte_shuffle else "noshuffle"
@@ -328,77 +466,57 @@ class Extractor:
                 encoding[name] = spec
         return encoding
 
-    def _build_root_dataset_template(
-        self,
-        *,
-        trench_table,
-        source_metadata: dict[str, Any],
-        trench_h: int,
-        trench_w: int,
-        channel_names: list[str],
-        data_shape: tuple[int, ...],
-        data_chunks: tuple[int, ...],
-        dtype: np.dtype,
+    @staticmethod
+    def _build_root_dataset(
+        *, source_metadata: dict[str, Any], channel_names: list[str], attrs: dict[str, Any],
     ) -> xr.Dataset:
-        """Build the root xarray dataset template for the final trench store."""
+        """The experiment group itself: the t and c coordinates of the trench images."""
+        return xr.Dataset(
+            coords={
+                "T": source_metadata["original_t_index"],
+                "C": np.asarray(channel_names, dtype=object),
+            },
+            attrs={"pymmm": attrs},
+        ).pipe(_annotate, _ROOT_ATTRS)
+
+    @staticmethod
+    def _build_trench_table(trench_table, source_metadata: dict[str, Any]) -> xr.Dataset:
+        """The ``/trenches`` table: one row per trench image."""
         fov_lookup = {
             str(fov_name): idx
             for idx, fov_name in enumerate(source_metadata["fov_names"])
         }
-        fov_index = np.asarray(
-            [fov_lookup[str(fov)] for fov in trench_table["fov"].tolist()],
-            dtype=np.int32,
-        )
-
+        ids = trench_table["trench_id"].to_numpy(dtype=np.int32)
+        columns = {
+            "path": np.asarray([trench_path(t) for t in ids], dtype=object),
+            "fov_name": np.asarray(trench_table["fov"].astype(str).tolist(), dtype=object),
+            "fov_index": np.asarray(
+                [fov_lookup[str(fov)] for fov in trench_table["fov"].tolist()], dtype=np.int32,
+            ),
+            "lane_index": trench_table["lane_index"].to_numpy(dtype=np.int32),
+            "x_left": trench_table["x_left"].to_numpy(dtype=np.int32),
+            "x_right": trench_table["x_right"].to_numpy(dtype=np.int32),
+            "y_top": trench_table["y_top"].to_numpy(dtype=np.int32),
+            "y_bottom": trench_table["y_bottom"].to_numpy(dtype=np.int32),
+            "orientation": trench_table["orientation"].to_numpy(dtype=np.int8),
+            "needs_flip": trench_table["needs_flip"].to_numpy(dtype=bool),
+        }
         return xr.Dataset(
-            data_vars={
-                "data": (
-                    ("Trench", "T", "C", "Y", "X"),
-                    da.empty(data_shape, chunks=data_chunks, dtype=dtype),
-                ),
-                "fov_name": (
-                    ("Trench",),
-                    np.asarray(trench_table["fov"].tolist(), dtype=object),
-                ),
-                "fov_index": (("Trench",), fov_index),
-                "lane_index": (
-                    ("Trench",),
-                    trench_table["lane_index"].to_numpy(dtype=np.int32),
-                ),
-                "x_left": (("Trench",), trench_table["x_left"].to_numpy(dtype=np.int32)),
-                "x_right": (("Trench",), trench_table["x_right"].to_numpy(dtype=np.int32)),
-                "y_top": (("Trench",), trench_table["y_top"].to_numpy(dtype=np.int32)),
-                "y_bottom": (
-                    ("Trench",),
-                    trench_table["y_bottom"].to_numpy(dtype=np.int32),
-                ),
-                "orientation": (
-                    ("Trench",),
-                    trench_table["orientation"].to_numpy(dtype=np.int8),
-                ),
-                "needs_flip": (
-                    ("Trench",),
-                    trench_table["needs_flip"].to_numpy(dtype=bool),
-                ),
-            },
-            coords={
-                "Trench": trench_table["trench_id"].to_numpy(dtype=np.int32),
-                "T": source_metadata["original_t_index"],
-                "C": np.asarray(channel_names, dtype=object),
-                "Y": np.arange(trench_h, dtype=np.int32),
-                "X": np.arange(trench_w, dtype=np.int32),
-            },
-            attrs=self._root_store_attrs(),
-        ).pipe(_annotate_root_dataset)
+            data_vars={name: (("trench",), values) for name, values in columns.items()},
+            coords={"trench": ids},
+            attrs={"layout": "trench_table",
+                   "description": "One row per trench; 'path' is its OME-Zarr image."},
+        ).pipe(_annotate, _TABLE_ATTRS)
 
     def _write_metadata_groups(
         self,
         *,
         source_metadata: dict[str, Any],
+        acquisition: xr.Dataset,
         compressors: list[Any],
         n_times: int,
     ) -> None:
-        """Write xarray-native subgroup datasets to the trench store."""
+        """Write the experiment metadata groups (xarray datasets)."""
         source_frames = build_source_frames_dataset(source_metadata)
         source_frames.to_zarr(
             str(self.output_path),
@@ -461,10 +579,6 @@ class Extractor:
             ),
         )
 
-        acquisition = build_acquisition_dataset(
-            self.experiment.source_acquisition_metadata,
-            channel_names=self.experiment.channel_names,
-        )
         acquisition.to_zarr(
             str(self.output_path),
             mode="a",
@@ -512,11 +626,12 @@ class Extractor:
         time_chunk: int | None = None,
         resume: bool = True,
     ) -> None:
-        """Extract all trenches and write to the output zarr store.
+        """Extract all trenches, each into its own OME-Zarr image (module docstring).
 
         Each task reads a short time batch and all channels with one ND2
         handle. Translation and rotation are composed into one direct warp
-        for each lane band containing trenches.
+        for each lane band containing trenches. A FOV's trenches are written
+        when all its frames are in, each trench's image in one go.
 
         Parameters
         ----------
@@ -531,7 +646,8 @@ class Extractor:
         batch_size : int
             Consecutive timepoints handled by each worker task.
         time_chunk : int | None
-            Output time chunk. ``None`` keeps one full trajectory per chunk.
+            Frames per inner chunk of a trench's shard. ``None`` keeps the whole
+            trajectory of a channel in one chunk.
         resume : bool
             Resume an interrupted compatible output store by completed FOV.
         """
@@ -542,14 +658,7 @@ class Extractor:
         trench_table = self.trench_detector.get_trench_table()
         if len(trench_table) == 0:
             raise RuntimeError("No trenches to extract.")
-
-        trench_table = (
-            trench_table.sort_values("trench_id")
-            .reset_index(drop=True)
-            .assign(
-                _output_trench_index=lambda df: np.arange(len(df), dtype=np.int32),
-            )
-        )
+        trench_table = trench_table.sort_values("trench_id").reset_index(drop=True)
 
         # Determine output shape from first trench
         first = trench_table.iloc[0]
@@ -559,7 +668,6 @@ class Extractor:
         widths = trench_table["x_right"] - trench_table["x_left"]
         if not (heights.eq(trench_h).all() and widths.eq(trench_w).all()):
             raise ValueError("All trenches must have the same output shape.")
-        n_trenches = len(trench_table)
         exp = self.experiment
         n_times = exp.n_timepoints
         if time_chunk is None:
@@ -570,7 +678,7 @@ class Extractor:
             output_time_chunk = min(n_times, int(time_chunk))
 
         # Determine channels
-        channel_names = exp.channel_names
+        channel_names = list(exp.channel_names)
         n_channels = len(channel_names)
 
         # Create output zarr store
@@ -591,8 +699,14 @@ class Extractor:
             metadata_compressors = []
             data_compressors = []
 
-        shape = (n_trenches, n_times, n_channels, trench_h, trench_w)
-        chunks = (1, output_time_chunk, 1, trench_h, trench_w)
+        # one trench image: (T, C, Y, X); one shard holding a chunk per channel
+        # (and time chunk)
+        shape = (n_times, n_channels, trench_h, trench_w)
+        chunks = (output_time_chunk, 1, trench_h, trench_w)
+        shards = (
+            math.ceil(n_times / output_time_chunk) * output_time_chunk,
+            n_channels, trench_h, trench_w,
+        )
 
         dtype = np.dtype(exp.data.dtype)
 
@@ -601,7 +715,7 @@ class Extractor:
                 str(self.output_path), mode="r+", zarr_format=3,
             )
             mismatches = self._resume_mismatches(
-                store, trench_table, shape, chunks, dtype,
+                store, trench_table, shape, chunks, shards, dtype,
                 compressor, clevel, byte_shuffle,
             )
             if mismatches:
@@ -610,57 +724,66 @@ class Extractor:
                     f"these inputs differ: {', '.join(mismatches)}. "
                     "Use resume=False or choose a new output path."
                 )
-            completed_fovs = set(store.attrs.get("completed_fovs", []))
+            completed_fovs = set(dict(store.attrs)["pymmm"].get("completed_fovs", []))
         else:
             source_metadata = extract_source_frame_metadata(exp)
-            root_dataset = self._build_root_dataset_template(
-                trench_table=trench_table,
-                source_metadata=source_metadata,
-                trench_h=trench_h,
-                trench_w=trench_w,
-                channel_names=channel_names,
-                data_shape=shape,
-                data_chunks=chunks,
-                dtype=dtype,
+            acquisition = build_acquisition_dataset(
+                exp.source_acquisition_metadata, channel_names=channel_names,
             )
-            root_encoding = self._metadata_encoding(
-                root_dataset,
-                chunk_overrides={
-                    "data": chunks,
-                    "fov_name": (min(4096, max(1, n_trenches)),),
-                    "fov_index": (min(4096, max(1, n_trenches)),),
-                    "lane_index": (min(4096, max(1, n_trenches)),),
-                    "x_left": (min(4096, max(1, n_trenches)),),
-                    "x_right": (min(4096, max(1, n_trenches)),),
-                    "y_top": (min(4096, max(1, n_trenches)),),
-                    "y_bottom": (min(4096, max(1, n_trenches)),),
-                    "orientation": (min(4096, max(1, n_trenches)),),
-                    "needs_flip": (min(4096, max(1, n_trenches)),),
-                },
-                compressors=metadata_compressors,
+            frame_interval_ms = float(acquisition["time_interval"])
+            pixel_size_um = float(exp.pixel_size_um)
+            if "C" in acquisition["color"].dims:
+                colors = [str(c).lstrip("#").upper() for c in acquisition["color"].values]
+            else:  # the ND2's channel records don't match its channels
+                colors = ["FFFFFF"] * n_channels
+            experiment_attrs = self._experiment_attrs(
+                channel_names=channel_names, pixel_size_um=pixel_size_um,
+                frame_interval_ms=frame_interval_ms,
             )
-            root_encoding["data"]["compressors"] = data_compressors
-            root_dataset.to_zarr(
+            self._build_root_dataset(
+                source_metadata=source_metadata, channel_names=channel_names,
+                attrs=experiment_attrs,
+            ).to_zarr(str(self.output_path), mode="w", consolidated=False, zarr_format=3)
+            table = self._build_trench_table(trench_table, source_metadata)
+            table.to_zarr(
                 str(self.output_path),
-                mode="w",
+                mode="a",
+                group="trenches",
                 consolidated=False,
-                compute=False,
                 zarr_format=3,
-                encoding=root_encoding,
+                encoding=self._metadata_encoding(
+                    table, compressors=metadata_compressors,
+                ),
             )
             self._write_metadata_groups(
                 source_metadata=source_metadata,
+                acquisition=acquisition,
                 compressors=metadata_compressors,
                 n_times=n_times,
             )
             store = zarr.open_group(
                 str(self.output_path), mode="r+", zarr_format=3,
             )
-            store.attrs["completed_fovs"] = []
-            store.attrs["extraction_complete"] = False
+            fov_index = dict(zip(table["trench"].values.tolist(),
+                                 table["fov_index"].values.tolist()))
+            for _, row in trench_table.iterrows():
+                image = store.create_group(
+                    trench_path(row["trench_id"]),
+                    attributes=self._image_attrs(
+                        row, channel_names=channel_names, colors=colors,
+                        pixel_size_um=pixel_size_um, frame_interval_ms=frame_interval_ms,
+                        dtype=dtype, fov_index=fov_index[int(row["trench_id"])],
+                    ),
+                )
+                image.create_array(
+                    "0", shape=shape, dtype=dtype, chunks=chunks, shards=shards,
+                    compressors=data_compressors, chunk_key_encoding=_CHUNK_KEYS,
+                    dimension_names=["t", "c", "y", "x"], fill_value=0,
+                )
+            store.attrs["pymmm"] = {
+                **experiment_attrs, "completed_fovs": [], "extraction_complete": False,
+            }
             completed_fovs = set()
-
-        data_arr = store["data"]
 
         # ----------------------------------------------------------
         # Frame-level extraction parameters
@@ -764,20 +887,29 @@ class Extractor:
                         fov_output[:, start:stop] = batch.transpose(1, 0, 2, 3, 4)
 
                 for local_idx, (_, row) in enumerate(fov_df.iterrows()):
-                    output_idx = int(row["_output_trench_index"])
-                    data_arr[output_idx, :, :, :, :] = fov_output[local_idx]
+                    image = store[trench_path(row["trench_id"])]
+                    image["0"][...] = fov_output[local_idx]
+                    ome = dict(image.attrs)["ome"]
+                    windows = self._windows(fov_output[local_idx])
+                    for channel, (start, end) in zip(ome["omero"]["channels"], windows):
+                        channel["window"].update(start=start, end=end)
+                    image.attrs["ome"] = ome
 
                 completed_fovs.add(fov_str)
-                store.attrs["completed_fovs"] = [
-                    name for name in all_fovs if name in completed_fovs
-                ]
+                store.attrs["pymmm"] = {
+                    **dict(store.attrs)["pymmm"],
+                    "completed_fovs": [name for name in all_fovs if name in completed_fovs],
+                }
         finally:
             if pool is not None:
                 pool.shutdown(wait=True)
 
-        store.attrs["extraction_complete"] = set(all_fovs).issubset(completed_fovs)
+        store.attrs["pymmm"] = {
+            **dict(store.attrs)["pymmm"],
+            "extraction_complete": set(all_fovs).issubset(completed_fovs),
+        }
         print(f"Extraction complete: {self.output_path}")
-        print(f"  Shape: {shape}, Chunks: {chunks}")
+        print(f"  {len(trench_table)} trench images of {shape}, chunks {chunks}, shards {shards}")
 
     # ------------------------------------------------------------------
     # Preview
@@ -957,9 +1089,8 @@ class Extractor:
         pixel_um = self.experiment.pixel_size_um
 
         shape = (n_trenches, n_times, n_channels, trench_h, trench_w)
-        chunks = (1, n_times, 1, trench_h, trench_w)
         dim_str = (
-            f"Trench={n_trenches} × T={n_times} × C={n_channels} "
+            f"{n_trenches} trench images of T={n_times} × C={n_channels} "
             f"× Y={trench_h} × X={trench_w}"
         )
 
@@ -977,7 +1108,7 @@ class Extractor:
             f"Extractor: {self.experiment.experiment_name}",
             f"  Output: {self.output_path}",
             f"  Shape: {dim_str}",
-            f"  Chunks: {chunks}",
+            f"  Layout: one OME-Zarr image per trench (trench_NNNN), one shard file each",
             f"  Dtype: {dtype}",
             f"  Size (uncompressed): {size_str}",
             f"  Trenches: {n_trenches} across {len(fovs)} FOVs",

@@ -9,7 +9,7 @@ from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 """Layout version of the companion and trench stores. A record of what wrote a
 store; nothing checks it."""
 

@@ -407,7 +407,7 @@ def test_extract_source_frame_metadata_tracks_subset(monkeypatch, tmp_path):
     assert len(exported["acquisition_event_records"]) == 4
 
 
-def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
+def test_extractor_writes_one_ome_zarr_image_per_trench(monkeypatch, tmp_path):
     nd2_path = tmp_path / "source.nd2"
     nd2_path.write_bytes(b"nd2")
     output_path = tmp_path / "output.zarr"
@@ -485,66 +485,89 @@ def test_extractor_writes_xarray_native_store(monkeypatch, tmp_path):
 
     zarr_root = zarr.open_group(output_path, mode="r", zarr_format=3)
     assert zarr_root.metadata.zarr_format == 3
+    attrs = zarr_root.attrs["pymmm"]
+    assert attrs["schema_version"] == SCHEMA_VERSION
+    assert attrs["layout"] == "experiment"
+    assert attrs["provenance"]["libraries"]["zarr"] == zarr.__version__
+    assert "created" in attrs["provenance"]
+    assert attrs["source_subset_metadata"]["active_timepoint_count"] == 1
+    assert attrs["source_file_size_bytes"] == nd2_path.stat().st_size
+    assert attrs["source_mtime_ns"] == nd2_path.stat().st_mtime_ns
+    assert attrs["channels"] == ["PC", "mCherry"]
+    assert attrs["pixel_size_um"] == pytest.approx(0.108)
+    assert attrs["completed_fovs"] == ["XYPos:1"]
+    assert attrs["extraction_complete"] is True
+    assert "tmats" not in json.dumps(attrs)
     assert (
-        type(zarr_root["fov_name"].metadata.data_type).__name__
+        type(zarr_root["trenches"]["fov_name"].metadata.data_type).__name__
         == "VariableLengthUTF8"
     )
     assert (
         type(zarr_root["acquisition"]["raw_json"].metadata.data_type).__name__
         == "VariableLengthUTF8"
     )
-    data_codec = zarr_root["data"].metadata.codecs[-1]
-    assert isinstance(data_codec, zarr.codecs.BloscCodec)
-    assert getattr(data_codec.cname, "value", data_codec.cname) == "zstd"
-    assert data_codec.clevel == 1
-    assert getattr(data_codec.shuffle, "value", data_codec.shuffle) == "shuffle"
 
-    root = xr.open_zarr(output_path, consolidated=False)
     tree = xr.open_datatree(output_path, engine="zarr", consolidated=False)
-
-    assert root["data"].dims == ("Trench", "T", "C", "Y", "X")
-    assert root["data"].shape == (2, 1, 2, 2, 2)
-    assert root.coords["Trench"].values.tolist() == [7, 9]
-    assert root.coords["T"].values.tolist() == [1]
-    assert root.coords["C"].values.tolist() == ["PC", "mCherry"]
-    assert root["fov_name"].compute().values.tolist() == ["XYPos:1", "XYPos:1"]
-    assert root["fov_index"].compute().values.tolist() == [0, 0]
-    per_fov = {
-        "original_p_index", "source_seq_index", "relative_time",
-        "julian_date", "pfs_offset", "stage_position",
+    assert set(tree.children) >= {
+        "acquisition", "detection", "events", "registration", "source_frames", "trenches",
     }
-    assert not per_fov & set(root.data_vars)
-    assert root["x_left"].attrs["units"] == "pixel"
-    assert "registration_params" not in root.attrs
-    assert "pixel_size_um" not in root.attrs
-    assert "trench_mapping" not in root.attrs
-    assert "source_acquisition_metadata" not in root.attrs
-    assert root.attrs["schema_version"] == SCHEMA_VERSION
-    assert root.attrs["layout"] == "trench_store"
-    assert root.attrs["provenance"]["libraries"]["zarr"] == zarr.__version__
-    assert "created" in root.attrs["provenance"]
-    assert root.attrs["source_subset_metadata"]["active_timepoint_count"] == 1
+    assert tree.ds.coords["T"].values.tolist() == [1]
+    assert tree.ds.coords["C"].values.tolist() == ["PC", "mCherry"]
+    table = tree["trenches"].ds
+    assert table.coords["trench"].values.tolist() == [7, 9]
+    assert table["path"].values.tolist() == ["trench_0007", "trench_0009"]
+    assert table["fov_name"].values.tolist() == ["XYPos:1", "XYPos:1"]
+    assert table["fov_index"].values.tolist() == [0, 0]
+    assert table["x_left"].attrs["units"] == "pixel"
+    assert table["needs_flip"].values.tolist() == [False, True]
+
+    # one OME-Zarr image per trench, and nothing else at the top
+    assert sorted(k for k in zarr_root.group_keys() if k.startswith("trench_")) == [
+        "trench_0007", "trench_0009",
+    ]
+    image = zarr_root["trench_0007"]
+    ome = image.attrs["ome"]
+    assert ome["version"] == "0.5"
+    (multiscale,) = ome["multiscales"]
+    assert [a["name"] for a in multiscale["axes"]] == ["t", "c", "y", "x"]
+    assert [a["type"] for a in multiscale["axes"]] == ["time", "channel", "space", "space"]
+    (dataset,) = multiscale["datasets"]
+    assert dataset["path"] == "0"
+    scale = dataset["coordinateTransformations"][0]["scale"]
+    assert scale[1] == 1.0 and scale[2:] == pytest.approx([0.108, 0.108])
+    channels = ome["omero"]["channels"]
+    assert [c["label"] for c in channels] == ["PC", "mCherry"]
+    assert [c["color"] for c in channels] == ["FFFFFF", "FF0000"]
+    assert [c["active"] for c in channels] == [True, False]
+    assert channels[1]["window"]["start"] >= 1111 and channels[1]["window"]["end"] <= 1116
+    row = image.attrs["pymmm"]
+    assert row["trench"] == 7 and row["fov_name"] == "XYPos:1" and row["x_left"] == 1
+    assert zarr_root["trench_0009"].attrs["pymmm"]["needs_flip"] is True
+
+    array = image["0"]
+    assert array.shape == (1, 2, 2, 2)
+    assert array.chunks == (1, 1, 2, 2)
+    assert array.shards == (1, 2, 2, 2)
+    assert array.metadata.dimension_names == ("t", "c", "y", "x")
+    blosc = array.compressors[-1]
+    assert isinstance(blosc, zarr.codecs.BloscCodec)
+    assert getattr(blosc.cname, "value", blosc.cname) == "zstd"
+    assert blosc.clevel == 1
+    assert getattr(blosc.shuffle, "value", blosc.shuffle) == "shuffle"
+    # one shard file, its key flat
+    assert sorted(p.name for p in (output_path / "trench_0007" / "0").iterdir()) == [
+        "c.0.0.0.0", "zarr.json",
+    ]
 
     np.testing.assert_array_equal(
-        root["data"].sel(Trench=7).isel(T=0, C=0).compute().values,
-        np.asarray([[111, 112], [115, 116]], dtype=np.uint16),
+        array[0, 0], np.asarray([[111, 112], [115, 116]], dtype=np.uint16),
     )
     np.testing.assert_array_equal(
-        root["data"].sel(Trench=7).isel(T=0, C=1).compute().values,
-        np.asarray([[1111, 1112], [1115, 1116]], dtype=np.uint16),
+        array[0, 1], np.asarray([[1111, 1112], [1115, 1116]], dtype=np.uint16),
     )
     np.testing.assert_array_equal(
-        root["data"].sel(Trench=9).isel(T=0, C=0).compute().values,
-        np.asarray([[118, 119], [114, 115]], dtype=np.uint16),
+        zarr_root["trench_0009/0"][0, 0], np.asarray([[118, 119], [114, 115]], dtype=np.uint16),
     )
-
-    assert set(tree.children) == {
-        "acquisition", "detection", "events", "registration", "source_frames",
-    }
-    assert "tmats" not in json.dumps(dict(root.attrs))
-    assert "extraction_fingerprint" not in root.attrs
-    assert root.attrs["source_file_size_bytes"] == nd2_path.stat().st_size
-    assert root.attrs["source_mtime_ns"] == nd2_path.stat().st_mtime_ns
 
     registration = tree["registration"].ds
     assert registration["tmats"].dims == ("FOV", "T", "Row", "Col")
