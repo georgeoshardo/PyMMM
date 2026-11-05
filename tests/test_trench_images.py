@@ -91,7 +91,7 @@ def test_write_tracks_writes_a_geff_beside_its_masks(experiment):
                                           "node_prop": None}
     assert meta["extra"]["trench"] == 4 and meta["extra"]["pixel_size_um"] == 0.1
     graph, _ = geff.read(str(path))
-    assert graph.number_of_nodes() == 2 and list(graph.edges) == [(0, 1)]
+    assert sorted(graph.nodes) == [1, 2] and list(graph.edges) == [(1, 2)]
 
 
 def test_update_experiment_keeps_other_records(experiment):

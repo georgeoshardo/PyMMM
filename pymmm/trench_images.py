@@ -261,7 +261,9 @@ def write_tracks(
         Arrays of equal length keyed by :data:`NODE_PROPS`; ``t`` is the frame,
         ``y``/``x`` pixels in the trench, ``seg_id`` the node's value in ``masks``.
     edges : ndarray
-        ``(n_edges, 2)`` parent, child positions into the node arrays.
+        ``(n_edges, 2)`` parent, child positions into the node arrays. The GEFF's
+        node ids are the positions + 1, so they start at 1: readers such as
+        funtracks take node 0 for the masks' background.
     scores : ndarray
         Link score per edge.
     masks : ndarray
@@ -307,9 +309,9 @@ def write_tracks(
     geff_path = Path(str(root.store.root)) / trench_path(trench_id) / "tracks" / f"{run}.geff"
     n = len(nodes["t"])
     write_arrays(
-        str(geff_path), np.arange(n, dtype=np.int64),
+        str(geff_path), np.arange(1, n + 1, dtype=np.int64),
         {key: {"values": np.asarray(nodes[key]), "missing": None} for key in NODE_PROPS},
-        np.asarray(edges, dtype=np.int64).reshape(-1, 2),
+        np.asarray(edges, dtype=np.int64).reshape(-1, 2) + 1,
         {"score": {"values": np.asarray(scores, dtype=np.float32), "missing": None}},
         metadata, zarr_format=3, overwrite=True,
     )
