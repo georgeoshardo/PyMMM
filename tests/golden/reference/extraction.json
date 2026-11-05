@@ -1,0 +1,2645 @@
+{
+ "files": ["C/c/0", "C/zarr.json", "T/c/0", "T/zarr.json", "acquisition/C/c/0", "acquisition/C/zarr.json", "acquisition/color/c/0", "acquisition/color/zarr.json", "acquisition/emission_wavelength/c/0", "acquisition/emission_wavelength/zarr.json", "acquisition/excitation_wavelength/zarr.json", "acquisition/exposure_time/c/0", "acquisition/exposure_time/zarr.json", "acquisition/modality/c/0", "acquisition/modality/zarr.json", "acquisition/pixel_size/c", "acquisition/pixel_size/zarr.json", "acquisition/raw_json/c", "acquisition/raw_json/zarr.json", "acquisition/time_interval/c", "acquisition/time_interval/zarr.json", "acquisition/zarr.json", "detection/zarr.json", "events/AcquisitionEvent/zarr.json", "events/zarr.json", "registration/Col/c/0", "registration/Col/zarr.json", "registration/FOV/c/0", "registration/FOV/zarr.json", "registration/Row/c/0", "registration/Row/zarr.json", "registration/ShiftAxis/c/0", "registration/ShiftAxis/zarr.json", "registration/T/c/0", "registration/T/zarr.json", "registration/shift/c/0/0/0", "registration/shift/zarr.json", "registration/tmats/c/0/0/0/0", "registration/tmats/zarr.json", "registration/zarr.json", "source_frames/Axis/c/0", "source_frames/Axis/zarr.json", "source_frames/FOV/c/0", "source_frames/FOV/zarr.json", "source_frames/T/c/0", "source_frames/T/zarr.json", "source_frames/frame_metadata_json/c/0", "source_frames/frame_metadata_json/zarr.json", "source_frames/julian_date/c/0/0", "source_frames/julian_date/c/1/0", "source_frames/julian_date/zarr.json", "source_frames/original_p_index/c/0", "source_frames/original_p_index/zarr.json", "source_frames/pfs_offset/c/0/0", "source_frames/pfs_offset/c/1/0", "source_frames/pfs_offset/zarr.json", "source_frames/pfs_status/c/0/0", "source_frames/pfs_status/c/1/0", "source_frames/pfs_status/zarr.json", "source_frames/relative_time/c/0/0", "source_frames/relative_time/c/1/0", "source_frames/relative_time/zarr.json", "source_frames/source_seq_index/c/0/0", "source_frames/source_seq_index/c/1/0", "source_frames/source_seq_index/zarr.json", "source_frames/stage_position/c/0/0/0", "source_frames/stage_position/c/1/0/0", "source_frames/stage_position/zarr.json", "source_frames/zarr.json", "trench_0000/0/c.0.0.0.0", "trench_0000/0/zarr.json", "trench_0000/zarr.json", "trench_0001/0/c.0.0.0.0", "trench_0001/0/zarr.json", "trench_0001/zarr.json", "trench_0002/0/c.0.0.0.0", "trench_0002/0/zarr.json", "trench_0002/zarr.json", "trench_0003/0/c.0.0.0.0", "trench_0003/0/zarr.json", "trench_0003/zarr.json", "trench_0004/0/c.0.0.0.0", "trench_0004/0/zarr.json", "trench_0004/zarr.json", "trench_0005/0/c.0.0.0.0", "trench_0005/0/zarr.json", "trench_0005/zarr.json", "trench_0006/0/c.0.0.0.0", "trench_0006/0/zarr.json", "trench_0006/zarr.json", "trench_0007/0/c.0.0.0.0", "trench_0007/0/zarr.json", "trench_0007/zarr.json", "trench_0008/0/c.0.0.0.0", "trench_0008/0/zarr.json", "trench_0008/zarr.json", "trench_0009/0/c.0.0.0.0", "trench_0009/0/zarr.json", "trench_0009/zarr.json", "trench_0010/0/c.0.0.0.0", "trench_0010/0/zarr.json", "trench_0010/zarr.json", "trench_0011/0/c.0.0.0.0", "trench_0011/0/zarr.json", "trench_0011/zarr.json", "trench_0012/0/c.0.0.0.0", "trench_0012/0/zarr.json", "trench_0012/zarr.json", "trench_0013/0/c.0.0.0.0", "trench_0013/0/zarr.json", "trench_0013/zarr.json", "trench_0014/0/c.0.0.0.0", "trench_0014/0/zarr.json", "trench_0014/zarr.json", "trench_0015/0/c.0.0.0.0", "trench_0015/0/zarr.json", "trench_0015/zarr.json", "trench_0016/0/c.0.0.0.0", "trench_0016/0/zarr.json", "trench_0016/zarr.json", "trench_0017/0/c.0.0.0.0", "trench_0017/0/zarr.json", "trench_0017/zarr.json", "trench_0018/0/c.0.0.0.0", "trench_0018/0/zarr.json", "trench_0018/zarr.json", "trench_0019/0/c.0.0.0.0", "trench_0019/0/zarr.json", "trench_0019/zarr.json", "trench_0020/0/c.0.0.0.0", "trench_0020/0/zarr.json", "trench_0020/zarr.json", "trench_0021/0/c.0.0.0.0", "trench_0021/0/zarr.json", "trench_0021/zarr.json", "trench_0022/0/c.0.0.0.0", "trench_0022/0/zarr.json", "trench_0022/zarr.json", "trench_0023/0/c.0.0.0.0", "trench_0023/0/zarr.json", "trench_0023/zarr.json", "trench_0024/0/c.0.0.0.0", "trench_0024/0/zarr.json", "trench_0024/zarr.json", "trench_0025/0/c.0.0.0.0", "trench_0025/0/zarr.json", "trench_0025/zarr.json", "trench_0026/0/c.0.0.0.0", "trench_0026/0/zarr.json", "trench_0026/zarr.json", "trench_0027/0/c.0.0.0.0", "trench_0027/0/zarr.json", "trench_0027/zarr.json", "trenches/fov_index/c/0", "trenches/fov_index/zarr.json", "trenches/fov_name/c/0", "trenches/fov_name/zarr.json", "trenches/lane_index/zarr.json", "trenches/needs_flip/zarr.json", "trenches/orientation/c/0", "trenches/orientation/zarr.json", "trenches/path/c/0", "trenches/path/zarr.json", "trenches/trench/c/0", "trenches/trench/zarr.json", "trenches/x_left/c/0", "trenches/x_left/zarr.json", "trenches/x_right/c/0", "trenches/x_right/zarr.json", "trenches/y_bottom/c/0", "trenches/y_bottom/zarr.json", "trenches/y_top/c/0", "trenches/y_top/zarr.json", "trenches/zarr.json", "zarr.json"],
+ "nodes": {
+  ".": {
+   "attributes": {
+    "pymmm": {
+     "channels": ["PC", "mCherry", "mVenus", "CFP"],
+     "completed_fovs": ["XYPos:2", "XYPos:5"],
+     "description": "A mother-machine experiment: one OME-Zarr image per trench (column 'path' of the trench table trenches/), and the experiment metadata.",
+     "experiment_name": "20261005_pbs_psc_yfp_ty013",
+     "extraction_complete": true,
+     "frame_interval_ms": 60001.05895996094,
+     "image_path": "trench_{trench:04d}",
+     "layout": "experiment",
+     "pixel_size_um": 0.107869821220548,
+     "provenance": "<volatile>",
+     "schema_version": 5,
+     "source_file_size_bytes": 363359944704,
+     "source_mtime_ns": "<volatile>",
+     "source_nd2": "<volatile>",
+     "source_subset_metadata": {
+      "active_fov_names": ["XYPos:2", "XYPos:5"],
+      "active_timepoint_count": 10,
+      "discarded_fov_names": ["XYPos:0", "XYPos:1", "XYPos:3", "XYPos:4", "XYPos:6", "XYPos:7", "XYPos:8", "XYPos:9", "XYPos:10", "XYPos:11", "XYPos:12", "XYPos:13", "XYPos:14", "XYPos:15", "XYPos:16", "XYPos:17", "XYPos:18", "XYPos:19", "XYPos:20", "XYPos:21", "XYPos:22", "XYPos:23", "XYPos:24", "XYPos:25", "XYPos:26", "XYPos:27", "XYPos:28", "XYPos:29", "XYPos:30", "XYPos:31", "XYPos:32", "XYPos:33", "XYPos:34"],
+      "raw_fov_names": ["XYPos:0", "XYPos:1", "XYPos:2", "XYPos:3", "XYPos:4", "XYPos:5", "XYPos:6", "XYPos:7", "XYPos:8", "XYPos:9", "XYPos:10", "XYPos:11", "XYPos:12", "XYPos:13", "XYPos:14", "XYPos:15", "XYPos:16", "XYPos:17", "XYPos:18", "XYPos:19", "XYPos:20", "XYPos:21", "XYPos:22", "XYPos:23", "XYPos:24", "XYPos:25", "XYPos:26", "XYPos:27", "XYPos:28", "XYPos:29", "XYPos:30", "XYPos:31", "XYPos:32", "XYPos:33", "XYPos:34"],
+      "raw_timepoint_count": 361,
+      "roi": {
+       "x": null,
+       "y": null
+      },
+      "time_slice": {
+       "start": 20,
+       "step": null,
+       "stop": 30
+      }
+     }
+    }
+   },
+   "node_type": "group",
+   "zarr_format": 3
+  },
+  "C": {
+   "attributes": {
+    "long_name": "channel of each c of the trench images"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [4]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "e0feff66072c14bd634ddcded31bfa447706e9b5a6a8d7d03856561bfbeb7cdc",
+    "shape": [4]
+   },
+   "data_type": "string",
+   "dimension_names": ["C"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [4],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "T": {
+   "attributes": {
+    "long_name": "frame index (original ND2 T index) of each t of the trench images; times are in /source_frames"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [10]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "max": 29.0,
+    "min": 20.0,
+    "sha256": "1b2e592c50d268a782f3c5f19e51f30b9d3030c36fb990d5ebd99433d394a00a",
+    "shape": [10],
+    "sum": 245.0
+   },
+   "data_type": "int32",
+   "dimension_names": ["T"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [10],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "acquisition": {
+   "attributes": {
+    "immersion_refractive_index": 1.0,
+    "layout": "acquisition",
+    "objective_magnification": 40.0,
+    "objective_name": "Plan Apo \u03bb 40x Ph2 DM",
+    "objective_numerical_aperture": 0.95,
+    "zoom_magnification": 1.5
+   },
+   "node_type": "group",
+   "zarr_format": 3
+  },
+  "acquisition/C": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [4]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "e0feff66072c14bd634ddcded31bfa447706e9b5a6a8d7d03856561bfbeb7cdc",
+    "shape": [4]
+   },
+   "data_type": "string",
+   "dimension_names": ["C"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [4],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "acquisition/color": {
+   "attributes": {
+    "long_name": "display color (#RRGGBB)"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [4]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 1
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "1e87b322c3b54a7cb7d9ad4f93e335803df5575a1a0147ada496fdd3545f503d",
+    "shape": [4]
+   },
+   "data_type": "string",
+   "dimension_names": ["C"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [4],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "acquisition/emission_wavelength": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "emission wavelength",
+    "units": "nanometer"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [4]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 8
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 595.0,
+    "min": 475.0,
+    "sha256": "3e620b8215991973aa562797ed7e8e59b7dd964276e430b7ae73955167d5775d",
+    "shape": [4],
+    "sum": 2075.0
+   },
+   "data_type": "float64",
+   "dimension_names": ["C"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [4],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "acquisition/excitation_wavelength": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "excitation wavelength",
+    "units": "nanometer"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [4]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 8
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": NaN,
+    "min": NaN,
+    "sha256": "04e2a4fdfec5cf9c03b122380d2ce23f1ad2b21cc3be70c5ac2f94df329ddb7c",
+    "shape": [4],
+    "sum": 0.0
+   },
+   "data_type": "float64",
+   "dimension_names": ["C"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [4],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "acquisition/exposure_time": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "camera exposure time",
+    "units": "millisecond"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [4]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 8
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 200.0,
+    "min": 80.0,
+    "sha256": "5f7d5839563171e2ab9f3f50af8926df3b89feb0c2b20201da3e2ae15733443a",
+    "shape": [4],
+    "sum": 680.0
+   },
+   "data_type": "float64",
+   "dimension_names": ["C"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [4],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "acquisition/modality": {
+   "attributes": {
+    "long_name": "imaging modality flags"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [4]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 1
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "21e06d5bfeaf7c1e5f2306a6d20947046a6a2a898bca74b416de9aaf1f7b43e3",
+    "shape": [4]
+   },
+   "data_type": "string",
+   "dimension_names": ["C"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [4],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "acquisition/pixel_size": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "image pixel size",
+    "units": "micrometer"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": []
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 8
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 0.107869821220548,
+    "min": 0.107869821220548,
+    "sha256": "53a1f462041f437afce626c606ca0be0297700a987b723c77f2c957995830263",
+    "shape": [1],
+    "sum": 0.107869821220548
+   },
+   "data_type": "float64",
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "acquisition/raw_json": {
+   "attributes": {
+    "long_name": "complete metadata read from the source ND2, as JSON"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": []
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 1
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "2b44f6fa5d685f337e4e81c714d371ad20d54c6f764ae2768e2919ae2bcc2a5c",
+    "shape": []
+   },
+   "data_type": "string",
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "acquisition/time_interval": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "nominal time between frames",
+    "units": "millisecond"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": []
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 8
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 60001.05895996094,
+    "min": 60001.05895996094,
+    "sha256": "7bf63a064c57dcb510cf384f5aea95acfd1c17387ad511a4f01e3143a8c149c5",
+    "shape": [1],
+    "sum": 60001.05895996094
+   },
+   "data_type": "float64",
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "detection": {
+   "attributes": {
+    "description": "Settings that produced the trench geometry in the root dataset.",
+    "lane_detection": {
+     "channel": "PC",
+     "params": {
+      "distance": 1000.0,
+      "height": 5000.0,
+      "orientation": "down",
+      "orientation_window_um": 20.0,
+      "sigma": 48.0
+     }
+    },
+    "layout": "detection",
+    "trench_detection": {
+     "channel": "PC",
+     "params": {
+      "distance": 100.0,
+      "expected_pitch": 0.0,
+      "height": 0,
+      "lane_params": {},
+      "method": "periodic",
+      "min_symmetry": 0.1,
+      "prominence": 10.0,
+      "sigma": 4.0,
+      "trench_bottom_offset": 50,
+      "trench_length": 655,
+      "trench_width": 94
+     }
+    }
+   },
+   "node_type": "group",
+   "zarr_format": 3
+  },
+  "events": {
+   "attributes": {
+    "layout": "events"
+   },
+   "node_type": "group",
+   "zarr_format": 3
+  },
+  "events/AcquisitionEvent": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [1]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "sha256": "052dd7a2ef5038a7a6142cbd94937705d2c4dd7a018c69c66e893f4b43626df0",
+    "shape": [0]
+   },
+   "data_type": "int32",
+   "dimension_names": ["AcquisitionEvent"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [0],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "registration": {
+   "attributes": {
+    "backend": "stackreg",
+    "channel": "PC",
+    "description": "Registration transforms per FOV and timepoint, before rotation. shift is the translation part of tmats (y = [1, 2], x = [0, 2]).",
+    "downsample": 4,
+    "layout": "registration",
+    "mean_from": "end",
+    "mean_n_frames": 10,
+    "mode": "first",
+    "roi": "{\"y\": [250, 800]}",
+    "rotation": 0.0,
+    "transform_convention": "raw_translation_then_rotation_v1"
+   },
+   "node_type": "group",
+   "zarr_format": 3
+  },
+  "registration/Col": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [3]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 2.0,
+    "min": 0.0,
+    "sha256": "4f40a503cae47004c2acb18360d0d5a017c78de4d1b800b7e5fd0f10cffba780",
+    "shape": [3],
+    "sum": 3.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["Col"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [3],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "registration/FOV": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "1c642864c9c59c87fa716d9d7395b0f7a86bf6696440598a2d23364be11ac314",
+    "shape": [2]
+   },
+   "data_type": "string",
+   "dimension_names": ["FOV"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [2],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "registration/Row": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [3]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 2.0,
+    "min": 0.0,
+    "sha256": "4f40a503cae47004c2acb18360d0d5a017c78de4d1b800b7e5fd0f10cffba780",
+    "shape": [3],
+    "sum": 3.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["Row"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [3],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "registration/ShiftAxis": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "ea6909e9b788072e2fba1bc707b98a6eaef4723d887a2b7ed63aa7366049f894",
+    "shape": [2]
+   },
+   "data_type": "string",
+   "dimension_names": ["ShiftAxis"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [2],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "registration/T": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [10]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "max": 29.0,
+    "min": 20.0,
+    "sha256": "1b2e592c50d268a782f3c5f19e51f30b9d3030c36fb990d5ebd99433d394a00a",
+    "shape": [10],
+    "sum": 245.0
+   },
+   "data_type": "int32",
+   "dimension_names": ["T"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [10],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "registration/shift": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "registration translation",
+    "units": "pixel"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2, 10, 2]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 8
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 1.8240245904049175,
+    "min": -2.350504079795826,
+    "sha256": "182ef6f7b5278543189bafc5a9081d30361fd2b3bb857e8eb557aaa87927fb80",
+    "shape": [2, 10, 2],
+    "sum": -2.925771076848662
+   },
+   "data_type": "float64",
+   "dimension_names": ["FOV", "T", "ShiftAxis"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [2, 10, 2],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "registration/tmats": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "registration transform, before rotation (3x3 affine)"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2, 10, 3, 3]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 8
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 1.8240245904049175,
+    "min": -2.350504079795826,
+    "sha256": "7832f3eced429ffe00ed17e7c9349e4754d84abea0abe5dece7f9e95e3cad1a3",
+    "shape": [2, 10, 3, 3],
+    "sum": 57.07422892315134
+   },
+   "data_type": "float64",
+   "dimension_names": ["FOV", "T", "Row", "Col"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [2, 10, 3, 3],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "source_frames": {
+   "attributes": {
+    "layout": "source_frames"
+   },
+   "node_type": "group",
+   "zarr_format": 3
+  },
+  "source_frames/Axis": {
+   "attributes": {
+    "long_name": "stage axis"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [3]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "786d4167e67d20d7c38ba04d96c8b2802c0b34098e20ea7bf18fefd26c4bb35d",
+    "shape": [3]
+   },
+   "data_type": "string",
+   "dimension_names": ["Axis"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [3],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "source_frames/FOV": {
+   "attributes": {
+    "long_name": "field of view name"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "1c642864c9c59c87fa716d9d7395b0f7a86bf6696440598a2d23364be11ac314",
+    "shape": [2]
+   },
+   "data_type": "string",
+   "dimension_names": ["FOV"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [2],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "source_frames/T": {
+   "attributes": {
+    "long_name": "frame index (original ND2 T index)"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [10]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "max": 29.0,
+    "min": 20.0,
+    "sha256": "1b2e592c50d268a782f3c5f19e51f30b9d3030c36fb990d5ebd99433d394a00a",
+    "shape": [10],
+    "sum": 245.0
+   },
+   "data_type": "int32",
+   "dimension_names": ["T"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [10],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "source_frames/frame_metadata_json": {
+   "attributes": {
+    "long_name": "ND2 frame metadata without per-frame time, stage and PFS fields, as JSON"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 1
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "2e328ddda1139063436ee398a33e0f5847eed162f6d480ad9515ef1576e0de29",
+    "shape": [2]
+   },
+   "data_type": "string",
+   "dimension_names": ["FOV"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [2],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "source_frames/julian_date": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "absolute acquisition time as Julian date",
+    "units": "day"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [1, 10]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 8
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 2461319.1128221415,
+    "min": 2461319.1065196693,
+    "sha256": "d9d0dd1cf3cc6781754848642595e99877ae337df8121b8973778f1dd350ccdb",
+    "shape": [2, 10],
+    "sum": 49226382.19341186
+   },
+   "data_type": "float64",
+   "dimension_names": ["FOV", "T"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [2, 10],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "source_frames/original_p_index": {
+   "attributes": {
+    "long_name": "FOV (P) index in the source ND2"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 4
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "max": 5.0,
+    "min": 2.0,
+    "sha256": "c49dcfa8f5eda8afcc2bb863e73317846fed24df42fd4464a9582bcd96341caa",
+    "shape": [2],
+    "sum": 7.0
+   },
+   "data_type": "int32",
+   "dimension_names": ["FOV"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [2],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "source_frames/pfs_offset": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "Nikon Perfect Focus System offset (device units)"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [1, 10]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 8
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 17624.0,
+    "min": 17600.0,
+    "sha256": "c20db23a4166aba5a4dd08fd6adc58e696834d630fff160b34c266d71e742819",
+    "shape": [2, 10],
+    "sum": 352240.0
+   },
+   "data_type": "float64",
+   "dimension_names": ["FOV", "T"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [2, 10],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "source_frames/pfs_status": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "Nikon Perfect Focus System status (1 = in focus)"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [1, 10]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 8
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 1.0,
+    "min": 1.0,
+    "sha256": "a57f4161dac0066c948589ca35eb6a31c0726b8cc02758f8f3f0471055fec5d2",
+    "shape": [2, 10],
+    "sum": 20.0
+   },
+   "data_type": "float64",
+   "dimension_names": ["FOV", "T"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [2, 10],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "source_frames/relative_time": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "acquisition time since experiment start",
+    "units": "millisecond"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [1, 10]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 8
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 1749499.025276959,
+    "min": 1204965.4102867246,
+    "sha256": "907b9cb8d4357135ea0f59d52156987e6b992a8d0cdd8e91e9364e18a977eec0",
+    "shape": [2, 10],
+    "sum": 29544103.344650507
+   },
+   "data_type": "float64",
+   "dimension_names": ["FOV", "T"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [2, 10],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "source_frames/source_seq_index": {
+   "attributes": {
+    "long_name": "frame sequence index in the source ND2"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [1, 10]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 8
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 1020.0,
+    "min": 702.0,
+    "sha256": "24ad24ac0832e482c200b87b0923faa58f6ce71e5d4b9136e7d509f0a1981c4a",
+    "shape": [2, 10],
+    "sum": 17220.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["FOV", "T"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [2, 10],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "source_frames/stage_position": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "stage position",
+    "units": "micrometer"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [1, 10, 3]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 8
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 5836.66,
+    "min": -8223.800000000001,
+    "sha256": "5149f30304035bba7a8747d43d4fc0b11a149bd6100a5ba9ef43def7f711c5bc",
+    "shape": [2, 10, 3],
+    "sum": -9078.800000000021
+   },
+   "data_type": "float64",
+   "dimension_names": ["FOV", "T", "Axis"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [2, 10, 3],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trench_0000": {
+   "attributes": {
+    "ome": {
+     "multiscales": [
+      {
+       "axes": [
+        {
+         "name": "t",
+         "type": "time",
+         "unit": "minute"
+        },
+        {
+         "name": "c",
+         "type": "channel"
+        },
+        {
+         "name": "y",
+         "type": "space",
+         "unit": "micrometer"
+        },
+        {
+         "name": "x",
+         "type": "space",
+         "unit": "micrometer"
+        }
+       ],
+       "datasets": [
+        {
+         "coordinateTransformations": [
+          {
+           "scale": [1.0000176493326822, 1.0, 0.107869821220548, 0.107869821220548],
+           "type": "scale"
+          }
+         ],
+         "path": "0"
+        }
+       ],
+       "metadata": {
+        "description": "one resolution level: nothing was downsampled"
+       },
+       "name": "trench_0000",
+       "type": "none"
+      }
+     ],
+     "omero": {
+      "channels": [
+       {
+        "active": true,
+        "color": "FFFFFF",
+        "label": "PC",
+        "window": {
+         "end": 8792.301000000094,
+         "max": 65535.0,
+         "min": 0.0,
+         "start": 3309.0
+        }
+       },
+       {
+        "active": false,
+        "color": "FF0000",
+        "label": "mCherry",
+        "window": {
+         "end": 621.0,
+         "max": 65535.0,
+         "min": 0.0,
+         "start": 78.0
+        }
+       },
+       {
+        "active": false,
+        "color": "FFFF00",
+        "label": "mVenus",
+        "window": {
+         "end": 115.0,
+         "max": 65535.0,
+         "min": 0.0,
+         "start": 70.0
+        }
+       },
+       {
+        "active": false,
+        "color": "00FFFF",
+        "label": "CFP",
+        "window": {
+         "end": 103.0,
+         "max": 65535.0,
+         "min": 0.0,
+         "start": 65.0
+        }
+       }
+      ],
+      "rdefs": {
+       "defaultT": 0,
+       "model": "color"
+      }
+     },
+     "version": "0.5"
+    },
+    "pymmm": {
+     "experiment": "..",
+     "fov_index": 0,
+     "fov_name": "XYPos:2",
+     "lane_index": 0,
+     "needs_flip": false,
+     "orientation": 1,
+     "trench": 0,
+     "units": {
+      "x_left": "pixel",
+      "x_right": "pixel",
+      "y_bottom": "pixel",
+      "y_top": "pixel"
+     },
+     "x_left": 148,
+     "x_right": 242,
+     "y_bottom": 917,
+     "y_top": 262
+    }
+   },
+   "node_type": "group",
+   "zarr_format": 3
+  },
+  "trench_0000/0": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [10, 4, 655, 94]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "."
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "chunk_shape": [10, 1, 655, 94],
+      "codecs": [
+       {
+        "configuration": {
+         "endian": "little"
+        },
+        "name": "bytes"
+       },
+       {
+        "configuration": {
+         "blocksize": 0,
+         "clevel": 3,
+         "cname": "zstd",
+         "shuffle": "shuffle",
+         "typesize": 2
+        },
+        "name": "blosc"
+       }
+      ],
+      "index_codecs": [
+       {
+        "configuration": {
+         "endian": "little"
+        },
+        "name": "bytes"
+       },
+       {
+        "name": "crc32c"
+       }
+      ],
+      "index_location": "end"
+     },
+     "name": "sharding_indexed"
+    }
+   ],
+   "data": {
+    "dtype": "<u2",
+    "max": 12917.0,
+    "min": 33.0,
+    "sha256": "3e6c600ad8b3a80eb0f110cbc79723dbd1535ff13468fdade895093ee82ef4ce",
+    "shape": [10, 4, 655, 94],
+    "sum": 3244530253.0
+   },
+   "data_type": "uint16",
+   "dimension_names": ["t", "c", "y", "x"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [10, 4, 655, 94],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trench_0001": {
+   "zarr_json_sha256": "c2f2fd0b405884cc835c1d8880dbe9b16f45daa4e78206791b43fb470ae3c37b"
+  },
+  "trench_0001/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 11875.0,
+    "min": 42.0,
+    "sha256": "e796d62c48445e9b4f842c37bd0c02cad2a156d8b1147123048ac497f375add0",
+    "shape": [10, 4, 655, 94],
+    "sum": 3302155052.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0002": {
+   "zarr_json_sha256": "4d2e98c5e8612336511ef38060b41be84c2b3ac6e2aae347161a97322baf4f67"
+  },
+  "trench_0002/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 12195.0,
+    "min": 40.0,
+    "sha256": "bffb229d070b61262a1b4408434e12ee133d0aa6a3c6bf6e11495625421f12f0",
+    "shape": [10, 4, 655, 94],
+    "sum": 3333334705.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0003": {
+   "zarr_json_sha256": "1722b65d540ef32e4e72296d3a7849f85fc5110d8f80ffe7b80faaad630392dd"
+  },
+  "trench_0003/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 12164.0,
+    "min": 45.0,
+    "sha256": "355a87678e9997e45252587501753a35f357d0c0d79d98aac2766b262dc06f57",
+    "shape": [10, 4, 655, 94],
+    "sum": 3373893356.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0004": {
+   "zarr_json_sha256": "d02aba342fd419cf601fec520177a76e592f59866672577418334f13400f880e"
+  },
+  "trench_0004/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 11377.0,
+    "min": 38.0,
+    "sha256": "bbdb8919c50f183ad28ea413dcb89db743053b1353b21b553b905eb97d0a540c",
+    "shape": [10, 4, 655, 94],
+    "sum": 3329005423.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0005": {
+   "zarr_json_sha256": "806d9b137cffb8673b6e9a6046b471cb90ba85a9f07e9ce6d1fd7906835aa8bf"
+  },
+  "trench_0005/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 11251.0,
+    "min": 44.0,
+    "sha256": "5be15536db3062028de57fe6bab77e3ce59dd6c1bf9dcdb66b1a133b01a7a9de",
+    "shape": [10, 4, 655, 94],
+    "sum": 3263381623.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0006": {
+   "zarr_json_sha256": "7efd5ba11cbca8699a4a635321c22cc3d5619ff59ee112f1fa0b6f54cb30ebce"
+  },
+  "trench_0006/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 11290.0,
+    "min": 44.0,
+    "sha256": "b8b16a17106bbb45407f4ef816c9171ab208f5e1a6f078e536d347268852c307",
+    "shape": [10, 4, 655, 94],
+    "sum": 3177601605.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0007": {
+   "zarr_json_sha256": "67b783aed563523946a489a5d4d36a7cc20ccdc9ada11b6599a5db640c3989af"
+  },
+  "trench_0007/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 10197.0,
+    "min": 46.0,
+    "sha256": "13da12ff6e31482400174d5a1c2bace9d54b7e7eb805a436e6865f8a0a04f2c3",
+    "shape": [10, 4, 655, 94],
+    "sum": 3256508662.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0008": {
+   "zarr_json_sha256": "b6c60698ade81fff948f855c43ac8f6146a633b8148f937657030ef8083a67a9"
+  },
+  "trench_0008/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 10114.0,
+    "min": 47.0,
+    "sha256": "91cd395188ef49caba398aab27d3b9564472629a2bb8acafd11451760de07853",
+    "shape": [10, 4, 655, 94],
+    "sum": 3379803211.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0009": {
+   "zarr_json_sha256": "e95a55679acf28560dfdcede89e9b31ac9158b556b1607475de6e4cfcd98c025"
+  },
+  "trench_0009/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 11164.0,
+    "min": 51.0,
+    "sha256": "327fc45b3afa763fdb5c67f3f5ac200e6ef13333a1996d35611e34735a4f15b7",
+    "shape": [10, 4, 655, 94],
+    "sum": 3438721693.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0010": {
+   "zarr_json_sha256": "9d2b8a86837a24a75d60ce6035e2116b75666d23f1a09154ebee2db54918c815"
+  },
+  "trench_0010/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 13429.0,
+    "min": 48.0,
+    "sha256": "7d671ac63941842e32ba5e7bcc7de04490f1b72e33126e016805ebe62f2c0cdf",
+    "shape": [10, 4, 655, 94],
+    "sum": 3397025458.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0011": {
+   "zarr_json_sha256": "9b383841ef5dc6f6120ad839813236a035086ef60d49d3a491e66a81c44ad6d4"
+  },
+  "trench_0011/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 51815.0,
+    "min": 56.0,
+    "sha256": "27aa5af062ab8148d326040217b42b8287ac170aba04042c7e5c6f8eb2a46ce6",
+    "shape": [10, 4, 655, 94],
+    "sum": 3408181063.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0012": {
+   "zarr_json_sha256": "c78872d266a2933adacd18c760f2815ee9098a8fe1dc9782958430a9e10f70e1"
+  },
+  "trench_0012/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 9904.0,
+    "min": 59.0,
+    "sha256": "f345d707c25daf42f8cd6445214342ede9ebd996da6d5eae494cbbe738889989",
+    "shape": [10, 4, 655, 94],
+    "sum": 3275069191.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0013": {
+   "zarr_json_sha256": "790b2937d16859315f6671932f89f26f76af8a8a10930dd9d9cb47d230104639"
+  },
+  "trench_0013/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 16500.0,
+    "min": 60.0,
+    "sha256": "34ac62ecf17258cdfe64226d7b85685933f5f393c42665cbd65c4c8afe24f868",
+    "shape": [10, 4, 655, 94],
+    "sum": 3172285262.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0014": {
+   "zarr_json_sha256": "a8177fb3b383606ca93ecd2a863730735c2d57f6d28c8b1cf06d02d91edc79ea"
+  },
+  "trench_0014/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 14075.0,
+    "min": 42.0,
+    "sha256": "a1ee22ea5278e0f337851bc71b698d5971df0fbe6cb8e1041fc4ae3c6ea33986",
+    "shape": [10, 4, 655, 94],
+    "sum": 3230321774.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0015": {
+   "zarr_json_sha256": "e287d682197688f680557531bd6a562e2cde783a30962d1b36e40e1f35889630"
+  },
+  "trench_0015/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 13747.0,
+    "min": 34.0,
+    "sha256": "36cbec4e0693221eac9eb6fba22b0d5c7727afdd34727a575e870687f0e3b738",
+    "shape": [10, 4, 655, 94],
+    "sum": 3231033362.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0016": {
+   "zarr_json_sha256": "8efe0f17590f248e133962e7d01110a995e06332471eebc7d34ac9b083c16a29"
+  },
+  "trench_0016/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 10920.0,
+    "min": 43.0,
+    "sha256": "6d7a3c19d1d7ecab974cac105919074a65d91b748addfd6fee82da36482e7fe4",
+    "shape": [10, 4, 655, 94],
+    "sum": 3209636262.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0017": {
+   "zarr_json_sha256": "3c4bf997ad5cd49ef399c72ff0053f4605007014fd3e41bc121b8d539bc3a832"
+  },
+  "trench_0017/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 11906.0,
+    "min": 42.0,
+    "sha256": "32b29d9a693895086d9fd4657c1472b187c36d19ecfa9fc19cd1472a877f7cdf",
+    "shape": [10, 4, 655, 94],
+    "sum": 3165423604.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0018": {
+   "zarr_json_sha256": "db74e51623771112f68e329b4d6cb6193682a53b6c74620d94b6b2e731bd6c17"
+  },
+  "trench_0018/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 13114.0,
+    "min": 35.0,
+    "sha256": "21503cab26a9855c2a3f3a3486cff5b1c6f089e7fdba4dd1b83707a85e87f9de",
+    "shape": [10, 4, 655, 94],
+    "sum": 3061460710.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0019": {
+   "zarr_json_sha256": "e71b5528a1b44639e05a99d8beb63bbbaaae9ee401c254f33d7b9d87494ac865"
+  },
+  "trench_0019/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 10260.0,
+    "min": 44.0,
+    "sha256": "a9e41a6b07344d72976c736d42e538ceb3503ba196b233229ad4c284e54fd525",
+    "shape": [10, 4, 655, 94],
+    "sum": 2954120476.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0020": {
+   "zarr_json_sha256": "79c28a8c87d4b0545e8e46845c146f269f16dc121608540bdd1a5fd93b9455db"
+  },
+  "trench_0020/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 9518.0,
+    "min": 42.0,
+    "sha256": "76d7871333c4b128d61a351edd2e55e9d8ddb6bcbfaff757764b16b94b82cfec",
+    "shape": [10, 4, 655, 94],
+    "sum": 2918919941.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0021": {
+   "zarr_json_sha256": "3fbb04b15159141654089aa1c4dd35244b19b85e64fba36fec5c467f69aa28c3"
+  },
+  "trench_0021/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 9471.0,
+    "min": 47.0,
+    "sha256": "01800bbd0b65e7a43bf124bf3b57875c4070c86f7e7d090da69882b45c0f4802",
+    "shape": [10, 4, 655, 94],
+    "sum": 2966671363.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0022": {
+   "zarr_json_sha256": "6fef689c2254b4a9a83baea113533666e3d0de88a87b03ea10798663a84e9912"
+  },
+  "trench_0022/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 11583.0,
+    "min": 38.0,
+    "sha256": "8b359302505a338c0978df7a4f8df16eef7bc3900473296e3b9c7566fafceb92",
+    "shape": [10, 4, 655, 94],
+    "sum": 3036651992.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0023": {
+   "zarr_json_sha256": "359dce11055be3095724eaaada97f41966bfb71b23887cfbd0e2974aba8e0b56"
+  },
+  "trench_0023/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 18882.0,
+    "min": 48.0,
+    "sha256": "441884d69b5a50ab1327b4fc03b39cd31a4d7554a12d110e2eae06dc4329b92d",
+    "shape": [10, 4, 655, 94],
+    "sum": 3136256433.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0024": {
+   "zarr_json_sha256": "955b20b52cf69465280098395b3302d9d5a07785240506209960a2e143628e33"
+  },
+  "trench_0024/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 10391.0,
+    "min": 53.0,
+    "sha256": "bc8d46aed5c9f886a217a12f8432fef0c56809a045c3d0616452dff932ceebfb",
+    "shape": [10, 4, 655, 94],
+    "sum": 3116656765.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0025": {
+   "zarr_json_sha256": "e6f7680013719d17e7dc6f4f3d34379556eee7e37692b0b2dc3da90023c44881"
+  },
+  "trench_0025/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 10345.0,
+    "min": 51.0,
+    "sha256": "5e0a6b425da3b55bb741f7347fa28590f46d3b659109a2295b6f9f1ed1e56328",
+    "shape": [10, 4, 655, 94],
+    "sum": 3060603867.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0026": {
+   "zarr_json_sha256": "433b1a23e2b5944ba4138e44aebe3bccd6875e033beebabd11dba6042496291d"
+  },
+  "trench_0026/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 11066.0,
+    "min": 64.0,
+    "sha256": "07b12256a75c4ab19cf841b7f82689177ead87f99093c2b8582925c66979c897",
+    "shape": [10, 4, 655, 94],
+    "sum": 3096026775.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trench_0027": {
+   "zarr_json_sha256": "878d99e42b9e0eb989b50a2805ae1ae3c2e0c0422e8be79248ec23539b772d85"
+  },
+  "trench_0027/0": {
+   "data": {
+    "dtype": "<u2",
+    "max": 11415.0,
+    "min": 53.0,
+    "sha256": "a54ed015ddfb1c16ceb023b0e3827018781984ee166cf08506625f328ecacc08",
+    "shape": [10, 4, 655, 94],
+    "sum": 3065020877.0
+   },
+   "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
+  },
+  "trenches": {
+   "attributes": {
+    "description": "One row per trench; 'path' is its OME-Zarr image.",
+    "layout": "trench_table"
+   },
+   "node_type": "group",
+   "zarr_format": 3
+  },
+  "trenches/fov_index": {
+   "attributes": {
+    "long_name": "index into the FOV dimension of /source_frames and /registration"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 4
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "max": 1.0,
+    "min": 0.0,
+    "sha256": "c1275e4c9b5860fc4b6cf2112bc83b7c5e167a13ec23bc771347eb3edf030aca",
+    "shape": [28],
+    "sum": 14.0
+   },
+   "data_type": "int32",
+   "dimension_names": ["trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trenches/fov_name": {
+   "attributes": {
+    "long_name": "field of view the trench was cut from"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 1
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "7a013aa32a2525a95c5c948880edd3e9a7be85ae0b156f85944ffcf52e210a8a",
+    "shape": [28]
+   },
+   "data_type": "string",
+   "dimension_names": ["trench"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trenches/lane_index": {
+   "attributes": {
+    "long_name": "lane the trench belongs to within its FOV"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 4
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "max": 0.0,
+    "min": 0.0,
+    "sha256": "407f50f52a35f8aa3474b0d4ffc672721941043a29cef4e76d51554404352f8d",
+    "shape": [28],
+    "sum": 0.0
+   },
+   "data_type": "int32",
+   "dimension_names": ["trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trenches/needs_flip": {
+   "attributes": {
+    "long_name": "crop was flipped vertically so trenches share one orientation"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 1
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "|b1",
+    "max": 0.0,
+    "min": 0.0,
+    "sha256": "bc1ef8a10c0d8e69fa47a58f9cd7eb0f269d0b95b69ab59af91d777f2bfbf1c7",
+    "shape": [28],
+    "sum": 0.0
+   },
+   "data_type": "bool",
+   "dimension_names": ["trench"],
+   "fill_value": false,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trenches/orientation": {
+   "attributes": {
+    "long_name": "trench opening direction (1 = opens downward, -1 = upward)"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 1
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "|i1",
+    "max": 1.0,
+    "min": 1.0,
+    "sha256": "7300e4c4ccbd8bcaac2063fadb43b2b570f2f137e9e97a5d62f1338e497b9917",
+    "shape": [28],
+    "sum": 28.0
+   },
+   "data_type": "int8",
+   "dimension_names": ["trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trenches/path": {
+   "attributes": {
+    "long_name": "the trench's OME-Zarr image, relative to the experiment group"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 1
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "bf43616c62bf37691d9044bb28fc63d43fcad82a69295cc0b2cade7ff43210b2",
+    "shape": [28]
+   },
+   "data_type": "string",
+   "dimension_names": ["trench"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trenches/trench": {
+   "attributes": {
+    "long_name": "trench id"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "max": 27.0,
+    "min": 0.0,
+    "sha256": "285a84688c8ea542d43b96f2803ae6a798159a915b9c0989a1a6e501d00418e3",
+    "shape": [28],
+    "sum": 378.0
+   },
+   "data_type": "int32",
+   "dimension_names": ["trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trenches/x_left": {
+   "attributes": {
+    "long_name": "trench left edge in the registered FOV",
+    "units": "pixel"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 4
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "max": 2159.0,
+    "min": 148.0,
+    "sha256": "e26fd3f3634b0746c633b38d41a8bcf54d37c8860326b367c6e36c63143111ba",
+    "shape": [28],
+    "sum": 32304.0
+   },
+   "data_type": "int32",
+   "dimension_names": ["trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trenches/x_right": {
+   "attributes": {
+    "long_name": "trench right edge in the registered FOV",
+    "units": "pixel"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 4
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "max": 2253.0,
+    "min": 242.0,
+    "sha256": "01abb9e8cfa4966b3478c56bba34f57487ad1deceb11a208e6869055481e5b68",
+    "shape": [28],
+    "sum": 34936.0
+   },
+   "data_type": "int32",
+   "dimension_names": ["trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trenches/y_bottom": {
+   "attributes": {
+    "long_name": "trench bottom edge in the registered FOV",
+    "units": "pixel"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 4
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "max": 950.0,
+    "min": 917.0,
+    "sha256": "5e3236fc1abd7ae1c7b08ea8e877c0568f50581c7801da60e5a09982dcedc73e",
+    "shape": [28],
+    "sum": 26138.0
+   },
+   "data_type": "int32",
+   "dimension_names": ["trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trenches/y_top": {
+   "attributes": {
+    "long_name": "trench top edge in the registered FOV",
+    "units": "pixel"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "blocksize": 0,
+      "clevel": 3,
+      "cname": "zstd",
+      "shuffle": "noshuffle",
+      "typesize": 4
+     },
+     "name": "blosc"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "max": 295.0,
+    "min": 262.0,
+    "sha256": "e80ef286ee357026c7591d0a5fb15c5fdaea5acb979db561d4d0aa2e023285ca",
+    "shape": [28],
+    "sum": 7798.0
+   },
+   "data_type": "int32",
+   "dimension_names": ["trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  }
+ }
+}

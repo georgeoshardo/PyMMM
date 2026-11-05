@@ -1,0 +1,1005 @@
+{
+ "bounds": {
+  "2": [84.0, 590.0],
+  "8": [87.0, 374.04200000000003]
+ },
+ "cells_per_frame": {
+  "2/S1": [15, 15, 15, 14, 13, 13, 13, 13, 12, 12],
+  "2/S2": [15, 15, 15, 14, 13, 13, 13, 13, 12, 12],
+  "2/S3": [15, 15, 15, 14, 13, 13, 13, 13, 12, 12],
+  "2/S4": [15, 15, 15, 14, 13, 13, 13, 13, 12, 12],
+  "8/S1": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "8/S2": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "8/S3": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "8/S4": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+ },
+ "finished": [2, 8],
+ "hypotheses": ["S1", "S2", "S3", "S4"],
+ "labels": {
+  "2": {
+   "files": ["mcherry.S1/0/c.0.0.0", "mcherry.S1/0/zarr.json", "mcherry.S1/zarr.json", "mcherry.S2/0/c.0.0.0", "mcherry.S2/0/zarr.json", "mcherry.S2/zarr.json", "mcherry.S3/0/c.0.0.0", "mcherry.S3/0/zarr.json", "mcherry.S3/zarr.json", "mcherry.S4/0/c.0.0.0", "mcherry.S4/0/zarr.json", "mcherry.S4/zarr.json", "zarr.json"],
+   "nodes": {
+    ".": {
+     "attributes": {
+      "ome": {
+       "labels": ["mcherry.S1", "mcherry.S2", "mcherry.S3", "mcherry.S4"],
+       "version": "0.5"
+      }
+     },
+     "node_type": "group",
+     "zarr_format": 3
+    },
+    "mcherry.S1": {
+     "attributes": {
+      "ome": {
+       "image-label": {
+        "source": {
+         "image": "../../"
+        }
+       },
+       "multiscales": [
+        {
+         "axes": [
+          {
+           "name": "t",
+           "type": "time",
+           "unit": "minute"
+          },
+          {
+           "name": "y",
+           "type": "space",
+           "unit": "micrometer"
+          },
+          {
+           "name": "x",
+           "type": "space",
+           "unit": "micrometer"
+          }
+         ],
+         "datasets": [
+          {
+           "coordinateTransformations": [
+            {
+             "scale": [1.0000176493326822, 0.107869821220548, 0.107869821220548],
+             "type": "scale"
+            }
+           ],
+           "path": "0"
+          }
+         ],
+         "metadata": {
+          "description": "one resolution level: nothing was downsampled"
+         },
+         "name": "mcherry.S1",
+         "type": "none"
+        }
+       ],
+       "version": "0.5"
+      },
+      "pymmm": {
+       "channel": "mCherry",
+       "failed_frames": {},
+       "hypothesis": "S1",
+       "hypothesis_index": 0,
+       "long_name": "cell labels; 0 is background, 1..n are ordered from the trench's closed end (y = 0), so 1 is the cell nearest the closed end",
+       "lower": 84.0,
+       "model": "bact_fluor_omni",
+       "segmentation": "mcherry",
+       "upper": 590.0
+      }
+     },
+     "node_type": "group",
+     "zarr_format": 3
+    },
+    "mcherry.S1/0": {
+     "attributes": {},
+     "chunk_grid": {
+      "configuration": {
+       "chunk_shape": [10, 655, 94]
+      },
+      "name": "regular"
+     },
+     "chunk_key_encoding": {
+      "configuration": {
+       "separator": "."
+      },
+      "name": "default"
+     },
+     "codecs": [
+      {
+       "configuration": {
+        "endian": "little"
+       },
+       "name": "bytes"
+      },
+      {
+       "configuration": {
+        "blocksize": 0,
+        "clevel": 3,
+        "cname": "zstd",
+        "shuffle": "bitshuffle",
+        "typesize": 2
+       },
+       "name": "blosc"
+      }
+     ],
+     "data": {
+      "dtype": "<u2",
+      "max": 15.0,
+      "min": 0.0,
+      "sha256": "aa503b7d2194eb0781f9f8b02ab23f1745856645a2c13bc642d5a33644a526db",
+      "shape": [10, 655, 94],
+      "sum": 453670.0
+     },
+     "data_type": "uint16",
+     "dimension_names": ["t", "y", "x"],
+     "fill_value": 0,
+     "node_type": "array",
+     "shape": [10, 655, 94],
+     "storage_transformers": [],
+     "zarr_format": 3
+    },
+    "mcherry.S2": {
+     "attributes": {
+      "ome": {
+       "image-label": {
+        "source": {
+         "image": "../../"
+        }
+       },
+       "multiscales": [
+        {
+         "axes": [
+          {
+           "name": "t",
+           "type": "time",
+           "unit": "minute"
+          },
+          {
+           "name": "y",
+           "type": "space",
+           "unit": "micrometer"
+          },
+          {
+           "name": "x",
+           "type": "space",
+           "unit": "micrometer"
+          }
+         ],
+         "datasets": [
+          {
+           "coordinateTransformations": [
+            {
+             "scale": [1.0000176493326822, 0.107869821220548, 0.107869821220548],
+             "type": "scale"
+            }
+           ],
+           "path": "0"
+          }
+         ],
+         "metadata": {
+          "description": "one resolution level: nothing was downsampled"
+         },
+         "name": "mcherry.S2",
+         "type": "none"
+        }
+       ],
+       "version": "0.5"
+      },
+      "pymmm": {
+       "channel": "mCherry",
+       "failed_frames": {},
+       "hypothesis": "S2",
+       "hypothesis_index": 1,
+       "long_name": "cell labels; 0 is background, 1..n are ordered from the trench's closed end (y = 0), so 1 is the cell nearest the closed end",
+       "lower": 84.0,
+       "model": "bact_fluor_omni",
+       "segmentation": "mcherry",
+       "upper": 590.0
+      }
+     },
+     "node_type": "group",
+     "zarr_format": 3
+    },
+    "mcherry.S2/0": {
+     "attributes": {},
+     "chunk_grid": {
+      "configuration": {
+       "chunk_shape": [10, 655, 94]
+      },
+      "name": "regular"
+     },
+     "chunk_key_encoding": {
+      "configuration": {
+       "separator": "."
+      },
+      "name": "default"
+     },
+     "codecs": [
+      {
+       "configuration": {
+        "endian": "little"
+       },
+       "name": "bytes"
+      },
+      {
+       "configuration": {
+        "blocksize": 0,
+        "clevel": 3,
+        "cname": "zstd",
+        "shuffle": "bitshuffle",
+        "typesize": 2
+       },
+       "name": "blosc"
+      }
+     ],
+     "data": {
+      "dtype": "<u2",
+      "max": 15.0,
+      "min": 0.0,
+      "sha256": "043eaf18c86200fcea93a484de46898c994ecf94c21efa5182feda63de94737a",
+      "shape": [10, 655, 94],
+      "sum": 444016.0
+     },
+     "data_type": "uint16",
+     "dimension_names": ["t", "y", "x"],
+     "fill_value": 0,
+     "node_type": "array",
+     "shape": [10, 655, 94],
+     "storage_transformers": [],
+     "zarr_format": 3
+    },
+    "mcherry.S3": {
+     "attributes": {
+      "ome": {
+       "image-label": {
+        "source": {
+         "image": "../../"
+        }
+       },
+       "multiscales": [
+        {
+         "axes": [
+          {
+           "name": "t",
+           "type": "time",
+           "unit": "minute"
+          },
+          {
+           "name": "y",
+           "type": "space",
+           "unit": "micrometer"
+          },
+          {
+           "name": "x",
+           "type": "space",
+           "unit": "micrometer"
+          }
+         ],
+         "datasets": [
+          {
+           "coordinateTransformations": [
+            {
+             "scale": [1.0000176493326822, 0.107869821220548, 0.107869821220548],
+             "type": "scale"
+            }
+           ],
+           "path": "0"
+          }
+         ],
+         "metadata": {
+          "description": "one resolution level: nothing was downsampled"
+         },
+         "name": "mcherry.S3",
+         "type": "none"
+        }
+       ],
+       "version": "0.5"
+      },
+      "pymmm": {
+       "channel": "mCherry",
+       "failed_frames": {},
+       "hypothesis": "S3",
+       "hypothesis_index": 2,
+       "long_name": "cell labels; 0 is background, 1..n are ordered from the trench's closed end (y = 0), so 1 is the cell nearest the closed end",
+       "lower": 84.0,
+       "model": "bact_fluor_omni",
+       "segmentation": "mcherry",
+       "upper": 590.0
+      }
+     },
+     "node_type": "group",
+     "zarr_format": 3
+    },
+    "mcherry.S3/0": {
+     "attributes": {},
+     "chunk_grid": {
+      "configuration": {
+       "chunk_shape": [10, 655, 94]
+      },
+      "name": "regular"
+     },
+     "chunk_key_encoding": {
+      "configuration": {
+       "separator": "."
+      },
+      "name": "default"
+     },
+     "codecs": [
+      {
+       "configuration": {
+        "endian": "little"
+       },
+       "name": "bytes"
+      },
+      {
+       "configuration": {
+        "blocksize": 0,
+        "clevel": 3,
+        "cname": "zstd",
+        "shuffle": "bitshuffle",
+        "typesize": 2
+       },
+       "name": "blosc"
+      }
+     ],
+     "data": {
+      "dtype": "<u2",
+      "max": 15.0,
+      "min": 0.0,
+      "sha256": "cd9a28921be958e38fc5c93bdbe9726e0aa33f3b4faa6e7bc135901b8d243fc4",
+      "shape": [10, 655, 94],
+      "sum": 469601.0
+     },
+     "data_type": "uint16",
+     "dimension_names": ["t", "y", "x"],
+     "fill_value": 0,
+     "node_type": "array",
+     "shape": [10, 655, 94],
+     "storage_transformers": [],
+     "zarr_format": 3
+    },
+    "mcherry.S4": {
+     "attributes": {
+      "ome": {
+       "image-label": {
+        "source": {
+         "image": "../../"
+        }
+       },
+       "multiscales": [
+        {
+         "axes": [
+          {
+           "name": "t",
+           "type": "time",
+           "unit": "minute"
+          },
+          {
+           "name": "y",
+           "type": "space",
+           "unit": "micrometer"
+          },
+          {
+           "name": "x",
+           "type": "space",
+           "unit": "micrometer"
+          }
+         ],
+         "datasets": [
+          {
+           "coordinateTransformations": [
+            {
+             "scale": [1.0000176493326822, 0.107869821220548, 0.107869821220548],
+             "type": "scale"
+            }
+           ],
+           "path": "0"
+          }
+         ],
+         "metadata": {
+          "description": "one resolution level: nothing was downsampled"
+         },
+         "name": "mcherry.S4",
+         "type": "none"
+        }
+       ],
+       "version": "0.5"
+      },
+      "pymmm": {
+       "channel": "mCherry",
+       "failed_frames": {},
+       "hypothesis": "S4",
+       "hypothesis_index": 3,
+       "long_name": "cell labels; 0 is background, 1..n are ordered from the trench's closed end (y = 0), so 1 is the cell nearest the closed end",
+       "lower": 84.0,
+       "model": "bact_fluor_omni",
+       "segmentation": "mcherry",
+       "upper": 590.0
+      }
+     },
+     "node_type": "group",
+     "zarr_format": 3
+    },
+    "mcherry.S4/0": {
+     "attributes": {},
+     "chunk_grid": {
+      "configuration": {
+       "chunk_shape": [10, 655, 94]
+      },
+      "name": "regular"
+     },
+     "chunk_key_encoding": {
+      "configuration": {
+       "separator": "."
+      },
+      "name": "default"
+     },
+     "codecs": [
+      {
+       "configuration": {
+        "endian": "little"
+       },
+       "name": "bytes"
+      },
+      {
+       "configuration": {
+        "blocksize": 0,
+        "clevel": 3,
+        "cname": "zstd",
+        "shuffle": "bitshuffle",
+        "typesize": 2
+       },
+       "name": "blosc"
+      }
+     ],
+     "data": {
+      "dtype": "<u2",
+      "max": 15.0,
+      "min": 0.0,
+      "sha256": "600c87b95d5c9813d92807018166c064e8c75b3bc9d686168e44683909d4eeba",
+      "shape": [10, 655, 94],
+      "sum": 476717.0
+     },
+     "data_type": "uint16",
+     "dimension_names": ["t", "y", "x"],
+     "fill_value": 0,
+     "node_type": "array",
+     "shape": [10, 655, 94],
+     "storage_transformers": [],
+     "zarr_format": 3
+    }
+   }
+  },
+  "8": {
+   "files": ["mcherry.S1/0/zarr.json", "mcherry.S1/zarr.json", "mcherry.S2/0/zarr.json", "mcherry.S2/zarr.json", "mcherry.S3/0/zarr.json", "mcherry.S3/zarr.json", "mcherry.S4/0/zarr.json", "mcherry.S4/zarr.json", "zarr.json"],
+   "nodes": {
+    ".": {
+     "attributes": {
+      "ome": {
+       "labels": ["mcherry.S1", "mcherry.S2", "mcherry.S3", "mcherry.S4"],
+       "version": "0.5"
+      }
+     },
+     "node_type": "group",
+     "zarr_format": 3
+    },
+    "mcherry.S1": {
+     "attributes": {
+      "ome": {
+       "image-label": {
+        "source": {
+         "image": "../../"
+        }
+       },
+       "multiscales": [
+        {
+         "axes": [
+          {
+           "name": "t",
+           "type": "time",
+           "unit": "minute"
+          },
+          {
+           "name": "y",
+           "type": "space",
+           "unit": "micrometer"
+          },
+          {
+           "name": "x",
+           "type": "space",
+           "unit": "micrometer"
+          }
+         ],
+         "datasets": [
+          {
+           "coordinateTransformations": [
+            {
+             "scale": [1.0000176493326822, 0.107869821220548, 0.107869821220548],
+             "type": "scale"
+            }
+           ],
+           "path": "0"
+          }
+         ],
+         "metadata": {
+          "description": "one resolution level: nothing was downsampled"
+         },
+         "name": "mcherry.S1",
+         "type": "none"
+        }
+       ],
+       "version": "0.5"
+      },
+      "pymmm": {
+       "channel": "mCherry",
+       "failed_frames": {},
+       "hypothesis": "S1",
+       "hypothesis_index": 0,
+       "long_name": "cell labels; 0 is background, 1..n are ordered from the trench's closed end (y = 0), so 1 is the cell nearest the closed end",
+       "lower": 87.0,
+       "model": "bact_fluor_omni",
+       "segmentation": "mcherry",
+       "upper": 374.04200000000003
+      }
+     },
+     "node_type": "group",
+     "zarr_format": 3
+    },
+    "mcherry.S1/0": {
+     "attributes": {},
+     "chunk_grid": {
+      "configuration": {
+       "chunk_shape": [10, 655, 94]
+      },
+      "name": "regular"
+     },
+     "chunk_key_encoding": {
+      "configuration": {
+       "separator": "."
+      },
+      "name": "default"
+     },
+     "codecs": [
+      {
+       "configuration": {
+        "endian": "little"
+       },
+       "name": "bytes"
+      },
+      {
+       "configuration": {
+        "blocksize": 0,
+        "clevel": 3,
+        "cname": "zstd",
+        "shuffle": "bitshuffle",
+        "typesize": 2
+       },
+       "name": "blosc"
+      }
+     ],
+     "data": {
+      "dtype": "<u2",
+      "max": 0.0,
+      "min": 0.0,
+      "sha256": "56064fed60f0e71cea57dd217d779d4470b134059c2111eb5bf92651a64a8da2",
+      "shape": [10, 655, 94],
+      "sum": 0.0
+     },
+     "data_type": "uint16",
+     "dimension_names": ["t", "y", "x"],
+     "fill_value": 0,
+     "node_type": "array",
+     "shape": [10, 655, 94],
+     "storage_transformers": [],
+     "zarr_format": 3
+    },
+    "mcherry.S2": {
+     "attributes": {
+      "ome": {
+       "image-label": {
+        "source": {
+         "image": "../../"
+        }
+       },
+       "multiscales": [
+        {
+         "axes": [
+          {
+           "name": "t",
+           "type": "time",
+           "unit": "minute"
+          },
+          {
+           "name": "y",
+           "type": "space",
+           "unit": "micrometer"
+          },
+          {
+           "name": "x",
+           "type": "space",
+           "unit": "micrometer"
+          }
+         ],
+         "datasets": [
+          {
+           "coordinateTransformations": [
+            {
+             "scale": [1.0000176493326822, 0.107869821220548, 0.107869821220548],
+             "type": "scale"
+            }
+           ],
+           "path": "0"
+          }
+         ],
+         "metadata": {
+          "description": "one resolution level: nothing was downsampled"
+         },
+         "name": "mcherry.S2",
+         "type": "none"
+        }
+       ],
+       "version": "0.5"
+      },
+      "pymmm": {
+       "channel": "mCherry",
+       "failed_frames": {},
+       "hypothesis": "S2",
+       "hypothesis_index": 1,
+       "long_name": "cell labels; 0 is background, 1..n are ordered from the trench's closed end (y = 0), so 1 is the cell nearest the closed end",
+       "lower": 87.0,
+       "model": "bact_fluor_omni",
+       "segmentation": "mcherry",
+       "upper": 374.04200000000003
+      }
+     },
+     "node_type": "group",
+     "zarr_format": 3
+    },
+    "mcherry.S2/0": {
+     "attributes": {},
+     "chunk_grid": {
+      "configuration": {
+       "chunk_shape": [10, 655, 94]
+      },
+      "name": "regular"
+     },
+     "chunk_key_encoding": {
+      "configuration": {
+       "separator": "."
+      },
+      "name": "default"
+     },
+     "codecs": [
+      {
+       "configuration": {
+        "endian": "little"
+       },
+       "name": "bytes"
+      },
+      {
+       "configuration": {
+        "blocksize": 0,
+        "clevel": 3,
+        "cname": "zstd",
+        "shuffle": "bitshuffle",
+        "typesize": 2
+       },
+       "name": "blosc"
+      }
+     ],
+     "data": {
+      "dtype": "<u2",
+      "max": 0.0,
+      "min": 0.0,
+      "sha256": "56064fed60f0e71cea57dd217d779d4470b134059c2111eb5bf92651a64a8da2",
+      "shape": [10, 655, 94],
+      "sum": 0.0
+     },
+     "data_type": "uint16",
+     "dimension_names": ["t", "y", "x"],
+     "fill_value": 0,
+     "node_type": "array",
+     "shape": [10, 655, 94],
+     "storage_transformers": [],
+     "zarr_format": 3
+    },
+    "mcherry.S3": {
+     "attributes": {
+      "ome": {
+       "image-label": {
+        "source": {
+         "image": "../../"
+        }
+       },
+       "multiscales": [
+        {
+         "axes": [
+          {
+           "name": "t",
+           "type": "time",
+           "unit": "minute"
+          },
+          {
+           "name": "y",
+           "type": "space",
+           "unit": "micrometer"
+          },
+          {
+           "name": "x",
+           "type": "space",
+           "unit": "micrometer"
+          }
+         ],
+         "datasets": [
+          {
+           "coordinateTransformations": [
+            {
+             "scale": [1.0000176493326822, 0.107869821220548, 0.107869821220548],
+             "type": "scale"
+            }
+           ],
+           "path": "0"
+          }
+         ],
+         "metadata": {
+          "description": "one resolution level: nothing was downsampled"
+         },
+         "name": "mcherry.S3",
+         "type": "none"
+        }
+       ],
+       "version": "0.5"
+      },
+      "pymmm": {
+       "channel": "mCherry",
+       "failed_frames": {},
+       "hypothesis": "S3",
+       "hypothesis_index": 2,
+       "long_name": "cell labels; 0 is background, 1..n are ordered from the trench's closed end (y = 0), so 1 is the cell nearest the closed end",
+       "lower": 87.0,
+       "model": "bact_fluor_omni",
+       "segmentation": "mcherry",
+       "upper": 374.04200000000003
+      }
+     },
+     "node_type": "group",
+     "zarr_format": 3
+    },
+    "mcherry.S3/0": {
+     "attributes": {},
+     "chunk_grid": {
+      "configuration": {
+       "chunk_shape": [10, 655, 94]
+      },
+      "name": "regular"
+     },
+     "chunk_key_encoding": {
+      "configuration": {
+       "separator": "."
+      },
+      "name": "default"
+     },
+     "codecs": [
+      {
+       "configuration": {
+        "endian": "little"
+       },
+       "name": "bytes"
+      },
+      {
+       "configuration": {
+        "blocksize": 0,
+        "clevel": 3,
+        "cname": "zstd",
+        "shuffle": "bitshuffle",
+        "typesize": 2
+       },
+       "name": "blosc"
+      }
+     ],
+     "data": {
+      "dtype": "<u2",
+      "max": 0.0,
+      "min": 0.0,
+      "sha256": "56064fed60f0e71cea57dd217d779d4470b134059c2111eb5bf92651a64a8da2",
+      "shape": [10, 655, 94],
+      "sum": 0.0
+     },
+     "data_type": "uint16",
+     "dimension_names": ["t", "y", "x"],
+     "fill_value": 0,
+     "node_type": "array",
+     "shape": [10, 655, 94],
+     "storage_transformers": [],
+     "zarr_format": 3
+    },
+    "mcherry.S4": {
+     "attributes": {
+      "ome": {
+       "image-label": {
+        "source": {
+         "image": "../../"
+        }
+       },
+       "multiscales": [
+        {
+         "axes": [
+          {
+           "name": "t",
+           "type": "time",
+           "unit": "minute"
+          },
+          {
+           "name": "y",
+           "type": "space",
+           "unit": "micrometer"
+          },
+          {
+           "name": "x",
+           "type": "space",
+           "unit": "micrometer"
+          }
+         ],
+         "datasets": [
+          {
+           "coordinateTransformations": [
+            {
+             "scale": [1.0000176493326822, 0.107869821220548, 0.107869821220548],
+             "type": "scale"
+            }
+           ],
+           "path": "0"
+          }
+         ],
+         "metadata": {
+          "description": "one resolution level: nothing was downsampled"
+         },
+         "name": "mcherry.S4",
+         "type": "none"
+        }
+       ],
+       "version": "0.5"
+      },
+      "pymmm": {
+       "channel": "mCherry",
+       "failed_frames": {},
+       "hypothesis": "S4",
+       "hypothesis_index": 3,
+       "long_name": "cell labels; 0 is background, 1..n are ordered from the trench's closed end (y = 0), so 1 is the cell nearest the closed end",
+       "lower": 87.0,
+       "model": "bact_fluor_omni",
+       "segmentation": "mcherry",
+       "upper": 374.04200000000003
+      }
+     },
+     "node_type": "group",
+     "zarr_format": 3
+    },
+    "mcherry.S4/0": {
+     "attributes": {},
+     "chunk_grid": {
+      "configuration": {
+       "chunk_shape": [10, 655, 94]
+      },
+      "name": "regular"
+     },
+     "chunk_key_encoding": {
+      "configuration": {
+       "separator": "."
+      },
+      "name": "default"
+     },
+     "codecs": [
+      {
+       "configuration": {
+        "endian": "little"
+       },
+       "name": "bytes"
+      },
+      {
+       "configuration": {
+        "blocksize": 0,
+        "clevel": 3,
+        "cname": "zstd",
+        "shuffle": "bitshuffle",
+        "typesize": 2
+       },
+       "name": "blosc"
+      }
+     ],
+     "data": {
+      "dtype": "<u2",
+      "max": 0.0,
+      "min": 0.0,
+      "sha256": "56064fed60f0e71cea57dd217d779d4470b134059c2111eb5bf92651a64a8da2",
+      "shape": [10, 655, 94],
+      "sum": 0.0
+     },
+     "data_type": "uint16",
+     "dimension_names": ["t", "y", "x"],
+     "fill_value": 0,
+     "node_type": "array",
+     "shape": [10, 655, 94],
+     "storage_transformers": [],
+     "zarr_format": 3
+    }
+   }
+  }
+ },
+ "params": {
+  "floor": 374.04200000000003,
+  "floor_sigma": 20.0,
+  "flow_threshold": 0.4,
+  "gain": 1.0,
+  "mask_threshold": 0.0,
+  "min_area": 1.75,
+  "min_contrast": 5.0,
+  "rescale": 1.0
+ },
+ "record": {
+  "mcherry": {
+   "channel": "mCherry",
+   "created": "<volatile>",
+   "description": "Omnipose labels of the mCherry channel under each hypothesis's settings; each trench's labels/mcherry.<hypothesis>",
+   "extraction_created": "<volatile>",
+   "hypotheses": ["S1", "S2", "S3", "S4"],
+   "made_by": "pymmm.segmenter.Segmenter",
+   "model": "bact_fluor_omni",
+   "params": {
+    "floor": 374.04200000000003,
+    "floor_sigma": 20.0,
+    "flow_threshold": 0.4,
+    "gain": 1.0,
+    "mask_threshold": 0.0,
+    "min_area": 1.75,
+    "min_contrast": 5.0,
+    "rescale": 1.0
+   },
+   "provenance": "<volatile>",
+   "schema_version": 5,
+   "settings": {
+    "S1": {
+     "floor": 374.04200000000003,
+     "floor_sigma": 20.0,
+     "flow_threshold": 0.4,
+     "gain": 1.0,
+     "mask_threshold": 0.0,
+     "min_area": 1.75,
+     "min_contrast": 5.0,
+     "rescale": 1.0
+    },
+    "S2": {
+     "floor": 374.04200000000003,
+     "floor_sigma": 20.0,
+     "flow_threshold": 0.0,
+     "gain": 1.5,
+     "mask_threshold": 0.0,
+     "min_area": 1.75,
+     "min_contrast": 5.0,
+     "rescale": 0.8
+    },
+    "S3": {
+     "floor": 374.04200000000003,
+     "floor_sigma": 20.0,
+     "flow_threshold": 0.0,
+     "gain": 1.0,
+     "mask_threshold": -1.0,
+     "min_area": 1.75,
+     "min_contrast": 5.0,
+     "rescale": 0.8
+    },
+    "S4": {
+     "floor": 374.04200000000003,
+     "floor_sigma": 20.0,
+     "flow_threshold": 0.0,
+     "gain": 2.5,
+     "mask_threshold": -1.0,
+     "min_area": 1.75,
+     "min_contrast": 5.0,
+     "rescale": 0.8
+    }
+   }
+  }
+ }
+}

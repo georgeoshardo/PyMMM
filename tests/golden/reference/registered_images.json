@@ -1,0 +1,55 @@
+{
+ "mean_images": {
+  "dtype": "<f8",
+  "max": 45446.5,
+  "min": 2313.4,
+  "sha256": "c4f2dbf0d34bce2419cc822fc7f328deca46098765157b991bdca0606a791614",
+  "shape": [2, 1560, 2304],
+  "sum": 36896362959.299995
+ },
+ "registered_mean_mVenus": {
+  "dtype": "<f8",
+  "max": 577.9,
+  "min": 65.0,
+  "sha256": "87c41b6cd30fa09a533e7fe296c7313e7318eaed7ff4d237dc024bc88be19bf9",
+  "shape": [1560, 2304],
+  "sum": 369723210.2
+ },
+ "registered_means_PC": {
+  "XYPos:2": {
+   "dtype": "<f8",
+   "max": 48245.7,
+   "min": 2595.8,
+   "sha256": "0ca79c4ca27f4c2e829fcd633e1262741f4fc02e9b3aa2a4760754c222aedd59",
+   "shape": [1560, 2304],
+   "sum": 18741296692.1
+  },
+  "XYPos:5": {
+   "dtype": "<f8",
+   "max": 29017.0,
+   "min": 2361.2,
+   "sha256": "2f91ed16da130d113f97410d2622332987e1376622352ca4d77207c8e806cdcb",
+   "shape": [1560, 2304],
+   "sum": 18136904225.800003
+  }
+ },
+ "stabilized_mCherry_XYPos5_t3_5": {
+  "data": {
+   "dtype": "<u2",
+   "max": 1665.0,
+   "min": 27.0,
+   "sha256": "d379243b6b9506c708ea6c2f61f50a62dfd1b84cfcb46d911f836e4468981935",
+   "shape": [2, 1560, 2304],
+   "sum": 858636851.0
+  },
+  "dims": ["T", "Y", "X"]
+ },
+ "warp_frame_fov1_t7_PC": {
+  "dtype": "<f8",
+  "max": 29869.9765347811,
+  "min": 2171.0,
+  "sha256": "d2e0ff6b5efd8a4956fc3ae43110b0211474a67d89fb89df8940482bcbb2d06c",
+  "shape": [1560, 2304],
+  "sum": 18111500564.677383
+ }
+}

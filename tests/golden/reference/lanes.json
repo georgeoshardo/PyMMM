@@ -1,0 +1,27 @@
+{
+ "lanes": {
+  "XYPos:2": [
+   {
+    "fov": "XYPos:2",
+    "lane_index": 0,
+    "orientation": 1,
+    "y_center": 967
+   }
+  ],
+  "XYPos:5": [
+   {
+    "fov": "XYPos:5",
+    "lane_index": 0,
+    "orientation": 1,
+    "y_center": 1000
+   }
+  ]
+ },
+ "params": {
+  "distance": 1000.0,
+  "height": 5000.0,
+  "orientation": "down",
+  "orientation_window_um": 20.0,
+  "sigma": 48.0
+ }
+}

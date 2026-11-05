@@ -1,0 +1,309 @@
+{
+ "listed": [],
+ "trench": {
+  "files": ["0/c.0.0.0.0", "0/zarr.json", "labels/unlisted/0/c.0.0.0", "labels/unlisted/0/zarr.json", "labels/unlisted/zarr.json", "labels/zarr.json", "zarr.json"],
+  "nodes": {
+   ".": {
+    "attributes": {
+     "ome": {
+      "multiscales": [
+       {
+        "axes": [
+         {
+          "name": "t",
+          "type": "time",
+          "unit": "minute"
+         },
+         {
+          "name": "c",
+          "type": "channel"
+         },
+         {
+          "name": "y",
+          "type": "space",
+          "unit": "micrometer"
+         },
+         {
+          "name": "x",
+          "type": "space",
+          "unit": "micrometer"
+         }
+        ],
+        "datasets": [
+         {
+          "coordinateTransformations": [
+           {
+            "scale": [1.0000176493326822, 1.0, 0.107869821220548, 0.107869821220548],
+            "type": "scale"
+           }
+          ],
+          "path": "0"
+         }
+        ],
+        "metadata": {
+         "description": "one resolution level: nothing was downsampled"
+        },
+        "name": "trench_0002",
+        "type": "none"
+       }
+      ],
+      "omero": {
+       "channels": [
+        {
+         "active": true,
+         "color": "FFFFFF",
+         "label": "PC",
+         "window": {
+          "end": 8954.602000000188,
+          "max": 65535.0,
+          "min": 0.0,
+          "start": 3438.0
+         }
+        },
+        {
+         "active": false,
+         "color": "FF0000",
+         "label": "mCherry",
+         "window": {
+          "end": 661.0,
+          "max": 65535.0,
+          "min": 0.0,
+          "start": 82.0
+         }
+        },
+        {
+         "active": false,
+         "color": "FFFF00",
+         "label": "mVenus",
+         "window": {
+          "end": 120.0,
+          "max": 65535.0,
+          "min": 0.0,
+          "start": 73.0
+         }
+        },
+        {
+         "active": false,
+         "color": "00FFFF",
+         "label": "CFP",
+         "window": {
+          "end": 107.0,
+          "max": 65535.0,
+          "min": 0.0,
+          "start": 68.0
+         }
+        }
+       ],
+       "rdefs": {
+        "defaultT": 0,
+        "model": "color"
+       }
+      },
+      "version": "0.5"
+     },
+     "pymmm": {
+      "experiment": "..",
+      "fov_index": 0,
+      "fov_name": "XYPos:2",
+      "lane_index": 0,
+      "needs_flip": false,
+      "orientation": 1,
+      "trench": 2,
+      "units": {
+       "x_left": "pixel",
+       "x_right": "pixel",
+       "y_bottom": "pixel",
+       "y_top": "pixel"
+      },
+      "x_left": 457,
+      "x_right": 551,
+      "y_bottom": 917,
+      "y_top": 262
+     }
+    },
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "0": {
+    "attributes": {},
+    "chunk_grid": {
+     "configuration": {
+      "chunk_shape": [10, 4, 655, 94]
+     },
+     "name": "regular"
+    },
+    "chunk_key_encoding": {
+     "configuration": {
+      "separator": "."
+     },
+     "name": "default"
+    },
+    "codecs": [
+     {
+      "configuration": {
+       "chunk_shape": [10, 1, 655, 94],
+       "codecs": [
+        {
+         "configuration": {
+          "endian": "little"
+         },
+         "name": "bytes"
+        },
+        {
+         "configuration": {
+          "blocksize": 0,
+          "clevel": 3,
+          "cname": "zstd",
+          "shuffle": "shuffle",
+          "typesize": 2
+         },
+         "name": "blosc"
+        }
+       ],
+       "index_codecs": [
+        {
+         "configuration": {
+          "endian": "little"
+         },
+         "name": "bytes"
+        },
+        {
+         "name": "crc32c"
+        }
+       ],
+       "index_location": "end"
+      },
+      "name": "sharding_indexed"
+     }
+    ],
+    "data": {
+     "dtype": "<u2",
+     "max": 12195.0,
+     "min": 40.0,
+     "sha256": "bffb229d070b61262a1b4408434e12ee133d0aa6a3c6bf6e11495625421f12f0",
+     "shape": [10, 4, 655, 94],
+     "sum": 3333334705.0
+    },
+    "data_type": "uint16",
+    "dimension_names": ["t", "c", "y", "x"],
+    "fill_value": 0,
+    "node_type": "array",
+    "shape": [10, 4, 655, 94],
+    "storage_transformers": [],
+    "zarr_format": 3
+   },
+   "labels": {
+    "attributes": {
+     "ome": {
+      "labels": [],
+      "version": "0.5"
+     }
+    },
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "labels/unlisted": {
+    "attributes": {
+     "ome": {
+      "image-label": {
+       "source": {
+        "image": "../../"
+       }
+      },
+      "multiscales": [
+       {
+        "axes": [
+         {
+          "name": "t",
+          "type": "time",
+          "unit": "minute"
+         },
+         {
+          "name": "y",
+          "type": "space",
+          "unit": "micrometer"
+         },
+         {
+          "name": "x",
+          "type": "space",
+          "unit": "micrometer"
+         }
+        ],
+        "datasets": [
+         {
+          "coordinateTransformations": [
+           {
+            "scale": [1.0000176493326822, 0.107869821220548, 0.107869821220548],
+            "type": "scale"
+           }
+          ],
+          "path": "0"
+         }
+        ],
+        "metadata": {
+         "description": "one resolution level: nothing was downsampled"
+        },
+        "name": "unlisted",
+        "type": "none"
+       }
+      ],
+      "version": "0.5"
+     },
+     "pymmm": {
+      "note": "flipped"
+     }
+    },
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "labels/unlisted/0": {
+    "attributes": {},
+    "chunk_grid": {
+     "configuration": {
+      "chunk_shape": [10, 655, 94]
+     },
+     "name": "regular"
+    },
+    "chunk_key_encoding": {
+     "configuration": {
+      "separator": "."
+     },
+     "name": "default"
+    },
+    "codecs": [
+     {
+      "configuration": {
+       "endian": "little"
+      },
+      "name": "bytes"
+     },
+     {
+      "configuration": {
+       "blocksize": 0,
+       "clevel": 3,
+       "cname": "zstd",
+       "shuffle": "bitshuffle",
+       "typesize": 2
+      },
+      "name": "blosc"
+     }
+    ],
+    "data": {
+     "dtype": "<u2",
+     "max": 15.0,
+     "min": 0.0,
+     "sha256": "f014f52e991eb37561706185b7300c16920e12dc4545f9ea196efc95fd8a8cc8",
+     "shape": [10, 655, 94],
+     "sum": 267677.0
+    },
+    "data_type": "uint16",
+    "dimension_names": ["t", "y", "x"],
+    "fill_value": 0,
+    "node_type": "array",
+    "shape": [10, 655, 94],
+    "storage_transformers": [],
+    "zarr_format": 3
+   }
+  }
+ }
+}

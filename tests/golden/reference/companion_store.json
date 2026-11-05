@@ -1,0 +1,1021 @@
+{
+ "files": ["lane_detection/Lane/c/0", "lane_detection/Lane/zarr.json", "lane_detection/fov/c/0", "lane_detection/fov/zarr.json", "lane_detection/lane_index/zarr.json", "lane_detection/orientation/c/0", "lane_detection/orientation/zarr.json", "lane_detection/y_center/c/0", "lane_detection/y_center/zarr.json", "lane_detection/zarr.json", "registration/P/c/0", "registration/P/zarr.json", "registration/T/c/0", "registration/T/zarr.json", "registration/col/c/0", "registration/col/zarr.json", "registration/row/c/0", "registration/row/zarr.json", "registration/tmats/c/0/0/0/0", "registration/tmats/zarr.json", "registration/zarr.json", "trench_detection/Trench/c/0", "trench_detection/Trench/zarr.json", "trench_detection/fov/c/0", "trench_detection/fov/zarr.json", "trench_detection/lane_index/zarr.json", "trench_detection/needs_flip/zarr.json", "trench_detection/orientation/c/0", "trench_detection/orientation/zarr.json", "trench_detection/x_left/c/0", "trench_detection/x_left/zarr.json", "trench_detection/x_right/c/0", "trench_detection/x_right/zarr.json", "trench_detection/y_bottom/c/0", "trench_detection/y_bottom/zarr.json", "trench_detection/y_top/c/0", "trench_detection/y_top/zarr.json", "trench_detection/zarr.json", "zarr.json"],
+ "nodes": {
+  ".": {
+   "attributes": {
+    "created": "<volatile>",
+    "layout": "pymmm_companion",
+    "provenance": "<volatile>",
+    "schema_version": 5,
+    "source_file_size_bytes": 363359944704,
+    "source_mtime_ns": "<volatile>",
+    "source_nd2": "<volatile>"
+   },
+   "node_type": "group",
+   "zarr_format": 3
+  },
+  "lane_detection": {
+   "attributes": {
+    "complete": true,
+    "fov_names": ["XYPos:2", "XYPos:5"],
+    "layout": "lane_detection",
+    "params": {
+     "channel": "PC",
+     "distance": 1000.0,
+     "height": 5000.0,
+     "orientation": "down",
+     "orientation_window_um": 20.0,
+     "sigma": 48.0
+    },
+    "provenance": "<volatile>",
+    "source_subset_metadata": {
+     "active_fov_names": ["XYPos:2", "XYPos:5"],
+     "active_timepoint_count": 10,
+     "discarded_fov_names": ["XYPos:0", "XYPos:1", "XYPos:3", "XYPos:4", "XYPos:6", "XYPos:7", "XYPos:8", "XYPos:9", "XYPos:10", "XYPos:11", "XYPos:12", "XYPos:13", "XYPos:14", "XYPos:15", "XYPos:16", "XYPos:17", "XYPos:18", "XYPos:19", "XYPos:20", "XYPos:21", "XYPos:22", "XYPos:23", "XYPos:24", "XYPos:25", "XYPos:26", "XYPos:27", "XYPos:28", "XYPos:29", "XYPos:30", "XYPos:31", "XYPos:32", "XYPos:33", "XYPos:34"],
+     "raw_fov_names": ["XYPos:0", "XYPos:1", "XYPos:2", "XYPos:3", "XYPos:4", "XYPos:5", "XYPos:6", "XYPos:7", "XYPos:8", "XYPos:9", "XYPos:10", "XYPos:11", "XYPos:12", "XYPos:13", "XYPos:14", "XYPos:15", "XYPos:16", "XYPos:17", "XYPos:18", "XYPos:19", "XYPos:20", "XYPos:21", "XYPos:22", "XYPos:23", "XYPos:24", "XYPos:25", "XYPos:26", "XYPos:27", "XYPos:28", "XYPos:29", "XYPos:30", "XYPos:31", "XYPos:32", "XYPos:33", "XYPos:34"],
+     "raw_timepoint_count": 361,
+     "roi": {
+      "x": null,
+      "y": null
+     },
+     "time_slice": {
+      "start": 20,
+      "step": null,
+      "stop": 30
+     }
+    }
+   },
+   "node_type": "group",
+   "zarr_format": 3
+  },
+  "lane_detection/Lane": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "max": 1.0,
+    "min": 0.0,
+    "sha256": "95fe6049b4a915c3c88a4d87001979ff8dd7eaa1496d383aaa9bbf11ec1d6643",
+    "shape": [2],
+    "sum": 1.0
+   },
+   "data_type": "int32",
+   "dimension_names": ["Lane"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [2],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "lane_detection/fov": {
+   "attributes": {
+    "long_name": "field of view"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "1c642864c9c59c87fa716d9d7395b0f7a86bf6696440598a2d23364be11ac314",
+    "shape": [2]
+   },
+   "data_type": "string",
+   "dimension_names": ["Lane"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [2],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "lane_detection/lane_index": {
+   "attributes": {
+    "long_name": "lane index within its FOV"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 0.0,
+    "min": 0.0,
+    "sha256": "c6171c7189161bfd91fb6875c0dc6d0e62b941cc33906b62feecd760b685bd56",
+    "shape": [2],
+    "sum": 0.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["Lane"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [2],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "lane_detection/orientation": {
+   "attributes": {
+    "long_name": "trench opening direction (1 = opens downward, -1 = upward)"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 1.0,
+    "min": 1.0,
+    "sha256": "7005c6c415772e5190754f94bf6364af514aeeb50167f50d3647d4a1e0ea32c7",
+    "shape": [2],
+    "sum": 2.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["Lane"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [2],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "lane_detection/y_center": {
+   "attributes": {
+    "long_name": "lane centre row in the registered FOV",
+    "units": "pixel"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 1000.0,
+    "min": 967.0,
+    "sha256": "fdedcfd9b35b4ffff4dd32a41d73449fd50a0633ce3e126019fbb23fe44e8ded",
+    "shape": [2],
+    "sum": 1967.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["Lane"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [2],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "registration": {
+   "attributes": {
+    "complete": true,
+    "layout": "registration",
+    "params": {
+     "backend": "stackreg",
+     "batch_size": 4,
+     "channel": "PC",
+     "downsample": 4,
+     "fov_names": ["XYPos:2", "XYPos:5"],
+     "fov_window": 2,
+     "mean_from": "end",
+     "mean_n_frames": 10,
+     "mode": "first",
+     "opencv_threads": 1,
+     "roi": {
+      "y": [250, 800]
+     },
+     "rotation": 0.0,
+     "source_subset_metadata": {
+      "active_fov_names": ["XYPos:2", "XYPos:5"],
+      "active_timepoint_count": 10,
+      "discarded_fov_names": ["XYPos:0", "XYPos:1", "XYPos:3", "XYPos:4", "XYPos:6", "XYPos:7", "XYPos:8", "XYPos:9", "XYPos:10", "XYPos:11", "XYPos:12", "XYPos:13", "XYPos:14", "XYPos:15", "XYPos:16", "XYPos:17", "XYPos:18", "XYPos:19", "XYPos:20", "XYPos:21", "XYPos:22", "XYPos:23", "XYPos:24", "XYPos:25", "XYPos:26", "XYPos:27", "XYPos:28", "XYPos:29", "XYPos:30", "XYPos:31", "XYPos:32", "XYPos:33", "XYPos:34"],
+      "raw_fov_names": ["XYPos:0", "XYPos:1", "XYPos:2", "XYPos:3", "XYPos:4", "XYPos:5", "XYPos:6", "XYPos:7", "XYPos:8", "XYPos:9", "XYPos:10", "XYPos:11", "XYPos:12", "XYPos:13", "XYPos:14", "XYPos:15", "XYPos:16", "XYPos:17", "XYPos:18", "XYPos:19", "XYPos:20", "XYPos:21", "XYPos:22", "XYPos:23", "XYPos:24", "XYPos:25", "XYPos:26", "XYPos:27", "XYPos:28", "XYPos:29", "XYPos:30", "XYPos:31", "XYPos:32", "XYPos:33", "XYPos:34"],
+      "raw_timepoint_count": 361,
+      "roi": {
+       "x": null,
+       "y": null
+      },
+      "time_slice": {
+       "start": 20,
+       "step": null,
+       "stop": 30
+      }
+     },
+     "transform_convention": "raw_translation_then_rotation_v1"
+    },
+    "provenance": "<volatile>",
+    "source_subset_metadata": {
+     "active_fov_names": ["XYPos:2", "XYPos:5"],
+     "active_timepoint_count": 10,
+     "discarded_fov_names": ["XYPos:0", "XYPos:1", "XYPos:3", "XYPos:4", "XYPos:6", "XYPos:7", "XYPos:8", "XYPos:9", "XYPos:10", "XYPos:11", "XYPos:12", "XYPos:13", "XYPos:14", "XYPos:15", "XYPos:16", "XYPos:17", "XYPos:18", "XYPos:19", "XYPos:20", "XYPos:21", "XYPos:22", "XYPos:23", "XYPos:24", "XYPos:25", "XYPos:26", "XYPos:27", "XYPos:28", "XYPos:29", "XYPos:30", "XYPos:31", "XYPos:32", "XYPos:33", "XYPos:34"],
+     "raw_fov_names": ["XYPos:0", "XYPos:1", "XYPos:2", "XYPos:3", "XYPos:4", "XYPos:5", "XYPos:6", "XYPos:7", "XYPos:8", "XYPos:9", "XYPos:10", "XYPos:11", "XYPos:12", "XYPos:13", "XYPos:14", "XYPos:15", "XYPos:16", "XYPos:17", "XYPos:18", "XYPos:19", "XYPos:20", "XYPos:21", "XYPos:22", "XYPos:23", "XYPos:24", "XYPos:25", "XYPos:26", "XYPos:27", "XYPos:28", "XYPos:29", "XYPos:30", "XYPos:31", "XYPos:32", "XYPos:33", "XYPos:34"],
+     "raw_timepoint_count": 361,
+     "roi": {
+      "x": null,
+      "y": null
+     },
+     "time_slice": {
+      "start": 20,
+      "step": null,
+      "stop": 30
+     }
+    }
+   },
+   "node_type": "group",
+   "zarr_format": 3
+  },
+  "registration/P": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "1c642864c9c59c87fa716d9d7395b0f7a86bf6696440598a2d23364be11ac314",
+    "shape": [2]
+   },
+   "data_type": "string",
+   "dimension_names": ["P"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [2],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "registration/T": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8="
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [10]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 1740050.4536397299,
+    "min": 1200034.795613607,
+    "sha256": "72fa03a7708ebe1c851f9411e847081f8b948aaaef27357595ee6c4f7156abf3",
+    "shape": [10],
+    "sum": 14700426.246266685
+   },
+   "data_type": "float64",
+   "dimension_names": ["T"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [10],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "registration/col": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [3]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 2.0,
+    "min": 0.0,
+    "sha256": "4f40a503cae47004c2acb18360d0d5a017c78de4d1b800b7e5fd0f10cffba780",
+    "shape": [3],
+    "sum": 3.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["col"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [3],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "registration/row": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [3]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 2.0,
+    "min": 0.0,
+    "sha256": "4f40a503cae47004c2acb18360d0d5a017c78de4d1b800b7e5fd0f10cffba780",
+    "shape": [3],
+    "sum": 3.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["row"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [3],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "registration/tmats": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "registration transform (3x3 affine)"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2, 10, 3, 3]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 1.8240245904049175,
+    "min": -2.350504079795826,
+    "sha256": "7832f3eced429ffe00ed17e7c9349e4754d84abea0abe5dece7f9e95e3cad1a3",
+    "shape": [2, 10, 3, 3],
+    "sum": 57.07422892315134
+   },
+   "data_type": "float64",
+   "dimension_names": ["P", "T", "row", "col"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [2, 10, 3, 3],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trench_detection": {
+   "attributes": {
+    "complete": true,
+    "fov_names": ["XYPos:2", "XYPos:5"],
+    "layout": "trench_detection",
+    "params": {
+     "channel": "PC",
+     "distance": 100.0,
+     "expected_pitch": 0.0,
+     "height": 0,
+     "lane_params": {},
+     "method": "periodic",
+     "min_symmetry": 0.1,
+     "prominence": 10.0,
+     "sigma": 4.0,
+     "trench_bottom_offset": 50,
+     "trench_length": 655,
+     "trench_width": 94
+    },
+    "provenance": "<volatile>",
+    "source_subset_metadata": {
+     "active_fov_names": ["XYPos:2", "XYPos:5"],
+     "active_timepoint_count": 10,
+     "discarded_fov_names": ["XYPos:0", "XYPos:1", "XYPos:3", "XYPos:4", "XYPos:6", "XYPos:7", "XYPos:8", "XYPos:9", "XYPos:10", "XYPos:11", "XYPos:12", "XYPos:13", "XYPos:14", "XYPos:15", "XYPos:16", "XYPos:17", "XYPos:18", "XYPos:19", "XYPos:20", "XYPos:21", "XYPos:22", "XYPos:23", "XYPos:24", "XYPos:25", "XYPos:26", "XYPos:27", "XYPos:28", "XYPos:29", "XYPos:30", "XYPos:31", "XYPos:32", "XYPos:33", "XYPos:34"],
+     "raw_fov_names": ["XYPos:0", "XYPos:1", "XYPos:2", "XYPos:3", "XYPos:4", "XYPos:5", "XYPos:6", "XYPos:7", "XYPos:8", "XYPos:9", "XYPos:10", "XYPos:11", "XYPos:12", "XYPos:13", "XYPos:14", "XYPos:15", "XYPos:16", "XYPos:17", "XYPos:18", "XYPos:19", "XYPos:20", "XYPos:21", "XYPos:22", "XYPos:23", "XYPos:24", "XYPos:25", "XYPos:26", "XYPos:27", "XYPos:28", "XYPos:29", "XYPos:30", "XYPos:31", "XYPos:32", "XYPos:33", "XYPos:34"],
+     "raw_timepoint_count": 361,
+     "roi": {
+      "x": null,
+      "y": null
+     },
+     "time_slice": {
+      "start": 20,
+      "step": null,
+      "stop": 30
+     }
+    }
+   },
+   "node_type": "group",
+   "zarr_format": 3
+  },
+  "trench_detection/Trench": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "max": 27.0,
+    "min": 0.0,
+    "sha256": "285a84688c8ea542d43b96f2803ae6a798159a915b9c0989a1a6e501d00418e3",
+    "shape": [28],
+    "sum": 378.0
+   },
+   "data_type": "int32",
+   "dimension_names": ["Trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trench_detection/fov": {
+   "attributes": {
+    "long_name": "field of view"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "7a013aa32a2525a95c5c948880edd3e9a7be85ae0b156f85944ffcf52e210a8a",
+    "shape": [28]
+   },
+   "data_type": "string",
+   "dimension_names": ["Trench"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trench_detection/lane_index": {
+   "attributes": {
+    "long_name": "lane the trench belongs to within its FOV"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 0.0,
+    "min": 0.0,
+    "sha256": "5adf94dc9f12f8b82dadbe6c6261e03c7f543bc7ee9801707d8433fef37b738e",
+    "shape": [28],
+    "sum": 0.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["Trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trench_detection/needs_flip": {
+   "attributes": {
+    "long_name": "crop is flipped vertically so trenches share one orientation"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "|b1",
+    "max": 0.0,
+    "min": 0.0,
+    "sha256": "bc1ef8a10c0d8e69fa47a58f9cd7eb0f269d0b95b69ab59af91d777f2bfbf1c7",
+    "shape": [28],
+    "sum": 0.0
+   },
+   "data_type": "bool",
+   "dimension_names": ["Trench"],
+   "fill_value": false,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trench_detection/orientation": {
+   "attributes": {
+    "long_name": "trench opening direction (1 = opens downward, -1 = upward)"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 1.0,
+    "min": 1.0,
+    "sha256": "04899a5f37a67d181d93e578f27263696a4ef441d95ad01e7d16c06d4355195f",
+    "shape": [28],
+    "sum": 28.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["Trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trench_detection/x_left": {
+   "attributes": {
+    "long_name": "trench left edge in the registered FOV",
+    "units": "pixel"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 2159.0,
+    "min": 148.0,
+    "sha256": "165881ed6dc39ceb2969340f50dd96dd7fbbed7a1273a1cb15d4e249bb420653",
+    "shape": [28],
+    "sum": 32304.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["Trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trench_detection/x_right": {
+   "attributes": {
+    "long_name": "trench right edge in the registered FOV",
+    "units": "pixel"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 2253.0,
+    "min": 242.0,
+    "sha256": "e3c3c8d2390625065f4a184d13d87f0ba23bbb2548d50b75cf05835f65b109ab",
+    "shape": [28],
+    "sum": 34936.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["Trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trench_detection/y_bottom": {
+   "attributes": {
+    "long_name": "trench bottom edge in the registered FOV",
+    "units": "pixel"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 950.0,
+    "min": 917.0,
+    "sha256": "b00db63aeb67a21bb99e0ee56d830234d9e91dcbdef34e61b6168e7293319b4a",
+    "shape": [28],
+    "sum": 26138.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["Trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "trench_detection/y_top": {
+   "attributes": {
+    "long_name": "trench top edge in the registered FOV",
+    "units": "pixel"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 295.0,
+    "min": 262.0,
+    "sha256": "69fa22cbda95fbbe133ffb5439e6549c3f5eb2ba8976afca52bb5f2c25e07e61",
+    "shape": [28],
+    "sum": 7798.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["Trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  }
+ }
+}

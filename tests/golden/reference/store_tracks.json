@@ -1,0 +1,987 @@
+{
+ "geff": "trench_0002/tracks/golden.geff",
+ "has_tracks": {
+  "2": true,
+  "3": false
+ },
+ "lineage_id": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10],
+ "n_edges": 117,
+ "n_nodes": 131,
+ "read_trench_geff": {
+  "edges": {
+   "dtype": "<i8",
+   "max": 130.0,
+   "min": 0.0,
+   "sha256": "9dad2ccd819e1fe7b6927e6f38c55d925ae26386b0028029f0a4039ad0919651",
+   "shape": [117, 2],
+   "sum": 15291.0
+  },
+  "lineage_id": {
+   "dtype": "<i8",
+   "max": 13.0,
+   "min": 0.0,
+   "sha256": "2dd5bc6d6feefa12e9d31c64bb76d2134035c9b364ba38baa64547dfade36d90",
+   "shape": [131],
+   "sum": 795.0
+  },
+  "node_id": {
+   "dtype": "<i8",
+   "max": 130.0,
+   "min": 0.0,
+   "sha256": "5cfcd45453494b8a8a289553f9d7b1b2886481456dc3d32fbbb913d9b875b928",
+   "shape": [131],
+   "sum": 8515.0
+  },
+  "score": {
+   "dtype": "<f4",
+   "max": 1.0,
+   "min": 0.008620689623057842,
+   "sha256": "a23810b454d6236804a7d4ccd9fed35a4325572246956583e4ec4f77e5d1da05",
+   "shape": [117],
+   "sum": 58.4999999916181
+  },
+  "seg_id": {
+   "dtype": "<i4",
+   "max": 15.0,
+   "min": 1.0,
+   "sha256": "05868f84cd9f5d50785b61574bfac832f8b0e31dac95ddc06379162d121217a8",
+   "shape": [131],
+   "sum": 930.0
+  },
+  "t": {
+   "dtype": "<i4",
+   "max": 9.0,
+   "min": 0.0,
+   "sha256": "1463f6c034181264268b6fe42e7980e98a4e43ae054596a910721e04f169c119",
+   "shape": [131],
+   "sum": 563.0
+  },
+  "track_id": {
+   "dtype": "<i8",
+   "max": 19.0,
+   "min": 0.0,
+   "sha256": "212a924f77e48a6ae55be82ef739199b67c8582b56bf660f69e33bc8335f7dae",
+   "shape": [131],
+   "sum": 838.0
+  },
+  "x": {
+   "dtype": "<f4",
+   "max": 50.797298431396484,
+   "min": 47.71794891357422,
+   "sha256": "330bf4c034bf54357e00bb85609995f68ef29044289b7b70f0146d83b2ae6eac",
+   "shape": [131],
+   "sum": 6398.181610107422
+  },
+  "y": {
+   "dtype": "<f4",
+   "max": 648.0693359375,
+   "min": 122.89286041259766,
+   "sha256": "238c0b70f687620dbf0bf78fa29ff707f85e88b8ef1fa2495b8b6f2095ea49c9",
+   "shape": [131],
+   "sum": 48801.11026763916
+  }
+ },
+ "records": {
+  "golden": {
+   "tracker": "golden test"
+  }
+ },
+ "track_id": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 17, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 17, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 19],
+ "trench": {
+  "files": ["0/c.0.0.0.0", "0/zarr.json", "labels/tracks.golden/0/c.0.0.0", "labels/tracks.golden/0/zarr.json", "labels/tracks.golden/zarr.json", "labels/zarr.json", "tracks/golden.geff/edges/ids/c/0/0", "tracks/golden.geff/edges/ids/zarr.json", "tracks/golden.geff/edges/props/score/values/c/0", "tracks/golden.geff/edges/props/score/values/zarr.json", "tracks/golden.geff/edges/props/score/zarr.json", "tracks/golden.geff/edges/props/zarr.json", "tracks/golden.geff/edges/zarr.json", "tracks/golden.geff/nodes/ids/c/0", "tracks/golden.geff/nodes/ids/zarr.json", "tracks/golden.geff/nodes/props/lineage_id/values/c/0", "tracks/golden.geff/nodes/props/lineage_id/values/zarr.json", "tracks/golden.geff/nodes/props/lineage_id/zarr.json", "tracks/golden.geff/nodes/props/seg_id/values/c/0", "tracks/golden.geff/nodes/props/seg_id/values/zarr.json", "tracks/golden.geff/nodes/props/seg_id/zarr.json", "tracks/golden.geff/nodes/props/t/values/c/0", "tracks/golden.geff/nodes/props/t/values/zarr.json", "tracks/golden.geff/nodes/props/t/zarr.json", "tracks/golden.geff/nodes/props/track_id/values/c/0", "tracks/golden.geff/nodes/props/track_id/values/zarr.json", "tracks/golden.geff/nodes/props/track_id/zarr.json", "tracks/golden.geff/nodes/props/x/values/c/0", "tracks/golden.geff/nodes/props/x/values/zarr.json", "tracks/golden.geff/nodes/props/x/zarr.json", "tracks/golden.geff/nodes/props/y/values/c/0", "tracks/golden.geff/nodes/props/y/values/zarr.json", "tracks/golden.geff/nodes/props/y/zarr.json", "tracks/golden.geff/nodes/props/zarr.json", "tracks/golden.geff/nodes/zarr.json", "tracks/golden.geff/zarr.json", "tracks/zarr.json", "zarr.json"],
+  "nodes": {
+   ".": {
+    "attributes": {
+     "ome": {
+      "multiscales": [
+       {
+        "axes": [
+         {
+          "name": "t",
+          "type": "time",
+          "unit": "minute"
+         },
+         {
+          "name": "c",
+          "type": "channel"
+         },
+         {
+          "name": "y",
+          "type": "space",
+          "unit": "micrometer"
+         },
+         {
+          "name": "x",
+          "type": "space",
+          "unit": "micrometer"
+         }
+        ],
+        "datasets": [
+         {
+          "coordinateTransformations": [
+           {
+            "scale": [1.0000176493326822, 1.0, 0.107869821220548, 0.107869821220548],
+            "type": "scale"
+           }
+          ],
+          "path": "0"
+         }
+        ],
+        "metadata": {
+         "description": "one resolution level: nothing was downsampled"
+        },
+        "name": "trench_0002",
+        "type": "none"
+       }
+      ],
+      "omero": {
+       "channels": [
+        {
+         "active": true,
+         "color": "FFFFFF",
+         "label": "PC",
+         "window": {
+          "end": 8954.602000000188,
+          "max": 65535.0,
+          "min": 0.0,
+          "start": 3438.0
+         }
+        },
+        {
+         "active": false,
+         "color": "FF0000",
+         "label": "mCherry",
+         "window": {
+          "end": 661.0,
+          "max": 65535.0,
+          "min": 0.0,
+          "start": 82.0
+         }
+        },
+        {
+         "active": false,
+         "color": "FFFF00",
+         "label": "mVenus",
+         "window": {
+          "end": 120.0,
+          "max": 65535.0,
+          "min": 0.0,
+          "start": 73.0
+         }
+        },
+        {
+         "active": false,
+         "color": "00FFFF",
+         "label": "CFP",
+         "window": {
+          "end": 107.0,
+          "max": 65535.0,
+          "min": 0.0,
+          "start": 68.0
+         }
+        }
+       ],
+       "rdefs": {
+        "defaultT": 0,
+        "model": "color"
+       }
+      },
+      "version": "0.5"
+     },
+     "pymmm": {
+      "experiment": "..",
+      "fov_index": 0,
+      "fov_name": "XYPos:2",
+      "lane_index": 0,
+      "needs_flip": false,
+      "orientation": 1,
+      "trench": 2,
+      "units": {
+       "x_left": "pixel",
+       "x_right": "pixel",
+       "y_bottom": "pixel",
+       "y_top": "pixel"
+      },
+      "x_left": 457,
+      "x_right": 551,
+      "y_bottom": 917,
+      "y_top": 262
+     }
+    },
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "0": {
+    "attributes": {},
+    "chunk_grid": {
+     "configuration": {
+      "chunk_shape": [10, 4, 655, 94]
+     },
+     "name": "regular"
+    },
+    "chunk_key_encoding": {
+     "configuration": {
+      "separator": "."
+     },
+     "name": "default"
+    },
+    "codecs": [
+     {
+      "configuration": {
+       "chunk_shape": [10, 1, 655, 94],
+       "codecs": [
+        {
+         "configuration": {
+          "endian": "little"
+         },
+         "name": "bytes"
+        },
+        {
+         "configuration": {
+          "blocksize": 0,
+          "clevel": 3,
+          "cname": "zstd",
+          "shuffle": "shuffle",
+          "typesize": 2
+         },
+         "name": "blosc"
+        }
+       ],
+       "index_codecs": [
+        {
+         "configuration": {
+          "endian": "little"
+         },
+         "name": "bytes"
+        },
+        {
+         "name": "crc32c"
+        }
+       ],
+       "index_location": "end"
+      },
+      "name": "sharding_indexed"
+     }
+    ],
+    "data": {
+     "dtype": "<u2",
+     "max": 12195.0,
+     "min": 40.0,
+     "sha256": "bffb229d070b61262a1b4408434e12ee133d0aa6a3c6bf6e11495625421f12f0",
+     "shape": [10, 4, 655, 94],
+     "sum": 3333334705.0
+    },
+    "data_type": "uint16",
+    "dimension_names": ["t", "c", "y", "x"],
+    "fill_value": 0,
+    "node_type": "array",
+    "shape": [10, 4, 655, 94],
+    "storage_transformers": [],
+    "zarr_format": 3
+   },
+   "labels": {
+    "attributes": {
+     "ome": {
+      "labels": ["tracks.golden"],
+      "version": "0.5"
+     }
+    },
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "labels/tracks.golden": {
+    "attributes": {
+     "ome": {
+      "image-label": {
+       "source": {
+        "image": "../../"
+       }
+      },
+      "multiscales": [
+       {
+        "axes": [
+         {
+          "name": "t",
+          "type": "time",
+          "unit": "minute"
+         },
+         {
+          "name": "y",
+          "type": "space",
+          "unit": "micrometer"
+         },
+         {
+          "name": "x",
+          "type": "space",
+          "unit": "micrometer"
+         }
+        ],
+        "datasets": [
+         {
+          "coordinateTransformations": [
+           {
+            "scale": [1.0000176493326822, 0.107869821220548, 0.107869821220548],
+            "type": "scale"
+           }
+          ],
+          "path": "0"
+         }
+        ],
+        "metadata": {
+         "description": "one resolution level: nothing was downsampled"
+        },
+        "name": "tracks.golden",
+        "type": "none"
+       }
+      ],
+      "version": "0.5"
+     },
+     "pymmm": {
+      "description": "the masks the tracker chose; a mask's value is its GEFF node's seg_id",
+      "tracks": "../../tracks/golden.geff"
+     }
+    },
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "labels/tracks.golden/0": {
+    "attributes": {},
+    "chunk_grid": {
+     "configuration": {
+      "chunk_shape": [10, 655, 94]
+     },
+     "name": "regular"
+    },
+    "chunk_key_encoding": {
+     "configuration": {
+      "separator": "."
+     },
+     "name": "default"
+    },
+    "codecs": [
+     {
+      "configuration": {
+       "endian": "little"
+      },
+      "name": "bytes"
+     },
+     {
+      "configuration": {
+       "blocksize": 0,
+       "clevel": 3,
+       "cname": "zstd",
+       "shuffle": "bitshuffle",
+       "typesize": 2
+      },
+      "name": "blosc"
+     }
+    ],
+    "data": {
+     "dtype": "<u2",
+     "max": 15.0,
+     "min": 0.0,
+     "sha256": "a6ca4b91b612f03f54963e4507d02e32229536dd792bf53b2ef99ba7e23926bc",
+     "shape": [10, 655, 94],
+     "sum": 267677.0
+    },
+    "data_type": "uint16",
+    "dimension_names": ["t", "y", "x"],
+    "fill_value": 0,
+    "node_type": "array",
+    "shape": [10, 655, 94],
+    "storage_transformers": [],
+    "zarr_format": 3
+   },
+   "tracks": {
+    "attributes": {
+     "pymmm": {
+      "description": "tracking runs' GEFFs (regenerable); curated copies are in curation/"
+     }
+    },
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "tracks/golden.geff": {
+    "attributes": {
+     "geff": {
+      "axes": [
+       {
+        "max": 9.0,
+        "min": 0.0,
+        "name": "t",
+        "offset": null,
+        "scale": null,
+        "scaled_unit": null,
+        "type": "time",
+        "unit": "frame"
+       },
+       {
+        "max": 648.0693359375,
+        "min": 122.89286041259766,
+        "name": "y",
+        "offset": null,
+        "scale": null,
+        "scaled_unit": null,
+        "type": "space",
+        "unit": null
+       },
+       {
+        "max": 50.797298431396484,
+        "min": 47.71794891357422,
+        "name": "x",
+        "offset": null,
+        "scale": null,
+        "scaled_unit": null,
+        "type": "space",
+        "unit": null
+       }
+      ],
+      "directed": true,
+      "display_hints": null,
+      "edge_props_metadata": {
+       "score": {
+        "description": null,
+        "dtype": "float32",
+        "identifier": "score",
+        "name": null,
+        "unit": null,
+        "varlength": false
+       }
+      },
+      "ellipsoid": null,
+      "extra": {
+       "frame_interval_min": 1.0000176493326822,
+       "pixel_size_um": 0.107869821220548,
+       "tracker": "golden test",
+       "trench": 2
+      },
+      "geff_version": "<volatile>",
+      "node_props_metadata": {
+       "lineage_id": {
+        "description": null,
+        "dtype": "int64",
+        "identifier": "lineage_id",
+        "name": null,
+        "unit": null,
+        "varlength": false
+       },
+       "seg_id": {
+        "description": null,
+        "dtype": "int32",
+        "identifier": "seg_id",
+        "name": null,
+        "unit": null,
+        "varlength": false
+       },
+       "t": {
+        "description": null,
+        "dtype": "int32",
+        "identifier": "t",
+        "name": null,
+        "unit": null,
+        "varlength": false
+       },
+       "track_id": {
+        "description": null,
+        "dtype": "int64",
+        "identifier": "track_id",
+        "name": null,
+        "unit": null,
+        "varlength": false
+       },
+       "x": {
+        "description": null,
+        "dtype": "float32",
+        "identifier": "x",
+        "name": null,
+        "unit": null,
+        "varlength": false
+       },
+       "y": {
+        "description": null,
+        "dtype": "float32",
+        "identifier": "y",
+        "name": null,
+        "unit": null,
+        "varlength": false
+       }
+      },
+      "polygon": null,
+      "related_objects": [
+       {
+        "label_prop": null,
+        "node_prop": "seg_id",
+        "path": "../../labels/tracks.golden",
+        "type": "labels"
+       },
+       {
+        "label_prop": null,
+        "node_prop": null,
+        "path": "../..",
+        "type": "image"
+       }
+      ],
+      "sphere": null,
+      "track_node_props": {
+       "lineage": "lineage_id",
+       "tracklet": "track_id"
+      }
+     }
+    },
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/edges": {
+    "attributes": {},
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/edges/ids": {
+    "attributes": {},
+    "chunk_grid": {
+     "configuration": {
+      "chunk_shape": [117, 2]
+     },
+     "name": "regular"
+    },
+    "chunk_key_encoding": {
+     "configuration": {
+      "separator": "/"
+     },
+     "name": "default"
+    },
+    "codecs": [
+     {
+      "configuration": {
+       "endian": "little"
+      },
+      "name": "bytes"
+     },
+     {
+      "configuration": {
+       "checksum": false,
+       "level": 0
+      },
+      "name": "zstd"
+     }
+    ],
+    "data": {
+     "dtype": "<i8",
+     "max": 130.0,
+     "min": 0.0,
+     "sha256": "9dad2ccd819e1fe7b6927e6f38c55d925ae26386b0028029f0a4039ad0919651",
+     "shape": [117, 2],
+     "sum": 15291.0
+    },
+    "data_type": "int64",
+    "fill_value": 0,
+    "node_type": "array",
+    "shape": [117, 2],
+    "storage_transformers": [],
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/edges/props": {
+    "attributes": {},
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/edges/props/score": {
+    "attributes": {},
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/edges/props/score/values": {
+    "attributes": {},
+    "chunk_grid": {
+     "configuration": {
+      "chunk_shape": [117]
+     },
+     "name": "regular"
+    },
+    "chunk_key_encoding": {
+     "configuration": {
+      "separator": "/"
+     },
+     "name": "default"
+    },
+    "codecs": [
+     {
+      "configuration": {
+       "endian": "little"
+      },
+      "name": "bytes"
+     },
+     {
+      "configuration": {
+       "checksum": false,
+       "level": 0
+      },
+      "name": "zstd"
+     }
+    ],
+    "data": {
+     "dtype": "<f4",
+     "max": 1.0,
+     "min": 0.008620689623057842,
+     "sha256": "a23810b454d6236804a7d4ccd9fed35a4325572246956583e4ec4f77e5d1da05",
+     "shape": [117],
+     "sum": 58.4999999916181
+    },
+    "data_type": "float32",
+    "fill_value": 0.0,
+    "node_type": "array",
+    "shape": [117],
+    "storage_transformers": [],
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes": {
+    "attributes": {},
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes/ids": {
+    "attributes": {},
+    "chunk_grid": {
+     "configuration": {
+      "chunk_shape": [131]
+     },
+     "name": "regular"
+    },
+    "chunk_key_encoding": {
+     "configuration": {
+      "separator": "/"
+     },
+     "name": "default"
+    },
+    "codecs": [
+     {
+      "configuration": {
+       "endian": "little"
+      },
+      "name": "bytes"
+     },
+     {
+      "configuration": {
+       "checksum": false,
+       "level": 0
+      },
+      "name": "zstd"
+     }
+    ],
+    "data": {
+     "dtype": "<i8",
+     "max": 130.0,
+     "min": 0.0,
+     "sha256": "5cfcd45453494b8a8a289553f9d7b1b2886481456dc3d32fbbb913d9b875b928",
+     "shape": [131],
+     "sum": 8515.0
+    },
+    "data_type": "int64",
+    "fill_value": 0,
+    "node_type": "array",
+    "shape": [131],
+    "storage_transformers": [],
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes/props": {
+    "attributes": {},
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes/props/lineage_id": {
+    "attributes": {},
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes/props/lineage_id/values": {
+    "attributes": {},
+    "chunk_grid": {
+     "configuration": {
+      "chunk_shape": [131]
+     },
+     "name": "regular"
+    },
+    "chunk_key_encoding": {
+     "configuration": {
+      "separator": "/"
+     },
+     "name": "default"
+    },
+    "codecs": [
+     {
+      "configuration": {
+       "endian": "little"
+      },
+      "name": "bytes"
+     },
+     {
+      "configuration": {
+       "checksum": false,
+       "level": 0
+      },
+      "name": "zstd"
+     }
+    ],
+    "data": {
+     "dtype": "<i8",
+     "max": 13.0,
+     "min": 0.0,
+     "sha256": "2dd5bc6d6feefa12e9d31c64bb76d2134035c9b364ba38baa64547dfade36d90",
+     "shape": [131],
+     "sum": 795.0
+    },
+    "data_type": "int64",
+    "fill_value": 0,
+    "node_type": "array",
+    "shape": [131],
+    "storage_transformers": [],
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes/props/seg_id": {
+    "attributes": {},
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes/props/seg_id/values": {
+    "attributes": {},
+    "chunk_grid": {
+     "configuration": {
+      "chunk_shape": [131]
+     },
+     "name": "regular"
+    },
+    "chunk_key_encoding": {
+     "configuration": {
+      "separator": "/"
+     },
+     "name": "default"
+    },
+    "codecs": [
+     {
+      "configuration": {
+       "endian": "little"
+      },
+      "name": "bytes"
+     },
+     {
+      "configuration": {
+       "checksum": false,
+       "level": 0
+      },
+      "name": "zstd"
+     }
+    ],
+    "data": {
+     "dtype": "<i4",
+     "max": 15.0,
+     "min": 1.0,
+     "sha256": "05868f84cd9f5d50785b61574bfac832f8b0e31dac95ddc06379162d121217a8",
+     "shape": [131],
+     "sum": 930.0
+    },
+    "data_type": "int32",
+    "fill_value": 0,
+    "node_type": "array",
+    "shape": [131],
+    "storage_transformers": [],
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes/props/t": {
+    "attributes": {},
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes/props/t/values": {
+    "attributes": {},
+    "chunk_grid": {
+     "configuration": {
+      "chunk_shape": [131]
+     },
+     "name": "regular"
+    },
+    "chunk_key_encoding": {
+     "configuration": {
+      "separator": "/"
+     },
+     "name": "default"
+    },
+    "codecs": [
+     {
+      "configuration": {
+       "endian": "little"
+      },
+      "name": "bytes"
+     },
+     {
+      "configuration": {
+       "checksum": false,
+       "level": 0
+      },
+      "name": "zstd"
+     }
+    ],
+    "data": {
+     "dtype": "<i4",
+     "max": 9.0,
+     "min": 0.0,
+     "sha256": "1463f6c034181264268b6fe42e7980e98a4e43ae054596a910721e04f169c119",
+     "shape": [131],
+     "sum": 563.0
+    },
+    "data_type": "int32",
+    "fill_value": 0,
+    "node_type": "array",
+    "shape": [131],
+    "storage_transformers": [],
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes/props/track_id": {
+    "attributes": {},
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes/props/track_id/values": {
+    "attributes": {},
+    "chunk_grid": {
+     "configuration": {
+      "chunk_shape": [131]
+     },
+     "name": "regular"
+    },
+    "chunk_key_encoding": {
+     "configuration": {
+      "separator": "/"
+     },
+     "name": "default"
+    },
+    "codecs": [
+     {
+      "configuration": {
+       "endian": "little"
+      },
+      "name": "bytes"
+     },
+     {
+      "configuration": {
+       "checksum": false,
+       "level": 0
+      },
+      "name": "zstd"
+     }
+    ],
+    "data": {
+     "dtype": "<i8",
+     "max": 19.0,
+     "min": 0.0,
+     "sha256": "212a924f77e48a6ae55be82ef739199b67c8582b56bf660f69e33bc8335f7dae",
+     "shape": [131],
+     "sum": 838.0
+    },
+    "data_type": "int64",
+    "fill_value": 0,
+    "node_type": "array",
+    "shape": [131],
+    "storage_transformers": [],
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes/props/x": {
+    "attributes": {},
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes/props/x/values": {
+    "attributes": {},
+    "chunk_grid": {
+     "configuration": {
+      "chunk_shape": [131]
+     },
+     "name": "regular"
+    },
+    "chunk_key_encoding": {
+     "configuration": {
+      "separator": "/"
+     },
+     "name": "default"
+    },
+    "codecs": [
+     {
+      "configuration": {
+       "endian": "little"
+      },
+      "name": "bytes"
+     },
+     {
+      "configuration": {
+       "checksum": false,
+       "level": 0
+      },
+      "name": "zstd"
+     }
+    ],
+    "data": {
+     "dtype": "<f4",
+     "max": 50.797298431396484,
+     "min": 47.71794891357422,
+     "sha256": "330bf4c034bf54357e00bb85609995f68ef29044289b7b70f0146d83b2ae6eac",
+     "shape": [131],
+     "sum": 6398.181610107422
+    },
+    "data_type": "float32",
+    "fill_value": 0.0,
+    "node_type": "array",
+    "shape": [131],
+    "storage_transformers": [],
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes/props/y": {
+    "attributes": {},
+    "node_type": "group",
+    "zarr_format": 3
+   },
+   "tracks/golden.geff/nodes/props/y/values": {
+    "attributes": {},
+    "chunk_grid": {
+     "configuration": {
+      "chunk_shape": [131]
+     },
+     "name": "regular"
+    },
+    "chunk_key_encoding": {
+     "configuration": {
+      "separator": "/"
+     },
+     "name": "default"
+    },
+    "codecs": [
+     {
+      "configuration": {
+       "endian": "little"
+      },
+      "name": "bytes"
+     },
+     {
+      "configuration": {
+       "checksum": false,
+       "level": 0
+      },
+      "name": "zstd"
+     }
+    ],
+    "data": {
+     "dtype": "<f4",
+     "max": 648.0693359375,
+     "min": 122.89286041259766,
+     "sha256": "238c0b70f687620dbf0bf78fa29ff707f85e88b8ef1fa2495b8b6f2095ea49c9",
+     "shape": [131],
+     "sum": 48801.11026763916
+    },
+    "data_type": "float32",
+    "fill_value": 0.0,
+    "node_type": "array",
+    "shape": [131],
+    "storage_transformers": [],
+    "zarr_format": 3
+   }
+  }
+ }
+}

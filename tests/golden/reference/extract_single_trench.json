@@ -1,0 +1,18 @@
+{
+ "trench_20_mCherry": {
+  "dtype": "<u2",
+  "max": 808.0,
+  "min": 55.0,
+  "sha256": "12d515b29d4573a90a64e9ce9495d1918c71bb7e9cbd64df2c2e2f6f9b5ebef4",
+  "shape": [10, 655, 94],
+  "sum": 90874068.0
+ },
+ "trench_7_PC": {
+  "dtype": "<u2",
+  "max": 10197.0,
+  "min": 2988.0,
+  "sha256": "fef18e4a6eea9df044b6eaf9e32065c9ed66661e51a40401e6724998b89e5d9a",
+  "shape": [10, 655, 94],
+  "sum": 3074058843.0
+ }
+}
