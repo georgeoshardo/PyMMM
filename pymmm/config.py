@@ -1,26 +1,27 @@
 """Experiment configuration – one TOML file per experiment.
 
-Every notebook of the pipeline (extract, segment, track, curate) reads the same
-file, so a new dataset means writing one file::
+Every notebook of the pipeline (extract, segment, curate) reads the same file, so
+a new dataset means writing one file::
 
     name = "20261005_pbs_psc_yfp_ty013"
     nd2 = "raw_data/20261005_pbs_psc_yfp_ty013.nd2"
-    trench_store = "20261005_pbs_psc_yfp_ty013.trenches.zarr"
-    tracks_store = "20261005_pbs_psc_yfp_ty013.tracks.zarr"
-    curation_store = "20261005_pbs_psc_yfp_ty013.curation.zarr"
+    store = "20261005_pbs_psc_yfp_ty013.zarr"
 
     [segmentation]
     channel = "mCherry"
     model = "bact_fluor_omni"
-    name = "mcherry"         # /segmentation/<name> in the trench store
+    name = "mcherry"         # labels/<name>.<hypothesis> in each trench image
+    hypotheses = ["S1", "S2", "S3", "S4"]
     batch_size = 64
     workers = 8
 
     [curation]
     kymograph_channel = "PC"
 
-Relative paths are relative to the TOML file's folder. ``experiment.segmenter()``
-builds the Segmenter from it.
+``store`` is the experiment group the Extractor writes: one OME-Zarr image per
+trench, with each trench's segmentations and tracks beside its pixels (see
+:mod:`pymmm.trench_images`). Relative paths are relative to the TOML file's
+folder. ``experiment.segmenter()`` builds the Segmenter from it.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from typing import TYPE_CHECKING, Any, Dict, Union
 if TYPE_CHECKING:
     from pymmm.segmenter import Segmenter
 
-_PATH_KEYS = ("nd2", "trench_store", "tracks_store", "curation_store")
+_PATH_KEYS = ("nd2", "store")
 
 
 @dataclass(frozen=True)
@@ -42,9 +43,7 @@ class Experiment:
 
     name: str
     nd2: Path
-    trench_store: Path
-    tracks_store: Path
-    curation_store: Path
+    store: Path
     segmentation: Dict[str, Any] = field(default_factory=dict)
     curation: Dict[str, Any] = field(default_factory=dict)
     source: Path | None = None
@@ -71,16 +70,17 @@ class Experiment:
 
     @property
     def segmentation_name(self) -> str:
-        """The segmentation group name (default: the channel, lower case)."""
+        """The segmentation's name (default: the channel, lower case)."""
         seg = self.segmentation
         return str(seg.get("name") or seg.get("channel", "mCherry").lower())
 
     def segmenter(self, **overrides: Any) -> "Segmenter":
-        """A :class:`~pymmm.segmenter.Segmenter` for the trench store."""
+        """A :class:`~pymmm.segmenter.Segmenter` for the experiment group."""
         from pymmm.segmenter import Segmenter
 
         seg = self.segmentation
         kwargs = {"channel": seg.get("channel", "mCherry"), "name": self.segmentation_name}
-        if "model" in seg:
-            kwargs["model"] = seg["model"]
-        return Segmenter(self.trench_store, **{**kwargs, **overrides})
+        for key in ("model", "hypotheses"):
+            if key in seg:
+                kwargs[key] = seg[key]
+        return Segmenter(self.store, **{**kwargs, **overrides})
