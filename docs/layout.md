@@ -187,7 +187,8 @@ A tracking run writes, for each trench it tracks:
   - node props `t` (int32), `y`, `x` (float32, the mask's centroid), `seg_id` (int32),
     `track_id` and `lineage_id` (int64, GEFF tracklets and lineages: a node continues
     its parent's tracklet when it is the parent's only child and has no other parent;
-    a lineage is a connected component), named in `track_node_props`;
+    a lineage is a connected component; both numbered from 1, since mm-track takes 0
+    for no track), named in `track_node_props`;
   - edge prop `score` (float32, may be NaN);
   - `related_objects`: the labels `../../labels/tracks.<run>` (by `seg_id`) and the
     image `../..`;

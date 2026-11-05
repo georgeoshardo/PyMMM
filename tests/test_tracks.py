@@ -16,6 +16,9 @@ def test_tracklets_and_lineages_follow_the_geff_definitions():
     assert len({track_id[1], track_id[2], track_id[3]}) == 3  # daughters start anew
     assert track_id[3] == track_id[4]
     assert len(set(lineage_id[:5])) == 1 and lineage_id[5] != lineage_id[0]
+    # numbered from 1 (0 is no track to mm-track), in time order
+    assert sorted(set(track_id)) == [1, 2, 3, 4] and track_id[0] == 1
+    assert sorted(set(lineage_id)) == [1, 2] and lineage_id[0] == 1
 
 
 def test_read_trench_geff_maps_edges_past_gaps_in_node_ids(tmp_path):

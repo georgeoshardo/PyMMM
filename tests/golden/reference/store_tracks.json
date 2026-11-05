@@ -4,7 +4,7 @@
   "2": true,
   "3": false
  },
- "lineage_id": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10],
+ "lineage_id": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 14, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11],
  "n_edges": 117,
  "n_nodes": 131,
  "read_trench_geff": {
@@ -18,11 +18,11 @@
   },
   "lineage_id": {
    "dtype": "<i8",
-   "max": 13.0,
-   "min": 0.0,
-   "sha256": "2dd5bc6d6feefa12e9d31c64bb76d2134035c9b364ba38baa64547dfade36d90",
+   "max": 14.0,
+   "min": 1.0,
+   "sha256": "aeff4558ad3df91f52407b0d2f3528e54b10d39ed7ecd3dace079136a10e49c5",
    "shape": [131],
-   "sum": 795.0
+   "sum": 926.0
   },
   "node_id": {
    "dtype": "<i8",
@@ -58,11 +58,11 @@
   },
   "track_id": {
    "dtype": "<i8",
-   "max": 19.0,
-   "min": 0.0,
-   "sha256": "212a924f77e48a6ae55be82ef739199b67c8582b56bf660f69e33bc8335f7dae",
+   "max": 20.0,
+   "min": 1.0,
+   "sha256": "9cbd95ad66bfcf9c430a0bc82097220b308beac4e941dc4401e87b91e09a4460",
    "shape": [131],
-   "sum": 838.0
+   "sum": 969.0
   },
   "x": {
    "dtype": "<f4",
@@ -86,7 +86,7 @@
    "tracker": "golden test"
   }
  },
- "track_id": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 17, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 17, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 19],
+ "track_id": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 17, 18, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 17, 18, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 19, 20],
  "trench": {
   "files": ["0/c.0.0.0.0", "0/zarr.json", "labels/tracks.golden/0/c.0.0.0", "labels/tracks.golden/0/zarr.json", "labels/tracks.golden/zarr.json", "labels/zarr.json", "tracks/golden.geff/edges/ids/c/0/0", "tracks/golden.geff/edges/ids/zarr.json", "tracks/golden.geff/edges/props/score/values/c/0", "tracks/golden.geff/edges/props/score/values/zarr.json", "tracks/golden.geff/edges/props/score/zarr.json", "tracks/golden.geff/edges/props/zarr.json", "tracks/golden.geff/edges/zarr.json", "tracks/golden.geff/nodes/ids/c/0", "tracks/golden.geff/nodes/ids/zarr.json", "tracks/golden.geff/nodes/props/lineage_id/values/c/0", "tracks/golden.geff/nodes/props/lineage_id/values/zarr.json", "tracks/golden.geff/nodes/props/lineage_id/zarr.json", "tracks/golden.geff/nodes/props/seg_id/values/c/0", "tracks/golden.geff/nodes/props/seg_id/values/zarr.json", "tracks/golden.geff/nodes/props/seg_id/zarr.json", "tracks/golden.geff/nodes/props/t/values/c/0", "tracks/golden.geff/nodes/props/t/values/zarr.json", "tracks/golden.geff/nodes/props/t/zarr.json", "tracks/golden.geff/nodes/props/track_id/values/c/0", "tracks/golden.geff/nodes/props/track_id/values/zarr.json", "tracks/golden.geff/nodes/props/track_id/zarr.json", "tracks/golden.geff/nodes/props/x/values/c/0", "tracks/golden.geff/nodes/props/x/values/zarr.json", "tracks/golden.geff/nodes/props/x/zarr.json", "tracks/golden.geff/nodes/props/y/values/c/0", "tracks/golden.geff/nodes/props/y/values/zarr.json", "tracks/golden.geff/nodes/props/y/zarr.json", "tracks/golden.geff/nodes/props/zarr.json", "tracks/golden.geff/nodes/zarr.json", "tracks/golden.geff/zarr.json", "tracks/zarr.json", "zarr.json"],
   "nodes": {
@@ -724,11 +724,11 @@
     ],
     "data": {
      "dtype": "<i8",
-     "max": 13.0,
-     "min": 0.0,
-     "sha256": "2dd5bc6d6feefa12e9d31c64bb76d2134035c9b364ba38baa64547dfade36d90",
+     "max": 14.0,
+     "min": 1.0,
+     "sha256": "aeff4558ad3df91f52407b0d2f3528e54b10d39ed7ecd3dace079136a10e49c5",
      "shape": [131],
-     "sum": 795.0
+     "sum": 926.0
     },
     "data_type": "int64",
     "fill_value": 0,
@@ -871,11 +871,11 @@
     ],
     "data": {
      "dtype": "<i8",
-     "max": 19.0,
-     "min": 0.0,
-     "sha256": "212a924f77e48a6ae55be82ef739199b67c8582b56bf660f69e33bc8335f7dae",
+     "max": 20.0,
+     "min": 1.0,
+     "sha256": "9cbd95ad66bfcf9c430a0bc82097220b308beac4e941dc4401e87b91e09a4460",
      "shape": [131],
-     "sum": 838.0
+     "sum": 969.0
     },
     "data_type": "int64",
     "fill_value": 0,

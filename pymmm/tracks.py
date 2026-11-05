@@ -56,7 +56,8 @@ def tracklets_and_lineages(n_nodes: int, times: np.ndarray, edges: np.ndarray):
     """GEFF tracklet and lineage ids for a graph of ``n_nodes`` nodes.
 
     A node continues its parent's tracklet when it is the parent's only child
-    and the parent is its only parent; lineages are the connected parts.
+    and the parent is its only parent; lineages are the connected parts. Both are
+    numbered from 1, in time order: readers such as mm-track take 0 for no track.
     """
     children: Dict[int, List[int]] = {}
     parents: Dict[int, List[int]] = {}
@@ -64,7 +65,7 @@ def tracklets_and_lineages(n_nodes: int, times: np.ndarray, edges: np.ndarray):
         children.setdefault(int(parent), []).append(int(child))
         parents.setdefault(int(child), []).append(int(parent))
     track_id = np.full(n_nodes, -1, dtype=np.int64)
-    next_track = 0
+    next_track = 1
     for node in np.argsort(times, kind="stable"):
         ps = parents.get(int(node), [])
         if len(ps) == 1 and len(children.get(ps[0], [])) == 1:
@@ -73,7 +74,7 @@ def tracklets_and_lineages(n_nodes: int, times: np.ndarray, edges: np.ndarray):
             track_id[node] = next_track
             next_track += 1
     lineage_id = np.full(n_nodes, -1, dtype=np.int64)
-    next_lineage = 0
+    next_lineage = 1
     for start in range(n_nodes):
         if lineage_id[start] >= 0:
             continue
