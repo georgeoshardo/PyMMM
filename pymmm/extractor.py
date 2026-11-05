@@ -924,13 +924,10 @@ class Extractor:
         frame and produces all trenches and channels for that FOV without
         writing a zarr store.
 
-        Use with hvplot for interactive browsing before committing to full
-        extraction::
+        Browse it before committing to the full extraction (the notebook
+        extra)::
 
-            extractor.preview(channel="PC").hvplot.image(
-                x="X", y="Y", cmap="Greys_r", dynamic=True,
-                rasterize=True, widget_location="top", aspect="equal",
-            )
+            ndv.imshow(extractor.preview())
 
         Parameters
         ----------

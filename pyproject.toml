@@ -5,18 +5,17 @@ build-backend = "hatchling.build"
 [project]
 name = "pymmm"
 version = "0.1.0"
-description = "Mother machine image processing"
+description = "Mother machine image processing: ND2 to one OME-Zarr image per trench"
+readme = "README.md"
 authors = [{ name = "Georgeos Hardo", email = "gh464@cantab.ac.uk" }]
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
+# A plain install reads ND2s, runs the steps (registration, lanes, trenches,
+# extraction) and reads and writes the experiment group.
 dependencies = [
-    "bokeh>=3.1.0",
-    "dask[distributed]",
-    "ipython",
-    "ipywidgets",
-    "matplotlib",
+    "dask[distributed,diagnostics]",  # diagnostics: bokeh, for the Dask dashboard
+    "matplotlib",                      # the steps' diagnostic figures
     "nd2",
-    "ndv[jup]>=0.5,<0.6",
     "numpy",
     "opencv-python-headless>=4.13",
     "pandas",
@@ -29,9 +28,22 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Writing tracks (pymmm.tracks) needs geff, and tracking needs trackastra. geff pins
-# numcodecs < 0.16, so it is kept out of environments that only extract or view.
-tracks = ["geff>=1.3,<2", "trackastra>=0.5"]
+# The steps' widgets (interactive_detect_lanes, interactive_detect_trenches,
+# interactive_segment) and the ndv viewers, in Jupyter.
+notebook = ["ipython", "ipywidgets", "ndv[jup]>=0.5,<0.6"]
+# The Segmenter. Omnipose 2.0 is not on PyPI (1.1.4 needs zarr < 2.16): install it
+# from git, as the phage-signatures seg environment does.
+segment = ["omnipose", "torch"]
+# pymmm.view, and one trench image opened in napari as an OME-Zarr image.
+view = ["napari", "napari-ome-zarr"]
+# Tracking runs' GEFFs (trench_images.write_tracks).
+tracks = ["geff>=1.3,<2"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["pymmm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "golden: pins PyMMM's output on real data (tests/golden; needs the ty013 ND2)",
+]

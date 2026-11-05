@@ -1,7 +1,8 @@
 """The golden subset of real data: two FOVs and ten frames of the ty013 ND2, and the
 settings the experiment was processed with (its companion store,
-``raw_data/20261005_pbs_psc_yfp_ty013.pymmm.zarr``). Set ``PYMMM_GOLDEN_ND2`` to use
-another copy of the ND2.
+``raw_data/20261005_pbs_psc_yfp_ty013.pymmm.zarr``). ``PYMMM_GOLDEN_ND2`` points at
+another copy of the ND2; the references hold only for this path, since the
+extraction records the ND2's resolved path (``acquisition/raw_json``).
 """
 
 from __future__ import annotations

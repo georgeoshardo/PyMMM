@@ -33,9 +33,7 @@ class ND2Experiment:
     --------
     >>> exp = ND2Experiment("/path/to/data.nd2")
     >>> print(exp)
-    >>> # Interactive browse:
-    >>> exp.data.hvplot.image(x="X", y="Y", cmap="Greys_r", dynamic=True,
-    ...                       rasterize=True, widget_location="top", aspect="equal")
+    >>> ndv.imshow(exp.data)  # browse it (the notebook extra)
     """
 
     def __init__(self, path: str | Path) -> None:

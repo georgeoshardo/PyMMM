@@ -5,12 +5,18 @@ name = "PyMMM"
 platforms = ["linux-64"]
 version = "0.1.0"
 
+# A development environment: PyMMM itself, editable, with the notebook, view and
+# tracks extras, so its dependencies are those of pyproject.toml. The conda
+# packages below only take the heavy ones from conda-forge rather than PyPI. The
+# segment extra (omnipose, torch) is left out: phage-signatures' seg environment
+# has omnipose 2.0 from git and PyTorch for the GPU.
 [dependencies]
 python = ">=3.11"
 nd2 = "*"
 xarray = ">=2026.2.0,<2027"
 dask = "*"
 distributed = "*"
+bokeh = ">=3.1"
 zarr = ">=3.1,<4"
 numpy = "*"
 scipy = "*"
@@ -19,25 +25,16 @@ scikit-image = "*"
 matplotlib = "*"
 tqdm = "*"
 pandas = "*"
-hvplot = "*"
-panel = "*"
-bokeh = "*"
+napari = "*"
+pyqt = "*"
 jupyterlab = "*"
 ipykernel = "*"
 ipywidgets = "*"
-datashader = "*"
-jupyter_bokeh = "*"
-cmake = "*"
 pytest = "*"
-napari = ">=0.7.1,<0.8"
-
-[tasks]
-test = "python -m pytest tests/ -v"
-notebook = "python -m jupyter lab"
-
-[activation.env]
-PYTHONPATH = "$PIXI_PROJECT_ROOT"
 
 [pypi-dependencies]
-opencv-python-headless = ">=4.13"
-ndv = { version = ">=0.5, <0.6", extras = ["jup"] }
+pymmm = { path = ".", editable = true, extras = ["notebook", "view", "tracks"] }
+
+[tasks]
+test = "python -m pytest tests -v"
+notebook = "python -m jupyter lab"

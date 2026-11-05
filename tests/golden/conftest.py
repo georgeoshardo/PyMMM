@@ -24,10 +24,6 @@ from real_data import (
 from pymmm import CompanionStore, Extractor, LaneDetector, Registrator, TrenchDetector
 
 
-def pytest_configure(config):
-    config.addinivalue_line("markers", "golden: pins PyMMM's output on real data")
-
-
 @pytest.fixture(scope="session")
 def scratch_folder(tmp_path_factory):
     """Make scratch folders, each with a symlink to the ND2."""
