@@ -115,11 +115,21 @@ napari --plugin napari-ome-zarr experiment.zarr/trench_0007
 ```bash
 python -m pytest tests                         # all
 python -m pytest tests -m "not golden"         # without the golden tests (seconds)
+python -m pytest tests -m segment              # the Omnipose tests (the seg environment)
 ```
+
+One test file per module, named after it (`test_steps_extraction.py` for
+`pymmm/steps/extraction.py`, `test_widgets_lanes.py` for `pymmm/widgets/lanes.py`). Their
+fakes are in `tests/fake_experiment.py`: an ND2 file, experiment groups as the Extractor
+writes them, registered FOVs and an Omnipose model. A test that needs an install extra
+is marked with it (`notebook`, `segment`, `tracks`, `view`) and skips without it.
 
 `tests/golden` pins today's output on real data: registration, detection, extraction,
 segmentation and the experiment-group writers on two FOVs and ten frames of the ty013
-ND2, through every compute path. They skip without the ND2 (`PYMMM_GOLDEN_ND2`), and
-the segmentation and GEFF tests skip without omnipose or geff. After an intended change
-of output, regenerate the references with `PYMMM_GOLDEN_UPDATE=1` and review their
-diff.
+ND2, through every compute path. They skip without the ND2 (`PYMMM_GOLDEN_ND2`). After
+an intended change of output, regenerate the references with `PYMMM_GOLDEN_UPDATE=1`
+and review their diff.
+
+The widget tests drive the controls without a browser and check what the widgets
+compute and show (the `notebook` fixture in `tests/conftest.py`). How the widgets and
+viewers look and respond in Jupyter, and napari's window, are checked by hand.

@@ -1,11 +1,44 @@
-"""Shared fixtures."""
+"""Shared fixtures, and the markers of the tests that need an install extra.
+
+A test marked ``notebook``, ``segment``, ``tracks`` or ``view`` is skipped when its
+extra is not installed: ``pytest -m segment`` runs the Omnipose tests (the seg
+environment), ``pytest -m "not segment"`` everything else.
+"""
 
 from __future__ import annotations
 
+from importlib.util import find_spec
 from types import SimpleNamespace
 from typing import Any, Iterator, List
 
 import pytest
+from fake_experiment import FakeModel
+
+# marker: the modules its extra (pyproject.toml) brings that the tests import
+EXTRAS = {
+    "notebook": ("ndv", "ipywidgets"),
+    "segment": ("omnipose", "torch"),
+    "tracks": ("geff",),
+    "view": ("napari",),
+}
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    for extra, modules in EXTRAS.items():
+        if item.get_closest_marker(extra) is not None:
+            missing = [m for m in modules if find_spec(m) is None]
+            if missing:
+                pytest.skip(f"needs the {extra} extra ({', '.join(missing)} not installed)")
+
+
+@pytest.fixture
+def fake_model(monkeypatch) -> FakeModel:
+    """Every Segmenter's Omnipose model, thresholding the image (:class:`FakeModel`)."""
+    from pymmm.steps.segmentation import Segmenter
+
+    model = FakeModel()
+    monkeypatch.setattr(Segmenter, "_get_model", lambda self: model)
+    return model
 
 
 class _Notebook:
@@ -47,11 +80,11 @@ class _Notebook:
 def notebook(monkeypatch):
     """The notebook UI without a browser. ndv's viewers record their data (the widget
     updates the array in place) and how often it changed; ``display()`` keeps what it
-    is given, so a test can drive the controls. Needs the notebook extra."""
-    ndv = pytest.importorskip("ndv")
-    ipywidgets = pytest.importorskip("ipywidgets")
+    is given, so a test can drive the controls. Its tests are marked ``notebook``."""
     import IPython.display
+    import ipywidgets
     import matplotlib.pyplot as plt
+    import ndv
 
     plt.switch_backend("Agg")
     notebook = _Notebook()

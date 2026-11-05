@@ -99,8 +99,8 @@ def test_label_images(group):
     })
 
 
+@pytest.mark.tracks
 def test_tracks(group, tmp_path):
-    pytest.importorskip("geff")
     root = eg.open_experiment(group, mode="r+")
     labels = threshold_labels(root)
     nodes, edges = graph(labels)

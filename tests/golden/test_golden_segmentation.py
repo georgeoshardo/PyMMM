@@ -14,8 +14,7 @@ from golden_io import check, manifest, scrub
 from pymmm.steps.segmentation import Segmenter
 from pymmm.store import experiment_group as eg
 
-pytest.importorskip("omnipose")
-pytestmark = pytest.mark.golden
+pytestmark = [pytest.mark.golden, pytest.mark.segment]
 
 SEGMENTED = [2, 8]  # crowded (about 14 cells), empty
 

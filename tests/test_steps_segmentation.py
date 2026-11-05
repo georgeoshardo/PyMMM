@@ -1,6 +1,7 @@
-from __future__ import annotations
+"""``pymmm.steps.segmentation``: the Segmenter on a fake model, its normalisation and
+its label images (the widget and viewer: test_widgets_segmentation.py)."""
 
-from types import SimpleNamespace
+from __future__ import annotations
 
 import numpy as np
 import pytest
@@ -11,12 +12,12 @@ from fake_experiment import (
     NOISE,
     PIXEL_SIZE,
     TRENCHES,
+    FakeModel,
     H,
     W,
     cell_image,
     make_experiment,
 )
-from scipy import ndimage
 
 from pymmm.steps.segmentation import (
     HYPOTHESES,
@@ -28,47 +29,6 @@ from pymmm.steps.segmentation import (
     trench_bounds,
 )
 from pymmm.store import experiment_group as eg
-
-
-def _bottom_first(mask: np.ndarray) -> np.ndarray:
-    """Label connected components, numbered from the bottom of the frame up."""
-    labels, n = ndimage.label(mask)
-    labels[labels > 0] = n + 1 - labels[labels > 0]
-    return labels
-
-
-class _FakeModel:
-    """Stands in for OmniModel: thresholds the normalised image."""
-
-    THRESHOLD = 0.3
-
-    def __init__(self, fail_stack: bool = False, fail_frames=()):
-        self.fail_stack = fail_stack
-        self.fail_frames = set(fail_frames)
-        self.stack_calls = 0
-        self.frame_calls = 0
-        self.kwargs = []
-
-    def eval(self, x, **kwargs):
-        assert kwargs["normalize"] is False
-        self.kwargs.append(kwargs)
-        if x.shape[0] > 1:
-            self.stack_calls += 1
-            if self.fail_stack:
-                raise IndexError("index 1 is out of bounds")
-        else:
-            t = self.frame_calls
-            self.frame_calls += 1
-            if t in self.fail_frames:
-                raise IndexError("index 1 is out of bounds")
-        return SimpleNamespace(masks=np.stack([_bottom_first(f > self.THRESHOLD) for f in x]))
-
-
-@pytest.fixture
-def fake_model(monkeypatch):
-    model = _FakeModel()
-    monkeypatch.setattr(Segmenter, "_get_model", lambda self: model)
-    return model
 
 
 @pytest.fixture
@@ -121,7 +81,7 @@ def test_floor_keeps_a_noise_only_trench_dark():
 
     assert upper_without < BACKGROUND + 4 * NOISE
     assert upper == BACKGROUND + 20 * NOISE
-    assert normalise(noise_only, lower, upper).max() < _FakeModel.THRESHOLD
+    assert normalise(noise_only, lower, upper).max() < FakeModel.THRESHOLD
     assert normalise(noise_only, lower, upper_without).max() > 1
 
 

@@ -44,6 +44,12 @@ packages = ["pymmm"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers"
+# A test marked with an install extra is skipped without it (tests/conftest.py).
 markers = [
     "golden: pins PyMMM's output on real data (tests/golden; needs the ty013 ND2)",
+    "notebook: needs the notebook extra (ndv, ipywidgets): the widgets",
+    "segment: needs the segment extra (omnipose, torch): the seg and GPU environments",
+    "tracks: needs the tracks extra (geff)",
+    "view: needs the view extra (napari)",
 ]

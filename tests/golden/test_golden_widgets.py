@@ -11,7 +11,7 @@ from test_golden_pipeline import lanes_summary, trenches_summary
 
 from pymmm import LaneDetector, TrenchDetector
 
-pytestmark = [pytest.mark.golden,
+pytestmark = [pytest.mark.golden, pytest.mark.notebook,
               pytest.mark.filterwarnings("ignore:FigureCanvasAgg is non-interactive")]
 
 LANE_CONTROLS = {"sigma": "sigma", "distance": "distance", "height": "height",

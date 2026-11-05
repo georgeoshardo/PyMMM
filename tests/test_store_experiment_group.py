@@ -1,3 +1,6 @@
+"""``pymmm.store.experiment_group``: the experiment group, its records and its label
+images (a tracking run's GEFF: test_store_geff.py)."""
+
 from __future__ import annotations
 
 import json
@@ -5,23 +8,14 @@ import json
 import numpy as np
 import pytest
 import zarr
+from fake_experiment import make_empty_experiment
 
 from pymmm.store import experiment_group as eg
-from pymmm.store.geff import has_tracks, write_tracks
 
 
 @pytest.fixture
 def experiment(tmp_path):
-    """A two-trench experiment group as the Extractor lays it out (pixels left empty)."""
-    path = tmp_path / "exp.zarr"
-    root = zarr.open_group(str(path), mode="w", zarr_format=3)
-    root.attrs["pymmm"] = {"layout": "experiment", "pixel_size_um": 0.1, "frame_interval_ms": 60_000.0}
-    root.create_array("C", shape=(2,), dtype=str)[:] = np.asarray(["PC", "mCherry"], dtype=object)
-    table = root.create_group("trenches")
-    table.create_array("trench", data=np.asarray([3, 4], dtype=np.int32))
-    for t in (3, 4):
-        root.create_group(eg.trench_path(t)).create_array("0", shape=(5, 2, 6, 4), dtype=np.uint16)
-    return path
+    return make_empty_experiment(tmp_path)
 
 
 def test_open_experiment_refuses_other_groups(tmp_path):
@@ -66,33 +60,6 @@ def test_segmentation_is_one_label_image_per_hypothesis_listed_together(experime
     assert eg.listed_labels(root, 4) == []
     with pytest.raises(ValueError, match=r"not \(t, y, x\)"):
         eg.write_label_image(root, 4, "flat", stack)
-
-
-def test_write_tracks_writes_a_geff_beside_its_masks(experiment):
-    geff = pytest.importorskip("geff")
-
-    root = eg.open_experiment(experiment, mode="r+")
-    masks = np.zeros((5, 6, 4), dtype=np.uint16)
-    masks[0, :2] = 1
-    masks[1, :3] = 1
-    nodes = {"t": np.asarray([0, 1], np.int32), "y": np.asarray([0.5, 1.0], np.float32),
-             "x": np.asarray([1.5, 1.5], np.float32), "seg_id": np.asarray([1, 1], np.int32),
-             "track_id": np.asarray([0, 0]), "lineage_id": np.asarray([0, 0])}
-    path = write_tracks(root, 4, "run", nodes, np.asarray([[0, 1]]), np.asarray([np.nan]), masks,
-                           extra={"tracker": "test"})
-
-    assert path == experiment / "trench_0004" / "tracks" / "run.geff"
-    assert has_tracks(root, 4, "run") and not has_tracks(root, 3, "run")
-    assert eg.listed_labels(root, 4) == ["tracks.run"]
-    np.testing.assert_array_equal(root["trench_0004/labels/tracks.run/0"][...], masks)
-    meta = json.loads((path / "zarr.json").read_text())["attributes"]["geff"]
-    assert meta["related_objects"][0]["path"] == "../../labels/tracks.run"
-    assert meta["related_objects"][0]["node_prop"] == "seg_id"
-    assert meta["related_objects"][1] == {"type": "image", "path": "../..", "label_prop": None,
-                                          "node_prop": None}
-    assert meta["extra"]["trench"] == 4 and meta["extra"]["pixel_size_um"] == 0.1
-    graph, _ = geff.read(str(path))
-    assert sorted(graph.nodes) == [1, 2] and list(graph.edges) == [(1, 2)]
 
 
 def test_update_experiment_keeps_other_records(experiment):

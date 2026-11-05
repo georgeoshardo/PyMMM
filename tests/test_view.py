@@ -1,19 +1,21 @@
+"""``pymmm.view``: the experiment group in napari, every trench with its label images."""
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
-
-napari = pytest.importorskip("napari")
-
 from fake_experiment import CELL, N_T, N_TRENCH, H, W, cell_image, make_experiment
-from napari.components import ViewerModel
 
 from pymmm.store import experiment_group as eg
 from pymmm.view import label_images, view_experiment
 
+pytestmark = pytest.mark.view
+
 
 def test_view_stacks_every_trench_with_its_label_images(tmp_path):
     path = make_experiment(tmp_path)
+    from napari.components import ViewerModel
+
     viewer = view_experiment(path, ViewerModel())
     assert [layer.name for layer in viewer.layers] == ["PC", "mCherry"]
 
