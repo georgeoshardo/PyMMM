@@ -29,31 +29,42 @@ def test_open_experiment_refuses_other_groups(tmp_path):
         ti.open_experiment(tmp_path / "other.zarr")
 
 
-def test_segmentation_is_one_listed_label_image_with_a_hypothesis_axis(experiment):
+def test_segmentation_is_one_label_image_per_hypothesis_listed_together(experiment):
     root = ti.open_experiment(experiment, mode="r+")
     assert ti.trench_ids(root) == [3, 4]
     assert ti.channel_index(root, "mCherry") == 1
+    with pytest.raises(KeyError):
+        ti.hypotheses(root, "seg")
+    ti.update_experiment(root, "segmentations", "seg", {"hypotheses": ["b", "a", "c"]})
     assert ti.listed_labels(root, 3) == []
-    labels = np.arange(5 * 3 * 6 * 4, dtype=np.uint16).reshape(5, 3, 6, 4)
-    ti.write_label_image(root, 3, "seg", labels, hypotheses=["a", "b", "c"], attrs={"channel": "PC"})
+    assert not ti.has_segmentation(root, 3, "seg")
+    stack = np.arange(5 * 3 * 6 * 4, dtype=np.uint16).reshape(3, 5, 6, 4)
+    ti.write_segmentation(root, 3, "seg", {"b": stack[0], "a": stack[1], "c": stack[2]},
+                          attrs={"channel": "PC"})
 
-    assert ti.listed_labels(root, 3) == ["seg"]
-    assert ti.listed_labels(root, 4) == []
-    names, array = ti.segmentation(root, 3, "seg")
-    assert names == ["a", "b", "c"]
-    assert array.shape == (5, 3, 6, 4) and array.chunks == (5, 1, 6, 4) and array.shards == (5, 3, 6, 4)
-    np.testing.assert_array_equal(array[:, 1], labels[:, 1])
-    group = experiment / "trench_0003" / "labels" / "seg"
-    assert sorted(p.name for p in (group / "0").iterdir()) == ["c.0.0.0.0", "zarr.json"]
-    ome = json.loads((group / "zarr.json").read_text())["attributes"]["ome"]
-    (multiscale,) = ome["multiscales"]
-    assert [a["name"] for a in multiscale["axes"]] == ["t", "hypothesis", "y", "x"]
-    assert multiscale["datasets"][0]["coordinateTransformations"][0]["scale"] == [1.0, 1.0, 0.1, 0.1]
-    assert ome["image-label"] == {"source": {"image": "../../"}}
+    assert ti.listed_labels(root, 3) == ["seg.b", "seg.a", "seg.c"]
+    assert ti.has_segmentation(root, 3, "seg") and not ti.has_segmentation(root, 4, "seg")
+    names, arrays = ti.segmentation(root, 3, "seg")
+    assert names == ["b", "a", "c"]
+    for k, array in enumerate(arrays):
+        assert array.shape == (5, 6, 4) and array.chunks == (5, 6, 4)
+        np.testing.assert_array_equal(array[...], stack[k])
+    group = experiment / "trench_0003" / "labels" / "seg.a"
+    assert sorted(p.name for p in (group / "0").iterdir()) == ["c.0.0.0", "zarr.json"]
+    attrs = json.loads((group / "zarr.json").read_text())["attributes"]
+    (multiscale,) = attrs["ome"]["multiscales"]
+    assert [a["name"] for a in multiscale["axes"]] == ["t", "y", "x"]
+    assert multiscale["datasets"][0]["coordinateTransformations"][0]["scale"] == [1.0, 0.1, 0.1]
+    assert attrs["ome"]["image-label"] == {"source": {"image": "../../"}}
+    assert attrs["pymmm"] == {"channel": "PC", "segmentation": "seg", "hypothesis": "a",
+                              "hypothesis_index": 1}
     with pytest.raises(KeyError):
         ti.segmentation(root, 4, "seg")
-    with pytest.raises(ValueError):
-        ti.write_label_image(root, 4, "seg", labels, hypotheses=["a", "b"])
+    with pytest.raises(ValueError, match="hypotheses"):
+        ti.write_segmentation(root, 4, "seg", {"a": stack[0], "b": stack[1]})
+    assert ti.listed_labels(root, 4) == []
+    with pytest.raises(ValueError, match=r"not \(t, y, x\)"):
+        ti.write_label_image(root, 4, "flat", stack)
 
 
 def test_write_tracks_writes_a_geff_beside_its_masks(experiment):
