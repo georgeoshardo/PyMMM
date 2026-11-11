@@ -96,7 +96,7 @@ def update_experiment(root: zarr.Group, section: str, name: str, record: Mapping
 
 
 def records(root: zarr.Group, section: str) -> dict[str, dict]:
-    """The experiment group's records of one kind (``"segmentations"``, ``"tracks"``), by name."""
+    """The experiment group's records of one kind (``"segmentations"``, ``"tracks"``, ``"fits"``), by name."""
     return dict(dict(root.attrs)["pymmm"].get(section) or {})
 
 

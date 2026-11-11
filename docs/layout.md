@@ -53,6 +53,7 @@ tracks (with the geff package), and `pymmm.store.ome` builds every `ome` attribu
 | `extraction_complete` | `true` once every FOV is written; until then the trench images may be partly empty |
 | `segmentations` | `{<segmentation>: record}`, see [Segmentations](#segmentations) |
 | `tracks` | `{<run>: record}`, see [Tracks](#tracks) |
+| `fits` | `{<fit>: record}`, written by a tracker that fits itself to the experiment; see [Fits](#fits). Absent until there is one. |
 
 The trench images have the same `t` and `c` axes as `T` and `C`. Frame times are in
 `source_frames/` (per FOV, since each FOV is imaged at its own time).
@@ -201,6 +202,41 @@ The experiment group records each run, `attrs.pymmm.tracks[<run>]`: `tracker`,
 `segmentation` (the one it tracked), `params`, `made_by`, `created` and, for
 chaintrack, `alternatives` (which hypotheses it could choose from).
 
+chaintrack's runs since 2026-11-11 also record:
+
+| key | |
+|---|---|
+| `fit` | the fit the run used: `name`, `values` and `created`, copied from its [fit record](#fits) |
+| `recipe` | that fit's recipe: the tracker's hand-set constants, in µm and minutes |
+| `params` | the parameters as the tracker used them, in the trench images' pixels and frames |
+| `pixel_size_um`, `frame_interval_min` | the calibration that converted one to the other |
+| `chaintrack` | the tracker's code: `commit`, and `dirty` (tracked files had uncommitted changes) |
+| `continued` | present once trenches were added to the run later: a list of `{at, chaintrack}` |
+
+A run is continued only with the fit, segmentation and alternatives it was started
+with, so its record holds for every trench of the run. Each trench's GEFF `extra` holds
+the parameters used for that trench as well.
+
+## Fits
+
+A tracker may fit some of its parameters to the experiment's own cells before tracking
+it. chaintrack records each fit, `attrs.pymmm.fits[<fit>]` (the default name is the
+segmentation's):
+
+| key | |
+|---|---|
+| `tracker`, `segmentation` | what was fitted, on which segmentation's masks |
+| `values` | the fitted values, in µm and minutes |
+| `recipe` | the tracker's hand-set constants as they were at the fit, in µm and minutes. This copy is frozen: runs that use the fit track with it, not with the recipe file it came from. |
+| `fit_start` | the values the fit started from, when it started from the recipe |
+| `trenches`, `frames`, `rounds`, `started_from` | what the fit was made on, and how |
+| `pixel_size_um`, `frame_interval_min` | the calibration at the fit |
+| `made_by`, `chaintrack`, `created`, `note` | what made it, and when |
+
+A fit that a run has used is not overwritten: another fit of the same experiment gets
+another name. A fit made before fits were recorded (2026-11-11) may lack `fit_start`
+and the tracker's commit, and says so in its `note`.
+
 ## Curation
 
 The tracker's output is never edited. mm-track's first edit of a trench copies its
@@ -226,8 +262,8 @@ ground truth.
 - A label image is listed only after its pixels are written; a segmentation's
   hypotheses are listed together.
 - Each trench is written by one process at a time; processes write different trenches.
-- `update_experiment` replaces one record of `segmentations` or `tracks` and keeps the
-  others.
+- `update_experiment` replaces one record of `segmentations`, `tracks` or `fits` and
+  keeps the others.
 
 ## The companion store
 
