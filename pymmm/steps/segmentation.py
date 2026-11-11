@@ -247,6 +247,55 @@ def normalise(stack: np.ndarray, lower: float, upper: float, gain: float = 1.0) 
     return (stack - np.float32(lower)) / np.float32(gain * (upper - lower))
 
 
+def model_shape(shape: Sequence[int], pixel_size: float,
+                model_pixel_size: Optional[float]) -> Tuple[int, int]:
+    """A frame's ``(Y, X)`` once resampled from ``pixel_size`` to ``model_pixel_size``
+    µm per pixel (its own when ``model_pixel_size`` is None)."""
+    y, x = (int(n) for n in shape[-2:])
+    if model_pixel_size is None:
+        return y, x
+    factor = float(pixel_size) / float(model_pixel_size)
+    return max(1, int(round(y * factor))), max(1, int(round(x * factor)))
+
+
+def model_input(stack: np.ndarray, bounds: Tuple[float, float], gain: float,
+                shape: Sequence[int]) -> np.ndarray:
+    """The ``(T, Y, X)`` stack Omnipose sees: :func:`normalise`, then each frame resized
+    to ``shape`` (area-averaged when shrinking, bilinear when enlarging)."""
+    stack = np.asarray(stack)
+    shape = tuple(int(n) for n in shape)
+    if stack.shape[1:] == shape:
+        return normalise(stack, *bounds, gain=gain)
+    import cv2
+
+    shrink = shape[0] * shape[1] < stack.shape[1] * stack.shape[2]
+    interpolation = cv2.INTER_AREA if shrink else cv2.INTER_LINEAR
+    out = np.empty((len(stack), *shape), dtype=np.float32)
+    for t, frame in enumerate(stack):
+        out[t] = cv2.resize(normalise(frame, *bounds, gain=gain), (shape[1], shape[0]),
+                            interpolation=interpolation)
+    return out
+
+
+def scale_labels(labels: np.ndarray, shape: Sequence[int]) -> np.ndarray:
+    """``(T, y, x)`` labels resized to ``shape`` (Y, X), mask by mask: each mask resized
+    bilinearly and kept where it is above one half. Masks stay disjoint (two disjoint
+    masks cannot both be above one half at a pixel), and keep their numbers."""
+    labels = np.asarray(labels)
+    shape = tuple(int(n) for n in shape)
+    if labels.shape[1:] == shape:
+        return labels
+    import cv2
+
+    out = np.zeros((len(labels), *shape), dtype=labels.dtype)
+    for frame, scaled in zip(labels, out):
+        for label in np.unique(frame[frame > 0]):
+            mask = cv2.resize((frame == label).astype(np.float32), (shape[1], shape[0]),
+                              interpolation=cv2.INTER_LINEAR)
+            scaled[mask > 0.5] = label
+    return out
+
+
 def drop_faint(masks: np.ndarray, stack: np.ndarray, min_contrast: float) -> np.ndarray:
     """Remove masks fainter than ``min_contrast`` background-noise SDs.
 
@@ -316,6 +365,7 @@ def segment_with(
     bounds: Tuple[float, float],
     pixel_size: float,
     batch_size: int = 64,
+    model_pixel_size: Optional[float] = None,
 ) -> Tuple[np.ndarray, List[int]]:
     """Segment a ``(T, Y, X)`` stack with one model under one hypothesis's settings.
 
@@ -323,16 +373,25 @@ def segment_with(
     Omnipose failed on (left empty). Omnipose 2.0 can raise ``IndexError`` while
     building masks for some frames; with ``masks="eval"`` the stack is then retried
     frame by frame, with ``masks="affinity"`` each frame is built on its own anyway.
+
+    ``model_pixel_size``: the µm per pixel of the images the model learned from. When
+    it differs from ``pixel_size``, Omnipose sees each frame resampled to it
+    (:func:`model_input`) and each mask is scaled back to the stack's own size
+    (:func:`scale_labels`), so the labels line up with the pixels.
     """
     s = settings
-    x = normalise(stack, *bounds, gain=s["gain"])
-    min_size = max(1, int(round(s["min_area"] / pixel_size ** 2)))
+    small = model_shape(np.shape(stack), pixel_size, model_pixel_size)
+    x = model_input(stack, bounds, s["gain"], small)
+    scale = pixel_size if small == tuple(np.shape(stack)[1:]) else model_pixel_size
+    min_size = max(1, int(round(s["min_area"] / scale ** 2)))
     failed: List[int] = []
     with _quiet_omnipose():
         if s["masks"] == "affinity":
             masks = _affinity(model, x, s, min_size, batch_size, failed)
         else:
             masks = _eval(model, x, s, min_size, batch_size, failed)
+    if masks.shape != np.shape(stack):  # uint16 at full size, as written (and half the memory)
+        masks = scale_labels(masks.astype(np.uint16), np.shape(stack)[1:])
     if s["min_contrast"] is not None:
         masks = drop_faint(masks, stack, s["min_contrast"])
     return order_from_closed_end(masks), failed
@@ -419,6 +478,11 @@ class Segmenter:
     params : mapping | None
         Base settings of a new segmentation, over :data:`DEFAULT_PARAMS` (an existing
         one keeps its recorded settings; change them with :meth:`set_params`).
+    model_pixel_size : float | None
+        µm per pixel of the images the models learned from, when the experiment's
+        differ (fine-tuned at 40x, segmenting 100x): Omnipose sees each frame resampled
+        to it and the masks are scaled back to the trench's own size
+        (:func:`segment_with`). ``None``: the experiment's own.
     gpu : bool
         Run Omnipose on the GPU.
     """
@@ -432,6 +496,7 @@ class Segmenter:
         hypotheses: Union[Sequence[str], Mapping[str, Mapping[str, Any]], None] = None,
         models: Union[str, Path, None] = None,
         params: Optional[Mapping[str, Any]] = None,
+        model_pixel_size: Optional[float] = None,
         gpu: bool = True,
     ) -> None:
         self.store_path = Path(store_path)
@@ -446,6 +511,7 @@ class Segmenter:
         self.gpu = gpu
         self.models_dir = None if models is None else Path(models)
         self.pixel_size = calibration(self.root)[0]
+        self.model_pixel_size = None if model_pixel_size is None else float(model_pixel_size)
         self.trench_ids = trench_ids(self.root)
         self._models: Dict[str, Any] = {}
         self._bounds: Dict[int, Tuple[float, float]] = {}
@@ -532,6 +598,7 @@ class Segmenter:
             "specs": self._specs,
             "checkpoint_sha256": {h: s for h, s in shas.items() if s is not None},
             "settings": {h: self.settings(h) for h in self.hypotheses},
+            "model_pixel_size": self.model_pixel_size,
             "extraction_created": extraction.get("created"),
         })
 
@@ -623,7 +690,7 @@ class Segmenter:
         frames Omnipose failed on (see :func:`segment_with`)."""
         hypothesis = hypothesis or self.hypotheses[0]
         return segment_with(self._get_model(hypothesis), self.settings(hypothesis, params),
-                            stack, bounds, self.pixel_size, batch_size)
+                            stack, bounds, self.pixel_size, batch_size, self.model_pixel_size)
 
     # ------------------------------------------------------------------
     # Batch segmentation
@@ -677,6 +744,7 @@ class Segmenter:
             sources=tuple(self._source(h) for h in self.hypotheses),
             settings={h: self.settings(h) for h in self.hypotheses},
             pixel_size=float(self.pixel_size),
+            model_pixel_size=self.model_pixel_size,
             gpu=self.gpu,
             threads=threads,
             digest=code_digest(),
@@ -834,7 +902,9 @@ class Segmenter:
         return (
             f"Segmenter({self.store_path.name}, labels/{self.name}.<{'|'.join(self.hypotheses)}>, "
             f"channel={self.channel!r}, model={'+'.join(models)!r}, "
-            f"{len(self.finished())}/{len(self.trench_ids)} trenches finished)"
+            + (f"at {self.model_pixel_size:g} µm/px (the images' {self.pixel_size:g}), "
+               if self.model_pixel_size is not None else "")
+            + f"{len(self.finished())}/{len(self.trench_ids)} trenches finished)"
         )
 
 
@@ -863,6 +933,7 @@ class _Recipe:
     sources: Tuple[_ModelSource, ...]
     settings: Dict[str, Dict[str, Any]]
     pixel_size: float
+    model_pixel_size: Optional[float]
     gpu: bool
     threads: Optional[int]
     digest: str
@@ -1028,7 +1099,8 @@ def _segment_task(
                                       source.sha256, weights[source.hypothesis])
             model = _model_for(source, recipe.gpu, recipe.loader)
             labels, frames = segment_with(model, recipe.settings[source.hypothesis], stack,
-                                          bounds, recipe.pixel_size, batch_size)
+                                          bounds, recipe.pixel_size, batch_size,
+                                          recipe.model_pixel_size)
             packed[source.hypothesis] = _pack(labels)
             if frames:
                 failed[source.hypothesis] = frames

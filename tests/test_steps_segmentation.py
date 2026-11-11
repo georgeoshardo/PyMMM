@@ -28,8 +28,10 @@ from pymmm.steps.segmentation import (
     background_noise,
     checkpoint_hypotheses,
     drop_faint,
+    model_shape,
     normalise,
     order_from_closed_end,
+    scale_labels,
     trench_bounds,
 )
 from pymmm.store import experiment_group as eg
@@ -103,6 +105,43 @@ def test_drop_faint_removes_masks_on_background():
     kept = drop_faint(masks, stack, min_contrast=5)
     assert set(np.unique(kept)) == {0, 1}
 
+
+
+def test_scale_labels_resizes_each_mask_and_keeps_its_number():
+    labels = np.zeros((1, 4, 4), np.uint16)
+    labels[0, :, :2] = 7
+    labels[0, :, 2:] = 3
+    big = scale_labels(labels, (8, 8))
+    assert big.shape == (1, 8, 8) and big.dtype == np.uint16
+    assert (big[0, :, :4] == 7).all() and (big[0, :, 4:] == 3).all()
+    small = scale_labels(big, (4, 4))
+    np.testing.assert_array_equal(small, labels)
+    assert scale_labels(labels, (4, 4)) is labels
+    assert model_shape((5, 944, 128), 0.065, 0.1079) == (569, 77)
+    assert model_shape((944, 128), 0.065, None) == (944, 128)
+
+
+def test_a_model_at_another_pixel_size_sees_resampled_frames(experiment, fake_model, monkeypatch):
+    """Omnipose sees frames at the model's pixel size; the labels come back at the
+    trench's own, over the same cells, and the record keeps the model's pixel size."""
+    shapes = []
+    evaluate = fake_model.eval
+    monkeypatch.setattr(fake_model, "eval", lambda x, **kw: (shapes.append(x.shape), evaluate(x, **kw))[1])
+    seg = Segmenter(experiment, channel="mCherry", hypotheses=["S1"], model_pixel_size=2 * PIXEL_SIZE,
+                    gpu=False)
+    seg.segment(trenches=[10], show_progress=False)
+    assert {shape[1:] for shape in shapes} == {(H // 2, W // 2)}
+    assert fake_model.kwargs[-1]["min_size"] == round(1.75 / (2 * PIXEL_SIZE) ** 2)
+    labels = _labels(seg, 10, "S1")
+    assert labels.shape == (N_T, H, W)
+    assert labels[0, 2, 2] == 1 and labels[0, 8, 2] == 2
+    assert _record(seg)["model_pixel_size"] == 2 * PIXEL_SIZE
+    assert "at 0.2 µm/px" in repr(seg)
+
+    # without it, the same segmentation is another one: resuming refuses to mix them
+    again = Segmenter(experiment, channel="mCherry", hypotheses=["S1"], gpu=False)
+    with pytest.raises(RuntimeError, match="model_pixel_size"):
+        again.segment(trenches=[11], show_progress=False)
 
 
 def test_floor_is_estimated_from_the_experiment(segmenter):

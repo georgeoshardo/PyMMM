@@ -24,6 +24,7 @@ or, for hypotheses that are fine-tuned checkpoints, in place of ``model`` and
     models = "models"                       # the checkpoints' folder
     checkpoints = {e250 = "omni_epoch_250", e050 = "omni_epoch_50"}   # the base first
     params = {masks = "affinity", floor = 0.0, min_contrast = "off"}
+    model_pixel_size = 0.1079               # µm/px the checkpoints learned from, if not the images'
 
 ``store`` is the experiment group the Extractor writes: one OME-Zarr image per
 trench, with each trench's segmentations and tracks beside its pixels (see
@@ -94,7 +95,7 @@ class Experiment:
 
         seg = self.segmentation
         kwargs: Dict[str, Any] = {"channel": seg.get("channel", "mCherry"), "name": self.segmentation_name}
-        for key in ("model", "hypotheses", "params"):
+        for key in ("model", "hypotheses", "params", "model_pixel_size"):
             if key in seg:
                 kwargs[key] = seg[key]
         if "checkpoints" in seg:
