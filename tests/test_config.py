@@ -22,6 +22,14 @@ def test_experiment_resolves_relative_paths(tmp_path):
         Experiment.load(tmp_path / "old.toml")
 
 
+def test_experiment_without_an_nd2(tmp_path):
+    """An experiment group imported from elsewhere has no ND2: nd2 is None."""
+    (tmp_path / "exp.toml").write_text('name = "exp"\nstore = "exp.zarr"\n')
+    experiment = Experiment.load(tmp_path / "exp.toml")
+    assert experiment.nd2 is None
+    assert experiment.store == tmp_path / "exp.zarr"
+
+
 def test_experiment_builds_the_segmenter_from_its_settings(tmp_path, monkeypatch):
     make_experiment(tmp_path)
     (tmp_path / "exp.toml").write_text(

@@ -27,8 +27,10 @@ or, for hypotheses that are fine-tuned checkpoints, in place of ``model`` and
 
 ``store`` is the experiment group the Extractor writes: one OME-Zarr image per
 trench, with each trench's segmentations and tracks beside its pixels (see
-:mod:`pymmm.store.experiment_group`). Relative paths (``models`` too) are relative to
-the TOML file's folder. ``experiment.segmenter()`` builds the Segmenter from it;
+:mod:`pymmm.store.experiment_group`). ``nd2`` is the raw acquisition the Extractor
+reads; an experiment group made some other way (imported from another tool's
+trenches, say) has none, and leaves it out. Relative paths (``models`` too) are
+relative to the TOML file's folder. ``experiment.segmenter()`` builds the Segmenter from it;
 ``params`` are the base settings of a new segmentation.
 """
 
@@ -42,16 +44,17 @@ from typing import TYPE_CHECKING, Any, Dict, Union
 if TYPE_CHECKING:
     from pymmm.steps.segmentation import Segmenter
 
-_PATH_KEYS = ("nd2", "store")
+_PATH_KEYS = ("store", "nd2")
+_REQUIRED = ("name", "store")
 
 
 @dataclass(frozen=True)
 class Experiment:
-    """An experiment's paths and per-step settings."""
+    """An experiment's paths and per-step settings (``nd2`` is None when it has no ND2)."""
 
     name: str
-    nd2: Path
     store: Path
+    nd2: Path | None = None
     segmentation: Dict[str, Any] = field(default_factory=dict)
     curation: Dict[str, Any] = field(default_factory=dict)
     source: Path | None = None
@@ -61,12 +64,13 @@ class Experiment:
         path = Path(path).expanduser().resolve()
         with path.open("rb") as file:
             raw = tomllib.load(file)
-        missing = [k for k in ("name", *_PATH_KEYS) if k not in raw]
+        missing = [k for k in _REQUIRED if k not in raw]
         if missing:
             raise ValueError(f"{path}: missing {', '.join(missing)}")
         paths = {
             key: (Path(raw[key]) if Path(raw[key]).is_absolute() else path.parent / raw[key])
             for key in _PATH_KEYS
+            if key in raw
         }
         return cls(
             name=str(raw["name"]),
