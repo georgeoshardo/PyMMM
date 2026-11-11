@@ -1,0 +1,15 @@
+# PyMMM as a napari plugin: a reader for experiment groups (pymmm.view).
+# An experiment group is a folder, and napari offers every reader that accepts folders
+# for any folder dropped (filename_patterns only match files), so PyMMM is among the
+# choices for any folder; it opens experiment groups only.
+name: pymmm
+display_name: PyMMM
+contributions:
+  commands:
+    - id: pymmm.read_experiment
+      title: Open a PyMMM experiment group, every trench on one slider
+      python_name: pymmm.view:napari_get_reader
+  readers:
+    - command: pymmm.read_experiment
+      filename_patterns: []
+      accepts_directories: true

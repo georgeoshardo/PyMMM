@@ -20,7 +20,7 @@ pip install -e ".[notebook,view]"       # with the widgets and viewers
 |---|---|---|
 | `notebook` | ipywidgets, ndv | the steps' widgets and ndv viewers in Jupyter |
 | `segment` | omnipose, torch | the Segmenter (Omnipose 2.0 is installed from git, not PyPI) |
-| `view` | napari, napari-ome-zarr | `python -m pymmm.view` and single trench images in napari |
+| `view` | napari, napari-ome-zarr | `python -m pymmm.view`, experiments dropped onto napari, and single trench images |
 | `tracks` | geff | writing tracking runs' GEFFs |
 
 `pixi run test` and `pixi run notebook` use this repository's own environment (PyMMM
@@ -98,6 +98,10 @@ for trench in eg.trench_ids(root):
 python -m pymmm.view experiment.zarr                   # one slider over all trenches
 napari --plugin napari-ome-zarr experiment.zarr/trench_0007
 ```
+
+PyMMM is also a napari plugin: drop `experiment.zarr` onto napari and choose PyMMM to get the same
+layers. napari offers every folder reader for any folder, so it asks each time; its "remember this
+choice" box remembers that one folder.
 
 ## Modules
 

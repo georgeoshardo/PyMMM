@@ -24,6 +24,16 @@ def test_open_experiment_refuses_other_groups(tmp_path):
         eg.open_experiment(tmp_path / "other.zarr")
 
 
+def test_is_experiment_tells_an_experiment_group_from_anything_else(experiment, tmp_path):
+    zarr.open_group(str(tmp_path / "other.zarr"), mode="w", zarr_format=3)
+    (tmp_path / "broken.zarr").mkdir()
+    (tmp_path / "broken.zarr" / "zarr.json").write_text("{not json")
+    assert eg.is_experiment(experiment) and eg.is_experiment(str(experiment))
+    for other in (experiment / eg.trench_path(3), tmp_path / "other.zarr", tmp_path / "broken.zarr",
+                  tmp_path, tmp_path / "missing.zarr"):
+        assert not eg.is_experiment(other), other
+
+
 def test_segmentation_is_one_label_image_per_hypothesis_listed_together(experiment):
     root = eg.open_experiment(experiment, mode="r+")
     assert eg.trench_ids(root) == [3, 4]

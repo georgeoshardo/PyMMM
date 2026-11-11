@@ -29,6 +29,7 @@ docs/layout.md specifies the whole layout.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence, Union
 
@@ -46,6 +47,17 @@ PathLike = Union[str, Path]
 def trench_path(trench_id: int) -> str:
     """The trench's image group within the experiment group: ``trench_0007``."""
     return f"trench_{int(trench_id):04d}"
+
+
+def is_experiment(path: PathLike) -> bool:
+    """Whether ``path`` is an experiment group, from its ``zarr.json`` alone: a group whose
+    ``pymmm.layout`` is ``"experiment"``."""
+    try:
+        meta = json.loads((Path(path) / "zarr.json").read_text())
+    except (OSError, ValueError):
+        return False
+    pymmm = (meta.get("attributes") or {}).get("pymmm") or {}
+    return meta.get("node_type") == "group" and pymmm.get("layout") == "experiment"
 
 
 def open_experiment(path: PathLike, mode: str = "r") -> zarr.Group:

@@ -7,9 +7,39 @@ import pytest
 from fake_experiment import CELL, N_T, N_TRENCH, H, W, cell_image, make_experiment
 
 from pymmm.store import experiment_group as eg
-from pymmm.view import label_images, view_experiment
+from pymmm.view import AXES, label_images, napari_get_reader, read_experiment, view_experiment
 
 pytestmark = pytest.mark.view
+
+
+def test_napari_offers_pymmm_for_an_experiment_group_and_opens_it(tmp_path, monkeypatch):
+    """The plugin napari found from PyMMM's entry point (pymmm/napari.yaml), through
+    napari's own reader machinery: what a drop onto napari does after the choice of reader."""
+    from napari.components import ViewerModel, viewer_model
+    from napari.errors import MultipleReaderError
+    from napari.plugins import _initialize_plugins
+
+    _initialize_plugins()  # as napari does at startup: register the installed plugins
+    # not this computer's remembered choices of reader
+    monkeypatch.setattr(viewer_model, "get_preferred_reader", lambda path: None)
+    path = make_experiment(tmp_path)
+    assert napari_get_reader(str(path)) is read_experiment
+    assert napari_get_reader([str(path)]) is read_experiment
+    for other in (str(path / "trench_0010"), str(tmp_path), [str(path), str(path)]):
+        assert napari_get_reader(other) is None
+
+    # Dropped with no reader chosen: napari asks, and PyMMM is among the choices.
+    with pytest.raises(MultipleReaderError) as asked:
+        ViewerModel().open(path, plugin=None)
+    assert "pymmm" in asked.value.available_plugins
+
+    viewer = ViewerModel()
+    layers = viewer.open(path, plugin="pymmm")
+    assert [layer.name for layer in layers] == ["PC", "mCherry"]
+    assert viewer.dims.axis_labels == AXES
+    assert layers[1].data.shape == (N_TRENCH, N_T, H, W)
+    np.testing.assert_array_equal(np.asarray(layers[1].data[2]), cell_image()[2])
+    assert layers[1].metadata["pymmm"]["trenches"] == [10, 11, 12]
 
 
 def test_view_stacks_every_trench_with_its_label_images(tmp_path):

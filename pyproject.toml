@@ -39,6 +39,11 @@ view = ["napari", "napari-ome-zarr"]
 # Tracking runs' GEFFs (trench_images.write_tracks).
 tracks = ["geff>=1.3,<2"]
 
+# napari finds PyMMM's reader here (pymmm/napari.yaml): drop an experiment group onto
+# napari to open every trench on one slider.
+[project.entry-points."napari.manifest"]
+pymmm = "pymmm:napari.yaml"
+
 [tool.hatch.build.targets.wheel]
 packages = ["pymmm"]
 
