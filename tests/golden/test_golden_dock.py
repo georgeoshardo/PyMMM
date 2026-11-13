@@ -112,9 +112,28 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     dock.downsample.setValue(REGISTRATION["downsample"])
     dock.batch_size.setValue(REGISTRATION["batch_size"])
     dock.workers.setValue(2)
+    drawn = []  # each FOV's drift, drawn while the rest still register
+    draw = dock._on_fov_registered
+    monkeypatch.setattr(
+        dock,
+        "_on_fov_registered",
+        lambda live, fov, shifts: (
+            drawn.append((fov, dock._worker is not None)),
+            draw(live, fov, shifts),
+        ),
+    )
     dock.register_button.click()
     _wait(qapp, lambda: dock._worker is None)
     check("registration_first", registration_summary(dock.registrator))
+    assert sorted(drawn) == [(fov, True) for fov in FOVS]
+    assert dock.drift_plot.fovs == FOVS
+    # the plot marks the frame on the T slider, and a click on it moves the slider
+    viewer.dims.current_step = (3, 1, 0, 0)
+    shifts = dock.registrator.tmats.sel(P=FOVS[1]).values[:, :2, 2]
+    x, y = dock.drift_plot._markers[0][2].getData()
+    assert (x[0], y[0]) == (3, shifts[3, 0])
+    dock.drift_plot.frame_clicked.emit(7)
+    assert viewer.dims.current_step[0] == 7
     diagnostics = nd2.parent / f"{nd2.stem}_diagnostics"
     assert sorted(p.name for p in (diagnostics / "drift").iterdir()) == [
         f"drift_{fov}.png" for fov in FOVS

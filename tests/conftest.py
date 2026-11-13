@@ -21,7 +21,7 @@ EXTRAS = {
     "notebook": ("ndv", "ipywidgets"),
     "segment": ("omnipose", "torch"),
     "tracks": ("geff",),
-    "view": ("napari",),
+    "view": ("napari", "pyqtgraph"),
 }
 
 

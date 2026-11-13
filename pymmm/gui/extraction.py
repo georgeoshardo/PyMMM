@@ -233,6 +233,17 @@ def _mean_controls():
     return n, where
 
 
+def _note(plot, text: str) -> None:
+    """A plot's note line, hidden when there is nothing to say."""
+    plot.note.setText(text)
+    plot.note.setVisible(bool(text))
+
+
+def _shifts(mats: np.ndarray) -> np.ndarray:
+    """(frames, 2) x and y shifts from (frames, 3, 3) transforms."""
+    return np.stack([mats[:, 0, 2], mats[:, 1, 2]], axis=1)
+
+
 def _canvas(height: float = 2.4):
     """A matplotlib figure on a Qt canvas (not pyplot, so no global state)."""
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -248,6 +259,12 @@ class _Progress(QObject):
     """Carries a background run's progress to the Qt thread (a queued signal)."""
 
     changed = Signal(int, int)
+
+
+class _Registered(QObject):
+    """Carries each FOV's drift to the Qt thread as registration finishes it."""
+
+    fov = Signal(str, object)
 
 
 # ----------------------------------------------------------------------
@@ -284,6 +301,8 @@ class ExtractionDock(QWidget):
         self._opened_file: Path | None = None
         self._opened_fields: tuple[str, ...] | None = None
         self._legacy_mean = dict(DETECTION_MEAN)
+        self._live_drift: _Registered | None = None  # the registration being drawn
+        self._drift_from = None  # the Registrator the drift plot was filled from
         self.experiment_group: Path | None = None  # where extract() writes
         self.lineage: dict[str, str] = {}
 
@@ -437,8 +456,11 @@ class ExtractionDock(QWidget):
         self.reg_status = QLabel("")
         self.reg_status.setWordWrap(True)
         form.addRow(self.reg_status)
-        self.drift_canvas = _canvas(2.2)
-        form.addRow(self.drift_canvas)
+        from pymmm.gui.drift_plot import DriftPlot
+
+        self.drift_plot = DriftPlot()
+        self.drift_plot.frame_clicked.connect(self._go_to_frame)
+        form.addRow(self.drift_plot)
 
         self._rotation_timer = self._timer(self._on_registration_settings)
         for box in (self.rotation, self.downsample):
@@ -867,8 +889,7 @@ class ExtractionDock(QWidget):
                 else ""
             )
         )
-        if self.registrator is not None:
-            self._draw_drift()
+        self._draw_drift()
 
     def _saved_registration(self) -> dict | None:
         if self.store is None or not self.store.has_registration():
@@ -1154,15 +1175,28 @@ class ExtractionDock(QWidget):
         names = self.experiment.fov_names
         return names[min(max(int(step), 0), len(names) - 1)]
 
+    def current_frame(self) -> int:
+        """The frame on the T slider."""
+        labels = list(self.viewer.dims.axis_labels)
+        if "T" not in labels:
+            return 0
+        return int(self.viewer.dims.current_step[labels.index("T")])
+
+    def _go_to_frame(self, frame: int) -> None:
+        """Move the T slider to a frame (a click on the drift plot)."""
+        labels = list(self.viewer.dims.axis_labels)
+        if "T" in labels:
+            self.viewer.dims.set_current_step(labels.index("T"), frame)
+
     def _on_step(self, _event=None) -> None:
+        self.drift_plot.show_frame(self.current_frame())
         fov = self.current_fov()
         if fov == self._last_fov:
             return
         self._last_fov = fov
+        self._draw_drift()  # in step on every tab, so it is current when shown
         name = self.TAB_NAMES[self.tabs.currentIndex()]
-        if name == "Register":
-            self._draw_drift()
-        elif name == "Lanes":
+        if name == "Lanes":
             self.update_lanes()
         elif name == "Trenches":
             self.update_trenches()
@@ -1171,8 +1205,8 @@ class ExtractionDock(QWidget):
     # Background runs
     # ------------------------------------------------------------------
 
-    def _run(self, job, done, what: str, cancel: threading.Event | None = None) -> None:
-        """Run ``job()`` off the Qt thread, then ``done(result)`` on it."""
+    def _run(self, job, done, what: str, cancel: threading.Event | None = None):
+        """Run ``job()`` off the Qt thread, then ``done(result)`` on it; the worker."""
         from napari.qt.threading import create_worker
 
         worker = create_worker(job, _start_thread=False)
@@ -1190,6 +1224,7 @@ class ExtractionDock(QWidget):
         worker.finished.connect(finished)
         self._enable()
         worker.start()
+        return worker
 
     def _cancel_run(self) -> None:
         if self._cancel is not None:
@@ -1249,6 +1284,8 @@ class ExtractionDock(QWidget):
         self.reg_progress.setRange(0, self.experiment.n_fovs)
         self.reg_progress.setValue(0)
         workers = self.workers.value() or -1
+        live = self._live_drift = _Registered(self)
+        live.fov.connect(lambda fov, shifts: self._on_fov_registered(live, fov, shifts))
 
         def job():
             store.clear("registration", "lane_detection", "trench_detection")
@@ -1257,11 +1294,15 @@ class ExtractionDock(QWidget):
                 n_jobs=workers,
                 progress=progress.changed.emit,
                 cancel=cancel,
+                on_fov=lambda fov, tmats: live.fov.emit(
+                    str(fov), _shifts(tmats.values)
+                ),
             )
             registrator.save()
             return registrator
 
         def done(result) -> None:
+            self._live_drift = None
             self.registrator = result
             self.lane_detector = self.trench_detector = None
             self._refresh_registered()
@@ -1274,33 +1315,59 @@ class ExtractionDock(QWidget):
             )
             self._enable()
 
+        def ended() -> None:  # cancelled or failed: nothing was saved, so no drift
+            if self._live_drift is live:
+                self._live_drift = None
+                self._draw_drift()
+
         self.registrator = self.lane_detector = self.trench_detector = None
+        self.drift_plot.clear()
+        self._drift_from = None
+        self._draw_drift()
         self.reg_status.setText("Registering…")
         self._say("Registering in a process pool…")
-        self._run(job, done, "Registration", cancel=cancel)
+        self._run(job, done, "Registration", cancel=cancel).finished.connect(ended)
+
+    def _on_fov_registered(self, live: _Registered, fov: str, shifts) -> None:
+        """Draw a FOV's drift as soon as registration finishes it."""
+        if live is not self._live_drift:  # from a run that has since ended
+            return
+        self.drift_plot.set_drift(fov, shifts)
+        self._draw_drift()
 
     def _on_progress(self, done: int, total: int) -> None:
         self.reg_progress.setRange(0, total)
         self.reg_progress.setValue(done)
 
     def _draw_drift(self) -> None:
-        """The drift of the FOV on the P slider: its x and y shift at each frame."""
-        figure = self.drift_canvas.figure
-        figure.clear()
+        """Every registered FOV's drift, the one on the P slider in colour; while
+        registering, each FOV as it finishes.
+        """
+        plot = self.drift_plot
         fov = self.current_fov()
-        if self.registrator is None or fov is None:
-            self.drift_canvas.draw_idle()
-            return
-        tmats = self.registrator.tmats
-        mats = (tmats.sel(P=fov) if "P" in tmats.dims else tmats).values
-        ax = figure.add_subplot()
-        ax.plot(mats[:, 0, 2], label="x")
-        ax.plot(mats[:, 1, 2], label="y")
-        ax.set_xlabel("frame")
-        ax.set_ylabel("shift (px)")
-        ax.set_title(f"{fov} drift", fontsize=9)
-        ax.legend(fontsize=8)
-        self.drift_canvas.draw_idle()
+        registrator = self.registrator
+        if self._live_drift is None:
+            if registrator is None or not registrator.is_computed:
+                plot.clear()
+                self._drift_from = None
+            elif self._drift_from is not registrator:
+                plot.clear()
+                tmats = registrator.tmats
+                for name in tmats.coords["P"].values if "P" in tmats.dims else [fov]:
+                    mats = tmats.sel(P=name) if "P" in tmats.dims else tmats
+                    plot.set_drift(str(name), _shifts(mats.values))
+                self._drift_from = registrator
+        plot.show_fov(fov)
+        plot.show_frame(self.current_frame())
+        n_fovs = self.experiment.n_fovs if self.experiment is not None else 0
+        done = len(plot.fovs)
+        if done and fov not in plot.fovs:
+            _note(plot, f"{fov} pending · {done}/{n_fovs}")
+        elif self._live_drift is not None:
+            latest = f" · latest {plot.fovs[-1]}" if done else ""
+            _note(plot, f"{done}/{n_fovs}{latest}")
+        else:
+            _note(plot, "")
 
     # ------------------------------------------------------------------
     # Lanes

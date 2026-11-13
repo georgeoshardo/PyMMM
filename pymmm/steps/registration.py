@@ -513,6 +513,7 @@ class Registrator:
         progress: Callable[[int, int], None] | None = None,
         cancel: Any = None,
         save_diagnostics: bool = False,
+        on_fov: Callable[[Any, xr.DataArray], None] | None = None,
     ) -> None:
         """Compute transformation matrices for all FOVs.
 
@@ -532,6 +533,9 @@ class Registrator:
         progress : callable | None
             Called as ``progress(fovs_done, n_fovs)`` as each FOV finishes, for a
             front end without tqdm (the napari dock).
+        on_fov : callable | None
+            Called as ``on_fov(fov, tmats)`` with each FOV's transforms (T, 3, 3) as
+            it finishes, so a front end can draw the drift while the rest register.
         cancel : threading.Event | None
             Checked after each batch: once set, the queued batches are dropped and
             :class:`~pymmm.parallel.Cancelled` is raised, leaving no transforms. A
@@ -603,6 +607,8 @@ class Registrator:
                     fov, fov_da.squeeze(drop=True), plot, save_diagnostics
                 )
                 bar.update()
+                if on_fov is not None:
+                    on_fov(fov, fov_da.squeeze(drop=True))
                 if progress is not None:
                     progress(len(parts), len(fov_names))
                 launch()

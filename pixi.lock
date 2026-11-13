@@ -470,6 +470,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-3.23.0-pyhcf101f3_1.conda
       - pypi: ./
       - pypi: https://files.pythonhosted.org/packages/28/b6/0f760b625233ae39ed7df1069e11edd8c2f8807acac75e40f6228507238c/cmap-0.7.2-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/32/36/4c242f81fdcbfa4fb62a5645f6af79191f4097a0577bd5460c24f19cc4ef/pyqtgraph-0.14.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/38/64/285f20a31679bf547b75602702f7800e74dbabae36ef324f716c02804753/jupyter-1.1.1-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/3b/8f/bff861e3bd5a7cc13bd1f040d22aee8aa32b4f2755bba29b0c31a1d2ae25/multidict-7.2.1-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/3e/89/d8a7ceff010ba38fdc345f7bc715e6152a70c6e28a68d4c7c0e1d943f420/jupyter_rfb-1.0.2-py3-none-any.whl
@@ -7150,6 +7151,7 @@ packages:
   - torch ; extra == 'segment'
   - napari ; extra == 'view'
   - napari-ome-zarr ; extra == 'view'
+  - pyqtgraph>=0.13,<1 ; extra == 'view'
   - geff>=1.3,<2 ; extra == 'tracks'
   requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/28/b6/0f760b625233ae39ed7df1069e11edd8c2f8807acac75e40f6228507238c/cmap-0.7.2-py3-none-any.whl
@@ -7159,6 +7161,14 @@ packages:
   requires_dist:
   - numpy
   requires_python: '>=3.9'
+- pypi: https://files.pythonhosted.org/packages/32/36/4c242f81fdcbfa4fb62a5645f6af79191f4097a0577bd5460c24f19cc4ef/pyqtgraph-0.14.0-py3-none-any.whl
+  name: pyqtgraph
+  version: 0.14.0
+  sha256: 7abb7c3e17362add64f8711b474dffac5e7b0e9245abdf992e9a44119b7aa4f5
+  requires_dist:
+  - numpy>=1.25.0
+  - colorama
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/38/64/285f20a31679bf547b75602702f7800e74dbabae36ef324f716c02804753/jupyter-1.1.1-py2.py3-none-any.whl
   name: jupyter
   version: 1.1.1
