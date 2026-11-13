@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import json
 import math
+import threading
+from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -171,6 +173,93 @@ class FovCrops:
             self.dtype,
             None if channels is None else tuple(channels),
         )
+
+
+class TrenchPreview:
+    """One channel of the extraction as a lazy ``(trench, t, y, x)`` array, cut on
+    demand: :meth:`Extractor.preview_array`.
+
+    Indexing it cuts only the frames asked for, each with one :func:`_crop_frames`
+    call that cuts every trench of the frame's FOV, and keeps the last
+    ``cache_frames`` of them, so stepping through a FOV's trenches cuts one frame.
+    napari indexes the slice it shows, so browsing reads one raw frame per step and
+    no Dask graph is built (on a 437-trench experiment, the Dask preview spends about
+    ten times longer on its graph than on cutting).
+    """
+
+    ndim = 4
+
+    def __init__(
+        self,
+        crops: Sequence[FovCrops],
+        channel_index: int,
+        shape: tuple[int, int, int, int],
+        dtype: np.dtype,
+        cache_frames: int = 64,
+    ) -> None:
+        self.crops = list(crops)
+        self.channel_index = int(channel_index)
+        self.shape = tuple(int(n) for n in shape)
+        self.dtype = np.dtype(dtype)
+        self.trench_ids = [t for c in self.crops for t in c.trench_ids]
+        self.fov_names = [c.fov for c in self.crops for _ in c.trench_ids]
+        # each row (trench in table order): its FOV's crops and its index among them
+        self._rows = [
+            (fov, local)
+            for fov, c in enumerate(self.crops)
+            for local in range(len(c.trench_ids))
+        ]
+        self._cache: OrderedDict[tuple[int, int], np.ndarray] = OrderedDict()
+        self._cache_frames = int(cache_frames)
+        self._lock = threading.Lock()
+
+    def __len__(self) -> int:
+        return self.shape[0]
+
+    def _frame(self, fov: int, t: int) -> np.ndarray:
+        """Every trench of FOV ``fov`` (its crops' index) at frame ``t``: ``(n, y, x)``."""
+        key = (fov, t)
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                return self._cache[key]
+        cut = _crop_frames(*self.crops[fov].batch(t, t + 1, (self.channel_index,)))
+        frame = cut[0, :, 0]
+        with self._lock:
+            self._cache[key] = frame
+            while len(self._cache) > self._cache_frames:
+                self._cache.popitem(last=False)
+        return frame
+
+    def __getitem__(self, key: Any) -> np.ndarray:
+        if not isinstance(key, tuple):
+            key = (key,)
+        if any(k is Ellipsis for k in key):
+            i = key.index(Ellipsis)
+            key = key[:i] + (slice(None),) * (self.ndim - len(key) + 1) + key[i + 1 :]
+        key = key + (slice(None),) * (self.ndim - len(key))
+        trench_key, t_key, *yx = key
+        trenches = range(self.shape[0])[trench_key]
+        times = range(self.shape[1])[t_key]
+        rows = [trenches] if isinstance(trenches, int) else list(trenches)
+        frames = [times] if isinstance(times, int) else list(times)
+        out = np.empty((len(rows), len(frames), *self.shape[2:]), dtype=self.dtype)
+        for i, row in enumerate(rows):
+            fov, local = self._rows[row]
+            for j, t in enumerate(frames):
+                out[i, j] = self._frame(fov, t)[local]
+        out = out[(slice(None), slice(None), *yx)]
+        drop = tuple(
+            0 if isinstance(k, int) else slice(None) for k in (trenches, times)
+        )
+        return out[drop]
+
+    def __array__(self, dtype: Any = None, copy: Any = None) -> np.ndarray:
+        array = self[...]
+        return array if dtype is None else array.astype(dtype)
+
+    def __repr__(self) -> str:
+        return f"TrenchPreview(shape={self.shape}, channel={self.channel_index})"
 
 
 @dataclass(frozen=True)
@@ -1080,6 +1169,22 @@ class Extractor:
             result_da,
             dims=["Trench", "T", "C", "Y", "X"],
             coords={**coords, "C": channel_names},
+        )
+
+    def preview_array(self, channel: str | int) -> TrenchPreview:
+        """One channel of the extraction as a lazy ``(trench, t, y, x)`` array that cuts
+        only the frames it is indexed at (:class:`TrenchPreview`): the same crops as
+        :meth:`preview`, for a viewer that slices it (napari) without a Dask graph.
+        """
+        table = self._trench_table("preview")
+        layout = self._layout(table, None)
+        n_times, _, trench_h, trench_w = layout.shape
+        name = normalize_channel_arg(channel, self.experiment.channel_names)
+        return TrenchPreview(
+            self._crops(table),
+            self.experiment.channel_names.index(name),
+            (len(table), n_times, trench_h, trench_w),
+            layout.dtype,
         )
 
     def extract_single_trench(
