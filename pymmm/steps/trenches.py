@@ -215,6 +215,33 @@ def periodic_trench_centres(
     return {"centres": centres, "symmetry": symmetry, "pitch": float(slope)}
 
 
+def _outside_image(
+    lane_y: int,
+    orientation: int,
+    offset: int,
+    y_top: int,
+    y_bottom: int,
+    height: int,
+) -> str | None:
+    """Why a lane's boxes don't fit the image (all its trenches are then dropped), and
+    what would fit; None when they fit.
+    """
+    if y_top >= 0 and y_bottom <= height:
+        return None
+    # the edge the bottom offset fixes: where the trenches open
+    fixed = y_bottom if orientation == 1 else y_top
+    if not 0 <= fixed <= height:
+        return (
+            f"lane at y = {lane_y}: the bottom offset {offset} puts the boxes' open "
+            "end outside the image"
+        )
+    room, end = (fixed, "top") if orientation == 1 else (height - fixed, "bottom")
+    return (
+        f"lane at y = {lane_y}: the boxes run past the image {end}; the trench length "
+        f"can be at most {room} here"
+    )
+
+
 class TrenchDetector:
     """Detect trench x-positions within each lane and compute crop boundaries.
 
@@ -249,6 +276,9 @@ class TrenchDetector:
         )
         self._trenches: dict[str, list[TrenchDefinition]] | None = None
         self._detection_params: dict[str, Any] = {}
+        # FOV -> why a lane's trenches were all dropped (the boxes ran past the
+        # image), from the last detect_trenches
+        self.outside: dict[str, list[str]] = {}
 
     # ------------------------------------------------------------------
     # Properties
@@ -358,7 +388,19 @@ class TrenchDetector:
             # not the zero fill where the registered frame has no image (the
             # corners a rotation opens), whose edges would read as structure.
             profile_rows = mean_img[max(0, y_top) : min(img_height, y_bottom), :]
-            if profile_rows.shape[0] == 0:
+            outside = _outside_image(
+                lane_y, orientation, lane_bottom_offset, y_top, y_bottom, img_height
+            )
+            if profile_rows.shape[0] == 0:  # no row of the boxes is in the image
+                lane_profiles.append(
+                    {
+                        "lane_index": lane_idx,
+                        "profile": np.array([]),
+                        "smooth": np.array([]),
+                        "centres": np.array([]),
+                        "outside": outside,
+                    }
+                )
                 continue
             x_profile = mean_without_fill(profile_rows, axis=0)
 
@@ -394,6 +436,8 @@ class TrenchDetector:
                     prominence=lane_prominence,
                 )
             lane_profile["centres"] = np.asarray(centres)
+            if outside:
+                lane_profile["outside"] = outside
             lane_profiles.append(lane_profile)
 
             if len(centres) == 0:
@@ -524,11 +568,12 @@ class TrenchDetector:
 
         trenches: dict[str, list[TrenchDefinition]] = {}
         trench_counter = 0
+        self.outside = {}
 
         mean_images = self.registrator.compute_registered_means(channel=self.channel)
         for fov in self.experiment.fov_names:
             mean_img = mean_images[fov]
-            fov_trenches, _, trench_counter = self.detect_fov(
+            fov_trenches, profiles, trench_counter = self.detect_fov(
                 mean_img,
                 fov,
                 sigma,
@@ -546,6 +591,9 @@ class TrenchDetector:
                 min_symmetry=min_symmetry,
             )
             trenches[fov] = fov_trenches
+            notes = [p["outside"] for p in profiles if "outside" in p]
+            if notes:
+                self.outside[fov] = notes
 
         self._trenches = trenches
         self._detection_params = {
@@ -565,6 +613,8 @@ class TrenchDetector:
             },
         }
         print(f"Detected {self.n_trenches} trenches across {len(trenches)} FOVs")
+        for fov, notes in self.outside.items():
+            print(f"  {fov}: no trenches: " + "; ".join(notes))
 
         if save_diagnostics:
             self.save_diagnostics()

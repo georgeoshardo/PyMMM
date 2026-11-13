@@ -277,7 +277,14 @@ def trench_widget(detector: TrenchDetector) -> None:
         # percentile contrast saturates (e.g. the feeding channel).
         viewer_data[0][trench_mask > 0] = mean_img.min()
         image_viewer.data_wrapper.data_changed.emit()
-        preview_label.value = f"<b>{fov}</b> — {n_trenches} candidate trench{'es' if n_trenches != 1 else ''}"
+        preview_label.value = (
+            f"<b>{fov}</b> — {n_trenches} candidate trench{'es' if n_trenches != 1 else ''}"
+            + "".join(
+                f"<br>No trenches kept for the {p['outside']}"
+                for p in lane_profiles
+                if "outside" in p
+            )
+        )
 
         with output:
             output.clear_output(wait=True)

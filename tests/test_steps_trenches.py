@@ -216,3 +216,49 @@ def test_a_line_with_no_image_takes_its_neighbours_value():
 
     image = np.array([[0.0, 4.0, 6.0], [0.0, 2.0, 0.0]])
     np.testing.assert_allclose(mean_without_fill(image, axis=0), [3.0, 3.0, 6.0])
+
+
+@pytest.mark.parametrize(
+    "lane_y, orientation, offset, length, says",
+    [
+        (100, 1, 10, 95, "run past the image top; the trench length can be at most 90"),
+        (
+            100,
+            -1,
+            10,
+            95,
+            "run past the image bottom; the trench length can be at most 90",
+        ),
+        (100, 1, -120, 20, "the bottom offset -120 puts the boxes' open end outside"),
+    ],
+)
+def test_boxes_past_the_image_keep_no_trenches_and_say_why(
+    lane_y, orientation, offset, length, says
+):
+    image = np.full((200, 160), 1000.0)
+    image[:, 20:150:40] = 2000.0
+    trenches, profiles, _ = _trench_rows_detector(lane_y, orientation).detect_fov(
+        image,
+        "f0",
+        sigma=0,
+        distance=5,
+        prominence=1,
+        height=0,
+        trench_width=6,
+        trench_length=length,
+        trench_bottom_offset=offset,
+    )
+    assert trenches == []
+    assert says in profiles[0]["outside"]
+    fits = _trench_rows_detector(lane_y, orientation).detect_fov(
+        image,
+        "f0",
+        sigma=0,
+        distance=5,
+        prominence=1,
+        height=0,
+        trench_width=6,
+        trench_length=80,
+        trench_bottom_offset=10,
+    )
+    assert fits[0] and "outside" not in fits[1][0]

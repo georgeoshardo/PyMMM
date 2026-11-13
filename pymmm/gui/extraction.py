@@ -1470,7 +1470,11 @@ class ExtractionDock(QWidget):
                 ax.legend(fontsize=7, loc="upper left")
         self.trench_canvas.draw_idle()
         n = len(trenches)
-        self.trench_status.setText(f"<b>{fov}</b>: {n} trench{'es' if n != 1 else ''}")
+        outside = [p["outside"] for p in profiles if "outside" in p]
+        self.trench_status.setText(
+            f"<b>{fov}</b>: {n} trench{'es' if n != 1 else ''}"
+            + "".join(f"<br>No trenches kept for the {note}" for note in outside)
+        )
         self._say("Move the P slider to check other FOVs, then apply.")
 
     def apply_trenches(self) -> None:
@@ -1488,6 +1492,10 @@ class ExtractionDock(QWidget):
             self.trench_status.setText(
                 f"<b>Saved</b>: {result.n_trenches} trenches across "
                 f"{len(result.trenches)} FOVs"
+                + "".join(
+                    f"<br><b>{fov}</b>: no trenches kept for the {'; '.join(notes)}"
+                    for fov, notes in result.outside.items()
+                )
             )
             self._say(
                 f"Trenches saved; overlays in {self._diagnostics('trenches')}. "
