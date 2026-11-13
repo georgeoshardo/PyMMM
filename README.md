@@ -24,9 +24,7 @@ pip install -e ".[notebook,view]"       # with the widgets and viewers
 | `tracks` | geff | writing tracking runs' GEFFs |
 
 `pixi run test` and `pixi run notebook` use this repository's own environment (PyMMM
-with the `notebook`, `view` and `tracks` extras). In phage-signatures, PyMMM is a
-submodule and the workspace's environments install it: `default` with `notebook` and
-`view`, `seg` with `notebook`, `segment` and `tracks`.
+with the `notebook`, `view` and `tracks` extras).
 
 ## The pipeline
 
@@ -74,7 +72,8 @@ After extraction:
   PyMMM: each task carries a trench's frames and returns its labels, the checkpoints go
   to each worker once, and the notebook alone writes the experiment group.
 - `Tracker(path, segmentation, chaintrack=".../chain.py")` tracks every trench with
-  chaintrack, a program kept outside PyMMM: `fit(trenches, recipe)` measures the
+  [chaintrack](https://github.com/georgeoshardo/chaintrack), a program kept outside PyMMM
+  (clone it and give the path to its `chain.py`): `fit(trenches, recipe)` measures the
   experiment's own growth, division length and noise once and records them in the group,
   and `track()` writes each trench's tracks, a GEFF graph and the masks it chose
   (`pymmm.store.geff.write_tracks`). `track()` resumes with the trenches not tracked
@@ -95,7 +94,7 @@ from pymmm.store import experiment_group as eg
 root = eg.open_experiment("experiment.zarr")
 for trench in eg.trench_ids(root):
     pixels = eg.image(root, trench)                    # (t, c, y, x) zarr array
-    names, labels = eg.segmentation(root, trench, "pc_affinity_ensemble")
+    names, labels = eg.segmentation(root, trench, "pc")
 ```
 
 `pymmm.store` needs only numpy and zarr. To browse every trench in napari:
