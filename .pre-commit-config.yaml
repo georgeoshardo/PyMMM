@@ -1,0 +1,33 @@
+# Checks that run before each commit (`pre-commit install` once per clone);
+# `pre-commit run --all-files` runs them on everything. The hooks are the ones
+# nd2 and ndv use (github.com/tlambert03/nd2), less mypy for now.
+exclude: ^tests/golden/reference/
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: \.md$
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: v0.27
+    hooks:
+      - id: validate-pyproject
+
+  - repo: https://github.com/adhtruong/mirrors-typos
+    rev: v1.52.2
+    hooks:
+      - id: typos
+        args: [--force-exclude]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.5
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format

@@ -104,3 +104,10 @@ ignore = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
+
+# The spell-checker run by the pre-commit hooks: words it would otherwise correct.
+[tool.typos.default.extend-words]
+nd = "nd"        # ND2, nd2
+ome = "ome"      # OME-Zarr
+fo = "fo"        # FOV
+arange = "arange"

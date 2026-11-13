@@ -130,6 +130,18 @@ choice" box remembers that one folder.
 | `config` | the experiment file |
 | `plotting`, `view` | diagnostic figures; the napari viewer |
 
+## Checks before each commit
+
+```bash
+pre-commit install          # once per clone
+pre-commit run --all-files  # every check, on every file
+```
+
+Each commit is checked by ruff (lint and format, configured in `pyproject.toml`),
+a spell-checker (typos), a `pyproject.toml` validator and a few file checks
+(`.pre-commit-config.yaml`). A commit that fails a check is stopped; ruff fixes
+what it can, so `git add` the changes and commit again.
+
 ## Tests
 
 ```bash
