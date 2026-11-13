@@ -406,6 +406,11 @@ class ExtractionDock(QWidget):
         self.experiment_info = QLabel("")
         self.experiment_info.setWordWrap(True)
         form.addRow(self.experiment_info)
+        from pymmm.gui.experiment_map import ExperimentMap
+
+        self.experiment_map = ExperimentMap()
+        self.experiment_map.fov_clicked.connect(self._go_to_fov)
+        form.addRow(self.experiment_map)
         return tab
 
     def _register_tab(self) -> QWidget:
@@ -890,6 +895,7 @@ class ExtractionDock(QWidget):
             )
         )
         self._draw_drift()
+        self._draw_map()
 
     def _saved_registration(self) -> dict | None:
         if self.store is None or not self.store.has_registration():
@@ -1134,6 +1140,7 @@ class ExtractionDock(QWidget):
     def _on_registration_settings(self) -> None:
         self._refresh_registered()
         self._enable()
+        self._draw_map()
         if self.registrator is not None and not self._settings_match():
             self.reg_status.setText(
                 "The settings differ from the saved registration: the layers show the "
@@ -1175,6 +1182,96 @@ class ExtractionDock(QWidget):
         names = self.experiment.fov_names
         return names[min(max(int(step), 0), len(names) - 1)]
 
+    def _go_to_fov(self, fov: str) -> None:
+        """Move the P slider to a FOV (a click on the experiment map)."""
+        labels = list(self.viewer.dims.axis_labels)
+        if self.experiment is not None and "P" in labels:
+            index = self.experiment.fov_names.index(fov)
+            self.viewer.dims.set_current_step(labels.index("P"), index)
+
+    def _map_degrees(self) -> float:
+        """The rotation the map is drawn with: the registration's, else the
+        Register tab's.
+        """
+        registrator = self.registrator
+        return (
+            registrator.rotation if registrator is not None else self.rotation.value()
+        )
+
+    def _marks(self, frames: dict) -> tuple[list, list, list]:
+        """The lanes ((2, 2) ends), their orientations and the trench boxes ((4, 2)
+        corners) found so far, in map µm.
+        """
+        exp = self.experiment
+        size, width = exp.pixel_size_um, exp.data.sizes["X"]
+        segments, orientations, boxes = [], [], []
+        lanes = self.lane_detector.lanes if self.lane_detector is not None else {}
+        for fov in exp.fov_names:
+            origin = frames[fov][0]
+            for lane in lanes.get(fov, []):
+                ends = np.array([[0, lane.y_center], [width - 1, lane.y_center]])
+                segments.append(origin + size * ends)
+                orientations.append(lane.orientation)
+        if self.trench_detector is not None and self.lane_detector is not None:
+            for row in self.trench_detector.get_trench_table().itertuples():
+                corners = np.array(
+                    [
+                        [row.x_left, row.y_top],
+                        [row.x_right, row.y_top],
+                        [row.x_right, row.y_bottom],
+                        [row.x_left, row.y_bottom],
+                    ],
+                    float,
+                )
+                boxes.append(frames[row.fov][0] + size * corners)
+        return segments, orientations, boxes
+
+    def _draw_map(self) -> None:
+        """Every FOV at its stage position, with the lanes and trenches found so far."""
+        from pymmm.source.stage import fov_frames
+
+        plot = self.experiment_map
+        exp = self.experiment
+        if exp is None:
+            plot.clear()
+            return
+        frames = fov_frames(exp, self._map_degrees())
+        if frames is None:
+            plot.clear()
+            _note(plot, "No stage positions")
+            return
+        plot.set_fovs(
+            {name: outline for name, (_, outline) in frames.items()}, exp.fov_names
+        )
+        flagged: set[str] = set()
+        counts: dict[str, str] = {}
+        segments, orientations, boxes = self._marks(frames)
+        lanes = self.lane_detector.lanes if self.lane_detector is not None else None
+        if lanes is not None:
+            flagged = {fov for fov in exp.fov_names if not lanes.get(fov)}
+            plot.set_lanes(segments, orientations)
+        few: dict[str, int] = {}
+        if self.trench_detector is not None and lanes is not None:
+            table = self.trench_detector.get_trench_table()
+            plot.set_trenches(boxes)
+            per_fov = {f: int(n) for f, n in table.groupby("fov").size().items()}
+            typical = float(np.median([per_fov.get(f, 0) for f in exp.fov_names]))
+            for fov in exp.fov_names:
+                found = per_fov.get(fov, 0)
+                counts[fov] = f"{fov}\n{found}"
+                if found < typical / 2:  # none, or far fewer than most FOVs
+                    few[fov] = found
+            plot.set_labels(counts)
+        plot.set_flagged(flagged | set(few))
+        plot.show_fov(self.current_fov())
+        if flagged:
+            _note(plot, f"No lanes: {', '.join(sorted(flagged))}")
+        elif few:
+            listed = ", ".join(f"{fov} ({n})" for fov, n in sorted(few.items()))
+            _note(plot, f"Few trenches: {listed}")
+        else:
+            _note(plot, "")
+
     def current_frame(self) -> int:
         """The frame on the T slider."""
         labels = list(self.viewer.dims.axis_labels)
@@ -1194,6 +1291,7 @@ class ExtractionDock(QWidget):
         if fov == self._last_fov:
             return
         self._last_fov = fov
+        self.experiment_map.show_fov(fov)
         self._draw_drift()  # in step on every tab, so it is current when shown
         name = self.TAB_NAMES[self.tabs.currentIndex()]
         if name == "Lanes":
@@ -1307,6 +1405,7 @@ class ExtractionDock(QWidget):
             self.lane_detector = self.trench_detector = None
             self._refresh_registered()
             self._draw_drift()
+            self._draw_map()
             self.reg_status.setText("Registered and saved.")
             self._show_extraction()
             self._say(
@@ -1324,6 +1423,7 @@ class ExtractionDock(QWidget):
         self.drift_plot.clear()
         self._drift_from = None
         self._draw_drift()
+        self._draw_map()
         self.reg_status.setText("Registering…")
         self._say("Registering in a process pool…")
         self._run(job, done, "Registration", cancel=cancel).finished.connect(ended)
@@ -1499,6 +1599,7 @@ class ExtractionDock(QWidget):
                 f"<b>Saved</b>: {total} lanes across {len(result.lanes)} FOVs"
             )
             self._lane_note()
+            self._draw_map()
             self._say(
                 f"Lanes saved; overlays in {self._diagnostics('lanes')}. "
                 "Next: the Trenches tab."
@@ -1691,6 +1792,7 @@ class ExtractionDock(QWidget):
                     for fov, notes in result.outside.items()
                 )
             )
+            self._draw_map()
             self._say(
                 f"Trenches saved; overlays in {self._diagnostics('trenches')}. "
                 "Next: the Preview tab."

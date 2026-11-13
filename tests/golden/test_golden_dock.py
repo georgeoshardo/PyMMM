@@ -89,6 +89,10 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     dock.times_edit.setText(f"{TIMES[0]}:{TIMES[1]}")
     dock.open_button.click()
     assert dock.experiment.fov_names == FOVS
+    # the map: every FOV of the ND2 at its stage position, the two kept solid
+    plan = dock.experiment_map
+    assert plan.fovs == FOVS
+    assert len(plan._outlines) == dock.experiment.stage_layout.positions.shape[0]
     assert dock.experiment.n_timepoints == TIMES[1] - TIMES[0]
     assert [layer.name for layer in viewer.layers][:2] == [
         "PC raw",
@@ -188,6 +192,15 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     dock.trench_apply.click()
     _wait(qapp, lambda: dock._worker is None)
     check("trenches", trenches_summary(dock.trench_detector))
+    # the map gains every lane and trench box, and a click on a FOV goes to it
+    drawn = plan._trenches.getData()[0]
+    assert np.isnan(drawn).sum() == dock.trench_detector.n_trenches
+    assert plan._labels[FOVS[1]] == (
+        f"{FOVS[1]}\n{len(dock.trench_detector.trenches[FOVS[1]])}"
+    )
+    plan.fov_clicked.emit(FOVS[0])
+    assert dock.current_fov() == FOVS[0]
+    plan.fov_clicked.emit(FOVS[1])
     tabs = [dock.tabs.tabText(i) for i in range(dock.tabs.count())]
     assert tabs == ["Experiment", "Register ✓", "Lanes ✓", "Trenches ✓", "Preview"]
     assert dock.lineage["trench_detection"] == "current"

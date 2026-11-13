@@ -155,6 +155,18 @@ class ND2Experiment:
         return copy.deepcopy(self._source_acquisition_metadata)
 
     @property
+    def stage_layout(self):
+        """Where each FOV sat on the stage and how the camera sits on it
+        (:class:`~pymmm.source.stage.StageLayout`, by raw P index); ``None`` when the
+        ND2 has no XY loop or camera matrix.
+        """
+        from pymmm.source.stage import StageLayout
+
+        return StageLayout.from_metadata(
+            self._source_acquisition_metadata, self.pixel_size_um
+        )
+
+    @property
     def source_axes(self) -> dict:
         """Map the current subset back to indices in the source ND2.
 
