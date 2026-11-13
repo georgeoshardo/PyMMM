@@ -116,6 +116,30 @@ def mirror_symmetry(profile: np.ndarray, half_window: int) -> np.ndarray:
     return score / peak if peak > 0 else score
 
 
+ARTEFACT_FACTOR = 3.0
+"""A symmetric point this many times stronger than a typical trench is an artefact
+(a bubble, dust in the PDMS), not a trench: :func:`_without_artefacts`."""
+
+
+def _without_artefacts(symmetry: np.ndarray, half_window: int) -> np.ndarray:
+    """Symmetry scores (1 at the strongest point) rescaled to a typical trench when
+    the strongest point is an artefact: more than :data:`ARTEFACT_FACTOR` times the
+    75th percentile of the profile's symmetry peaks. Half the peaks are trench
+    centres and half the gaps between them, so the 75th percentile is a typical
+    trench as long as artefacts cover less than a quarter of the peaks. Otherwise
+    one round bubble, far more symmetric than any trench, sets the scale and every
+    trench falls below ``min_symmetry``. Scores are then capped at 1. A profile
+    without such a point is left as it is.
+    """
+    peaks, _ = find_peaks(np.nan_to_num(symmetry, nan=-1.0), distance=half_window)
+    if len(peaks) < 5:
+        return symmetry
+    typical = float(np.percentile(symmetry[peaks], 75))
+    if typical <= 0 or typical * ARTEFACT_FACTOR >= np.nanmax(symmetry):
+        return symmetry
+    return np.minimum(symmetry / typical, 1.0)
+
+
 def periodic_trench_centres(
     profile: np.ndarray,
     trench_width: int,
@@ -156,7 +180,7 @@ def periodic_trench_centres(
     half_window = max(2, int(pitch / 3))
     if 2 * half_window + 1 > n:
         return empty
-    symmetry = mirror_symmetry(profile, half_window)
+    symmetry = _without_artefacts(mirror_symmetry(profile, half_window), half_window)
 
     # Phase shared by all trenches: circular mean of x (mod pitch) weighted by
     # strongly symmetric positions.

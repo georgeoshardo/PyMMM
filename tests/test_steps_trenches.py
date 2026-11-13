@@ -262,3 +262,31 @@ def test_boxes_past_the_image_keep_no_trenches_and_say_why(
         trench_bottom_offset=10,
     )
     assert fits[0] and "outside" not in fits[1][0]
+
+
+def _trench_profile(n_trenches=12, pitch=40, width=8, bright_every=1):
+    """An x-profile of trenches every ``pitch`` px; every ``bright_every``-th one
+    brighter, as cells in every other trench make them."""
+    profile = np.full(n_trenches * pitch + 40, 100.0)
+    for k in range(n_trenches):
+        x = 20 + k * pitch
+        profile[x : x + width] = 300.0 if k % bright_every == 0 else 160.0
+    return profile
+
+
+def test_one_artefact_far_more_symmetric_than_any_trench_does_not_hide_them():
+    from pymmm.steps.trenches import periodic_trench_centres
+
+    plain = _trench_profile(n_trenches=15)
+    found = periodic_trench_centres(plain, 8, expected_pitch=40)
+    blob = plain.copy()
+    x = np.arange(len(blob))
+    blob += 50_000 * np.exp(-((x - 300) ** 2) / (2 * 15**2))  # a bubble
+    with_blob = periodic_trench_centres(blob, 8, expected_pitch=40)
+    assert len(found["centres"]) == 15
+    assert len(with_blob["centres"]) >= 14  # the trench under the bubble may go
+    # a profile without one keeps its scores as they were
+    from pymmm.steps.trenches import _without_artefacts, mirror_symmetry
+
+    scores = mirror_symmetry(plain, 13)
+    np.testing.assert_array_equal(_without_artefacts(scores, 13), scores)
