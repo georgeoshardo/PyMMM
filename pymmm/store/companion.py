@@ -12,6 +12,7 @@ import pandas as pd
 import xarray as xr
 import zarr
 
+from pymmm.store import lineage
 from pymmm.store.provenance import SCHEMA_VERSION, plain_json, provenance
 
 if TYPE_CHECKING:
@@ -166,6 +167,7 @@ class CompanionStore:
         mean_images: xr.DataArray | None,
         params: dict[str, Any],
         source_subset_metadata: dict[str, Any] | None = None,
+        made_from: dict[str, str | None] | None = None,
     ) -> None:
         """Persist registration results.
 
@@ -179,13 +181,21 @@ class CompanionStore:
             Registration parameters for reproducibility.
         source_subset_metadata : dict | None
             The experiment subset the registration was computed on.
+        made_from : dict | None
+            Fingerprints of what it was made from (:mod:`pymmm.store.lineage`).
         """
         data_vars = {"tmats": tmats.astype("float64")}
         if mean_images is not None and mean_images.size > 0:
             data_vars["mean_images"] = mean_images.astype("float64")
         dataset = xr.Dataset(data_vars)
         dataset["tmats"].attrs["long_name"] = "registration transform (3x3 affine)"
-        self._write_section("registration", dataset, params, source_subset_metadata)
+        self._write_section(
+            "registration",
+            dataset,
+            params,
+            source_subset_metadata,
+            extra_attrs={"made_from": made_from},
+        )
 
     def load_registration(self, load_mean_images: bool = True) -> dict[str, Any]:
         """Load registration checkpoint.
@@ -228,6 +238,7 @@ class CompanionStore:
         params: dict[str, Any],
         source_subset_metadata: dict[str, Any] | None,
         index: np.ndarray | None = None,
+        made_from: dict[str, str | None] | None = None,
     ) -> None:
         data_vars = {}
         for column, attrs in columns.items():
@@ -243,7 +254,7 @@ class CompanionStore:
             xr.Dataset(data_vars, coords=coords),
             params,
             source_subset_metadata,
-            extra_attrs={"fov_names": fov_names},
+            extra_attrs={"fov_names": fov_names, "made_from": made_from},
         )
 
     def _load_table(self, name: str, dim: str) -> tuple[pd.DataFrame, dict[str, Any]]:
@@ -261,6 +272,7 @@ class CompanionStore:
         fov_names: list[str],
         params: dict[str, Any],
         source_subset_metadata: dict[str, Any] | None = None,
+        made_from: dict[str, str | None] | None = None,
     ) -> None:
         """Persist lane detection results.
 
@@ -275,6 +287,8 @@ class CompanionStore:
             Detection parameters.
         source_subset_metadata : dict | None
             The experiment subset the lanes were detected on.
+        made_from : dict | None
+            Fingerprints of what they were made from (:mod:`pymmm.store.lineage`).
         """
         self._save_table(
             "lane_detection",
@@ -284,6 +298,7 @@ class CompanionStore:
             fov_names,
             params,
             source_subset_metadata,
+            made_from=made_from,
         )
 
     def load_lane_detection(self) -> dict[str, Any]:
@@ -312,6 +327,7 @@ class CompanionStore:
         fov_names: list[str],
         params: dict[str, Any],
         source_subset_metadata: dict[str, Any] | None = None,
+        made_from: dict[str, str | None] | None = None,
     ) -> None:
         """Persist trench detection results.
 
@@ -326,6 +342,8 @@ class CompanionStore:
             Detection parameters.
         source_subset_metadata : dict | None
             The experiment subset the trenches were detected on.
+        made_from : dict | None
+            Fingerprints of what they were made from (:mod:`pymmm.store.lineage`).
         """
         self._save_table(
             "trench_detection",
@@ -336,6 +354,7 @@ class CompanionStore:
             params,
             source_subset_metadata,
             index=trenches["trench_id"].to_numpy(dtype=np.int32),
+            made_from=made_from,
         )
 
     def load_trench_detection(self) -> dict[str, Any]:
@@ -361,6 +380,61 @@ class CompanionStore:
     # ------------------------------------------------------------------
     # Reset
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Lineage
+    # ------------------------------------------------------------------
+
+    def made_from(self, section: str) -> dict[str, str | None] | None:
+        """What a saved section records it was made from; None if it records nothing."""
+        if not self._has_section(section):
+            return None
+        return self.section_attrs(section).get("made_from")
+
+    def fingerprints(self) -> dict[str, str | None]:
+        """The fingerprint of each section's result as saved; None for one missing."""
+        found: dict[str, str | None] = dict.fromkeys(_SECTIONS)
+        if self.has_registration():
+            saved = self.load_registration(load_mean_images=False)
+            found["registration"] = lineage.registration_fingerprint(
+                saved["tmats"], saved["params"].get("rotation", 0.0)
+            )
+        if self.has_lane_detection():
+            found["lane_detection"] = lineage.table_fingerprint(
+                self.load_lane_detection()["lanes"].to_dict("records"),
+                lineage.LANE_COLUMNS,
+            )
+        if self.has_trench_detection():
+            found["trench_detection"] = lineage.table_fingerprint(
+                self.load_trench_detection()["trenches"].to_dict("records"),
+                lineage.TRENCH_COLUMNS,
+            )
+        return found
+
+    def lineage(
+        self, experiment: ND2Experiment, experiment_group: str | Path | None = None
+    ) -> dict[str, str]:
+        """Each step's status (:func:`pymmm.store.lineage.status`): ``"current"``,
+        ``"stale"``, ``"missing"`` or ``"unrecorded"``, for ``experiment`` (the ND2 and
+        the part of it used). With ``experiment_group``, the extraction's too.
+        """
+        fingerprints = {
+            "source": lineage.source_fingerprint(experiment),
+            **self.fingerprints(),
+            "extraction": None,
+        }
+        made_from = {section: self.made_from(section) for section in _SECTIONS}
+        if experiment_group is not None:
+            group = Path(experiment_group)
+            if (group / "zarr.json").exists():
+                attrs = dict(zarr.open_group(str(group), mode="r").attrs)
+                record = attrs.get("pymmm") or {}
+                if record.get("layout") == "experiment":
+                    made_from["extraction"] = record.get("made_from")
+                    fingerprints["extraction"] = lineage.fingerprint(
+                        record.get("made_from") or {}
+                    )
+        return lineage.status(fingerprints, made_from)
 
     def clear(self, *sections: str) -> None:
         """Delete these sections, quietly, the ones present (partly written ones too):

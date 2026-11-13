@@ -166,6 +166,19 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     dock.trench_apply.click()
     _wait(qapp, lambda: dock._worker is None)
     check("trenches", trenches_summary(dock.trench_detector))
+    tabs = [dock.tabs.tabText(i) for i in range(dock.tabs.count())]
+    assert tabs == ["Experiment", "Register ✓", "Lanes ✓", "Trenches ✓", "Preview"]
+    assert dock.lineage["trench_detection"] == "current"
+    assert "not extracted yet" in dock.extraction_info.text()
+    # a setting changed and not applied: marked, and marked back when set back
+    dock.trench_width.setValue(TRENCHES["trench_width"] + 2)
+    assert dock.tabs.tabText(3) == "Trenches *"
+    dock.trench_width.setValue(TRENCHES["trench_width"])
+    assert dock.tabs.tabText(3) == "Trenches ✓"
+    dock.times_edit.setText("20:29")
+    assert dock.tabs.tabText(0) == "Experiment *"
+    dock.times_edit.setText(f"{TIMES[0]}:{TIMES[1]}")
+    assert dock.tabs.tabText(0) == "Experiment"
     assert {p.name for p in (diagnostics / "trenches").iterdir()} == {
         f"trenches_{fov}.png" for fov in FOVS
     }
@@ -220,11 +233,31 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     assert "loaded the saved registration, lanes, trenches" in dock2.status.text()
     assert viewer2.layers["PC"].name == "PC"  # registered, not only rotated
 
-    # A changed setting shows the frames only rotated and says to register again
+    # A changed setting shows the frames only rotated, locks the later steps and says
+    # to register again; set back, they open again
     dock2.rotation.setValue(0.5)
     dock2._on_registration_settings()
     assert viewer2.layers[1].name == "PC (rotated, not registered)"
     assert "Register again" in dock2.reg_status.text()
+    assert dock2.tabs.tabText(1) == "Register *"
+    assert not any(dock2.tabs.isTabEnabled(i) for i in (2, 3, 4))
+    dock2.rotation.setValue(REGISTRATION["rotation"])
+    dock2._on_registration_settings()
+    assert all(dock2.tabs.isTabEnabled(i) for i in (2, 3, 4))
+
+    # Registered again elsewhere without clearing what followed (a script): the dock
+    # loads the registration but not the lanes and trenches made from the old one
+    other = Registrator(
+        dock2.experiment, dock2.store, **{**REGISTRATION, "rotation": 1.0}
+    )
+    other.compute_tmats(n_jobs=1)
+    other.save()
+    _, dock3 = _dock(qapp, nd2)
+    assert dock3.registrator is not None and dock3.registrator.rotation == 1.0
+    assert dock3.lane_detector is None and dock3.trench_detector is None
+    assert "were not loaded" in dock3.status.text()
+    assert dock3.lineage["lane_detection"] == "stale"
+    assert not dock3.tabs.isTabEnabled(3)
 
 
 def test_preview_array_is_the_extraction_and_cuts_a_frame_once(pipeline, monkeypatch):

@@ -19,6 +19,9 @@
     "complete": true,
     "fov_names": ["XYPos:2", "XYPos:5"],
     "layout": "lane_detection",
+    "made_from": {
+     "registration": "4fc706659f029326"
+    },
     "params": {
      "channel": "PC",
      "distance": 1000.0,
@@ -281,6 +284,9 @@
    "attributes": {
     "complete": true,
     "layout": "registration",
+    "made_from": {
+     "source": "e79f7b15c4be598a"
+    },
     "params": {
      "backend": "stackreg",
      "batch_size": 4,
@@ -565,6 +571,10 @@
     "complete": true,
     "fov_names": ["XYPos:2", "XYPos:5"],
     "layout": "trench_detection",
+    "made_from": {
+     "lane_detection": "5fd596dc53e0df4c",
+     "registration": "4fc706659f029326"
+    },
     "params": {
      "channel": "PC",
      "distance": 100.0,

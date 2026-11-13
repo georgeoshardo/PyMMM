@@ -19,6 +19,7 @@ from tqdm.auto import tqdm
 from pymmm._utils import normalize_channel_arg, normalize_fov_arg
 from pymmm.parallel import Cancelled, Runner, dask_client, shared
 from pymmm.source.nd2 import ND2Experiment
+from pymmm.store import lineage
 from pymmm.store.companion import CompanionStore
 
 TRANSFORM_CONVENTION = "raw_translation_then_rotation_v1"
@@ -1003,8 +1004,14 @@ class Registrator:
             saved["transform_convention"] = TRANSFORM_CONVENTION
         return all(saved.get(key) == value for key, value in self.settings().items())
 
+    def fingerprint(self) -> str:
+        """The fingerprint of the transforms and rotation (:mod:`pymmm.store.lineage`)."""
+        return lineage.registration_fingerprint(self.tmats, self.rotation)
+
     def save(self) -> None:
-        """Write tmats, mean_images, and params to the companion zarr store."""
+        """Write tmats, mean_images, and params to the companion zarr store, with the
+        source it was computed from.
+        """
         if self._tmats is None:
             raise RuntimeError("Nothing to save — run compute_tmats() first.")
 
@@ -1029,6 +1036,7 @@ class Registrator:
             self._mean_images,
             params,
             source_subset_metadata=self.experiment.source_subset_metadata,
+            made_from={"source": lineage.source_fingerprint(self.experiment)},
         )
         print(f"Registration saved to {self.store.path}")
 

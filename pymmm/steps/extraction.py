@@ -55,7 +55,7 @@ from pymmm.steps.registration import (
     _rotation_matrix,
 )
 from pymmm.steps.trenches import TrenchDetector
-from pymmm.store import ome
+from pymmm.store import lineage, ome
 from pymmm.store.experiment_group import CHUNK_KEYS as _CHUNK_KEYS
 from pymmm.store.experiment_group import trench_path
 from pymmm.store.provenance import SCHEMA_VERSION, plain_json, provenance
@@ -419,11 +419,26 @@ class Extractor:
                 "image_path": "trench_{trench:04d}",
                 "provenance": provenance(),
                 **self._source_attrs(),
+                "made_from": self._made_from(),
                 "channels": list(channel_names),
                 "pixel_size_um": pixel_size_um,
                 "frame_interval_ms": frame_interval_ms,
             }
         )
+
+    def _made_from(self) -> dict[str, str]:
+        """Fingerprints of the registration and trench table the trenches are cut with
+        (:mod:`pymmm.store.lineage`).
+        """
+        return {
+            "registration": lineage.registration_fingerprint(
+                self.registrator.tmats, self.registrator.rotation
+            ),
+            "trench_detection": lineage.table_fingerprint(
+                self.trench_detector.get_trench_table().to_dict("records"),
+                lineage.TRENCH_COLUMNS,
+            ),
+        }
 
     def _image_attrs(
         self,

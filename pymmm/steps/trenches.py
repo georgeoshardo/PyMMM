@@ -17,6 +17,7 @@ from pymmm._utils import normalize_channel_arg, normalize_fov_arg
 from pymmm.source.nd2 import ND2Experiment
 from pymmm.steps.lanes import LaneDetector
 from pymmm.steps.registration import Registrator
+from pymmm.store import lineage
 from pymmm.store.companion import CompanionStore
 
 
@@ -663,8 +664,16 @@ class TrenchDetector:
     # Checkpoint save / load
     # ------------------------------------------------------------------
 
+    def fingerprint(self) -> str:
+        """The fingerprint of the trench table (:mod:`pymmm.store.lineage`)."""
+        return lineage.table_fingerprint(
+            self.get_trench_table().to_dict("records"), lineage.TRENCH_COLUMNS
+        )
+
     def save(self) -> None:
-        """Write trench detection results to the companion zarr store."""
+        """Write trench detection results to the companion zarr store, with the
+        registration and lanes they were detected on.
+        """
         if self._trenches is None:
             raise RuntimeError("Nothing to save — run detect_trenches() first.")
 
@@ -682,6 +691,10 @@ class TrenchDetector:
             list(self._trenches),
             params,
             source_subset_metadata=self.experiment.source_subset_metadata,
+            made_from={
+                "registration": lineage.of(self.registrator),
+                "lane_detection": lineage.of(self.lane_detector),
+            },
         )
         print(f"Trench detection saved to {self.store.path}")
 

@@ -15,6 +15,7 @@ from scipy.signal import find_peaks
 from pymmm._utils import normalize_channel_arg, normalize_fov_arg
 from pymmm.source.nd2 import ND2Experiment
 from pymmm.steps.registration import Registrator
+from pymmm.store import lineage
 from pymmm.store.companion import CompanionStore
 
 # Forced lane orientations: "down" = trenches above the lane opening down into
@@ -339,21 +340,32 @@ class LaneDetector:
     # Checkpoint save / load
     # ------------------------------------------------------------------
 
+    def _table(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            [asdict(li) for fov_lanes in self.lanes.values() for li in fov_lanes],
+            columns=[f.name for f in fields(LaneInfo)],
+        )
+
+    def fingerprint(self) -> str:
+        """The fingerprint of the lanes (:mod:`pymmm.store.lineage`)."""
+        return lineage.table_fingerprint(
+            self._table().to_dict("records"), lineage.LANE_COLUMNS
+        )
+
     def save(self) -> None:
-        """Write lane detection results to the companion zarr store."""
+        """Write lane detection results to the companion zarr store, with the
+        registration they were detected on.
+        """
         if self._lanes is None:
             raise RuntimeError("Nothing to save — run detect_lanes() first.")
 
-        lanes = pd.DataFrame(
-            [asdict(li) for fov_lanes in self._lanes.values() for li in fov_lanes],
-            columns=[f.name for f in fields(LaneInfo)],
-        )
         params = {"channel": self.channel, **self._detection_params}
         self.store.save_lane_detection(
-            lanes,
+            self._table(),
             list(self._lanes),
             params,
             source_subset_metadata=self.experiment.source_subset_metadata,
+            made_from={"registration": lineage.of(self.registrator)},
         )
         print(f"Lane detection saved to {self.store.path}")
 

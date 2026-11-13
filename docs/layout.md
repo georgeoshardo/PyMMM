@@ -49,6 +49,7 @@ tracks (with the geff package), and `pymmm.store.ome` builds every `ome` attribu
 | `source_nd2`, `source_file_size_bytes`, `source_mtime_ns` | the ND2 the trenches were cut from |
 | `source_subset_metadata` | the part of the ND2 extracted: `raw_fov_names`, `active_fov_names`, `discarded_fov_names`, `time_slice` (`start`, `stop`, `step`), `roi` (`y`, `x`), `raw_timepoint_count`, `active_timepoint_count` |
 | `provenance` | the code that wrote it: `pymmm_version`, `pymmm_commit`, `pymmm_dirty`, `libraries`, `created` |
+| `made_from` | fingerprints of the registration and trench table the trenches were cut with: `registration`, `trench_detection` (see [The companion store](#the-companion-store)). Groups extracted before PyMMM kept this record have none. |
 | `completed_fovs` | FOVs whose trenches are fully written, in table order |
 | `extraction_complete` | `true` once every FOV is written; until then the trench images may be partly empty |
 | `segmentations` | `{<segmentation>: record}`, see [Segmentations](#segmentations) |
@@ -279,5 +280,22 @@ notebook can resume without redoing registration or detection:
 ```
 
 Each section is an xarray dataset. Its attributes hold the `params` that produced it,
-the `source_subset_metadata` it was computed on, `provenance`, and `complete`, set only
-once the whole section is written.
+the `source_subset_metadata` it was computed on, `provenance`, `made_from`, and
+`complete`, set only once the whole section is written.
+
+`made_from` holds the fingerprints of what the section was made from. Registration
+records `source`, lane detection records `registration`, and trench detection records
+`registration` and `lane_detection`. The experiment group's `made_from` (above) links
+the extraction into the same chain. A fingerprint is a short SHA-256 of a result, not
+of its settings, and `pymmm.store.lineage` computes it:
+
+| fingerprint of | covers |
+|---|---|
+| `source` | the ND2's size in bytes and `source_subset_metadata` (not its path or modification time) |
+| `registration` | `tmats` as float64 in `(P, T, row, col)` order, the FOV names, and `rotation` |
+| `lane_detection`, `trench_detection` | the table's columns (`fov`, `lane_index`, `y_center`, `orientation`; the trench table's as in the experiment group), whatever their dtypes, rows sorted |
+
+A section is current when every fingerprint it records matches what is saved now and
+everything it was made from is current. `CompanionStore.lineage(experiment,
+experiment_group)` gives each step's status: `current`, `stale`, `missing`, or
+`unrecorded` for a section saved before these records were kept.

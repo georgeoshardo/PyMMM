@@ -21,6 +21,11 @@ dock runs the notebook's step classes and saves the same results. On opening, it
 a saved registration made with its settings, and the lanes and trenches saved after
 it, instead of computing them again.
 
+A tab is marked ✓ once its step is saved with the settings it shows, and * when they
+have changed since. The steps after registration wait while the Register tab's settings
+differ from the registration in use. On opening, a saved step made from another
+registration or other lanes (``CompanionStore.lineage``) is not loaded.
+
 The steps save their diagnostic figures beside the ND2 as the notebook does (drift,
 lanes, trenches). The View box below the tabs holds what can change at any step: the
 coordinate grid (napari 0.10 and later; on by default, and View → Coordinate Grid
@@ -59,6 +64,7 @@ from qtpy.QtWidgets import (
 )
 
 from pymmm.plotting import contrast_limits
+from pymmm.store import lineage
 
 RAW_AXES = ("T", "P", "y", "x")
 PREVIEW_AXES = ("trench", "t", "y", "x")
@@ -255,6 +261,9 @@ class ExtractionDock(QWidget):
         self._cancel: threading.Event | None = None
         self._mean_jobs: set[tuple[str, str]] = set()
         self._opened_file: Path | None = None
+        self._opened_fields: tuple[str, ...] | None = None
+        self.experiment_group: Path | None = None  # where extract() writes
+        self.lineage: dict[str, str] = {}
 
         self._build()
         self.viewer.dims.events.current_step.connect(self._on_step)
@@ -275,6 +284,14 @@ class ExtractionDock(QWidget):
         self.tabs.addTab(self._trenches_tab(), "Trenches")
         self.tabs.addTab(self._preview_tab(), "Preview")
         self.tabs.currentChanged.connect(self._on_tab)
+        # every setting re-marks the tabs at once (their previews wait a moment)
+        for kind in (QDoubleSpinBox, QSpinBox):
+            for box in self.tabs.findChildren(kind):
+                box.valueChanged.connect(self._mark_tabs)
+        for box in self.tabs.findChildren(QComboBox):
+            box.currentIndexChanged.connect(self._mark_tabs)
+        for edit in (self.reg_y_edit, self.reg_x_edit):
+            edit.textChanged.connect(self._mark_tabs)
         self.status = QLabel("Open an experiment file.")
         self.status.setWordWrap(True)
         # what can be changed whichever step is open, below the steps' tabs
@@ -334,6 +351,14 @@ class ExtractionDock(QWidget):
         form.addRow("frames", self.times_edit)
         form.addRow("crop y", self.y_roi_edit)
         form.addRow("crop x", self.x_roi_edit)
+        for edit in (
+            self.keep_edit,
+            self.discard_edit,
+            self.times_edit,
+            self.y_roi_edit,
+            self.x_roi_edit,
+        ):
+            edit.textChanged.connect(self._mark_tabs)
         self.open_button = QPushButton("Open")
         self.open_button.clicked.connect(self.open_experiment)
         form.addRow(self.open_button)
@@ -526,8 +551,11 @@ class ExtractionDock(QWidget):
             "slider. Nothing is written."
         )
         self.preview_info.setWordWrap(True)
+        self.extraction_info = QLabel("")
+        self.extraction_info.setWordWrap(True)
         layout.addWidget(self.preview_button)
         layout.addWidget(self.preview_info)
+        layout.addWidget(self.extraction_info)
         layout.addStretch()
         return tab
 
@@ -543,9 +571,14 @@ class ExtractionDock(QWidget):
         """Each tab once the step before it is done; nothing while a run is going."""
         busy = self._worker is not None
         opened = self.experiment is not None
-        registered = self.registrator is not None
-        lanes = self.lane_detector is not None
-        trenches = self.trench_detector is not None and self.trench_detector.is_detected
+        # the steps after registration only with the registration the tab shows
+        registered = self.registrator is not None and self._settings_match()
+        lanes = registered and self.lane_detector is not None
+        trenches = (
+            lanes
+            and self.trench_detector is not None
+            and self.trench_detector.is_detected
+        )
         self.tabs.setTabEnabled(1, opened)
         self.tabs.setTabEnabled(2, registered)
         self.tabs.setTabEnabled(3, lanes)
@@ -556,6 +589,127 @@ class ExtractionDock(QWidget):
         self.lane_apply.setEnabled(registered and not busy)
         self.trench_apply.setEnabled(lanes and not busy)
         self.preview_button.setEnabled(trenches and not busy)
+        self._mark_tabs()
+
+    # ------------------------------------------------------------------
+    # What each tab shows: saved, or changed since
+    # ------------------------------------------------------------------
+
+    TAB_NAMES = ("Experiment", "Register", "Lanes", "Trenches", "Preview")
+
+    def _mark_tabs(self) -> None:
+        """Mark each step's tab: ✓ saved with the settings shown, * settings changed
+        since (not applied yet), nothing when not done.
+        """
+        marks = {
+            "Experiment": "*" if self._experiment_changed() else "",
+            "Register": self._mark(self.registrator, self._settings_match),
+            "Lanes": self._mark(self.lane_detector, self._lanes_match),
+            "Trenches": self._mark(self.trench_detector, self._trenches_match),
+            "Preview": "",
+        }
+        tips = {"✓": "saved, with these settings", "*": "settings changed, not applied"}
+        for index, name in enumerate(self.TAB_NAMES):
+            mark = marks[name]
+            self.tabs.setTabText(index, f"{name} {mark}".strip())
+            self.tabs.setTabToolTip(index, tips.get(mark, ""))
+
+    @staticmethod
+    def _mark(step, matches) -> str:
+        if step is None:
+            return ""
+        return "✓" if matches() else "*"
+
+    def _experiment_fields(self) -> tuple[str, ...]:
+        return tuple(
+            " ".join(edit.text().split())
+            for edit in (
+                self.keep_edit,
+                self.discard_edit,
+                self.times_edit,
+                self.y_roi_edit,
+                self.x_roi_edit,
+            )
+        )
+
+    def _experiment_changed(self) -> bool:
+        return (
+            self._opened_fields is not None
+            and self._experiment_fields() != self._opened_fields
+        )
+
+    @staticmethod
+    def _same(box, saved) -> bool:
+        """Whether a control shows a saved value (to the decimals a spin box shows)."""
+        if isinstance(box, QComboBox):
+            return box.currentData() == saved
+        if saved is None:
+            return False
+        if isinstance(box, QDoubleSpinBox):
+            return round(float(saved), box.decimals()) == round(
+                box.value(), box.decimals()
+            )
+        return int(saved) == box.value()
+
+    def _lanes_match(self) -> bool:
+        saved = self.lane_detector.detection_params
+        if self.det_channel.currentData() != self.lane_detector.channel:
+            return False
+        edge = self.lane_mode.currentData()
+        if edge is not None or saved.get("image_edge") is not None:
+            return edge == saved.get("image_edge")
+        return all(
+            self._same(box, saved.get(key))
+            for box, key in (
+                (self.lane_sigma, "sigma"),
+                (self.lane_distance, "distance"),
+                (self.lane_height, "height"),
+                (self.lane_window, "orientation_window_um"),
+                (self.lane_orientation, "orientation"),
+            )
+        )
+
+    def _trenches_match(self) -> bool:
+        saved = self.trench_detector.detection_params
+        if self.det_channel.currentData() != self.trench_detector.channel:
+            return False
+        return all(
+            self._same(box, saved.get(key))
+            for box, key in (
+                (self.trench_method, "method"),
+                (self.trench_sigma, "sigma"),
+                (self.trench_distance, "distance"),
+                (self.trench_prominence, "prominence"),
+                (self.trench_pitch, "expected_pitch"),
+                (self.trench_symmetry, "min_symmetry"),
+                (self.trench_width, "trench_width"),
+                (self.trench_length, "trench_length"),
+                (self.trench_offset, "trench_bottom_offset"),
+            )
+        )
+
+    def _show_extraction(self) -> None:
+        """Say on the Preview tab whether the experiment group was cut with the
+        registration and trenches saved now.
+        """
+        if self.store is None:
+            return
+        self.lineage = self.store.lineage(self.experiment, self.experiment_group)
+        state = self.lineage["extraction"]
+        text = {
+            lineage.CURRENT: "extracted with the registration and trenches saved now",
+            lineage.STALE: (
+                "extracted with another registration or other trenches: extract "
+                "again, with resume=False or to a new path"
+            ),
+            lineage.MISSING: "not extracted yet",
+            lineage.UNRECORDED: (
+                "extracted before PyMMM recorded what an extraction was made from"
+            ),
+        }[state]
+        self.extraction_info.setText(
+            f"Experiment group {self.experiment_group}: {text}."
+        )
 
     def _say(self, text: str) -> None:
         self.status.setText(text)
@@ -589,8 +743,10 @@ class ExtractionDock(QWidget):
                 nd2 = path.absolute()
                 if not nd2.exists():
                     raise FileNotFoundError(nd2)
+                group = nd2.parent / f"{nd2.stem}.zarr"  # the Extractor's default
             else:
-                nd2 = Experiment.load(path).nd2
+                config = Experiment.load(path)
+                nd2, group = config.nd2, config.store
                 if nd2 is None:
                     raise ValueError(f"{path} names no ND2")
             if self._opened_file != path.absolute():
@@ -615,6 +771,8 @@ class ExtractionDock(QWidget):
             return
 
         self.experiment = experiment
+        self.experiment_group = Path(group)
+        self._opened_fields = self._experiment_fields()
         self.store = CompanionStore.for_experiment(experiment)
         self.registrator = self.lane_detector = self.trench_detector = None
         channels = list(experiment.channel_names)
@@ -639,6 +797,7 @@ class ExtractionDock(QWidget):
         )
         self._add_image_layers()
         self._enable()
+        self._show_extraction()
         steps = [
             name
             for name, done in (
@@ -648,12 +807,26 @@ class ExtractionDock(QWidget):
             )
             if done
         ]
+        ignored = [
+            name
+            for section, name in (
+                ("lane_detection", "lanes"),
+                ("trench_detection", "trenches"),
+            )
+            if self.lineage.get(section) == lineage.STALE
+        ]
         self._say(
             f"Opened {experiment.experiment_name}"
             + (
                 f"; loaded the saved {', '.join(steps)}."
                 if steps
                 else "; nothing saved yet."
+            )
+            + (
+                f" The saved {' and '.join(ignored)} were made from another "
+                "registration or other lanes, so they were not loaded: apply them again."
+                if ignored
+                else ""
             )
         )
         if self.registrator is not None:
@@ -728,16 +901,21 @@ class ExtractionDock(QWidget):
         """
         from pymmm import LaneDetector, Registrator, TrenchDetector
 
+        self.lineage = self.store.lineage(self.experiment, self.experiment_group)
         wanted = self._form_registrator()
-        if wanted is None or not wanted.matches_saved():
+        if (
+            wanted is None
+            or not wanted.matches_saved()
+            or not lineage.usable(self.lineage["registration"])
+        ):
             return
         self.registrator = Registrator.load(self.experiment, self.store)
-        if self.store.has_lane_detection():
+        if lineage.usable(self.lineage["lane_detection"]):
             self.lane_detector = LaneDetector.load(
                 self.experiment, self.registrator, self.store
             )
             _select(self.det_channel, self.lane_detector.channel)
-            if self.store.has_trench_detection():
+            if lineage.usable(self.lineage["trench_detection"]):
                 self.trench_detector = TrenchDetector.load(
                     self.experiment, self.registrator, self.lane_detector, self.store
                 )
@@ -883,18 +1061,19 @@ class ExtractionDock(QWidget):
 
     def _on_registration_settings(self) -> None:
         self._refresh_registered()
+        self._enable()
         if self.registrator is not None and not self._settings_match():
             self.reg_status.setText(
                 "The settings differ from the saved registration: the layers show the "
-                "frames only rotated. Register again to use them (the lanes and "
-                "trenches are then redone)."
+                "frames only rotated, and the later steps wait. Register again to use "
+                "them (the lanes and trenches are then redone), or set them back."
             )
         elif self.registrator is not None:
             self.reg_status.setText("Registered with these settings.")
 
     def _on_tab(self, index: int) -> None:
         """Show the overlays of the tab's step."""
-        name = self.tabs.tabText(index)
+        name = self.TAB_NAMES[index]
         shown = {
             "Register": {"roi"},
             "Lanes": {"mean", "lanes"},
@@ -911,7 +1090,7 @@ class ExtractionDock(QWidget):
             self._draw_drift()
 
     def _showing(self, tab: str) -> bool:
-        return self.tabs.tabText(self.tabs.currentIndex()) == tab
+        return self.TAB_NAMES[self.tabs.currentIndex()] == tab
 
     def current_fov(self) -> str | None:
         """The FOV on the P slider."""
@@ -929,7 +1108,7 @@ class ExtractionDock(QWidget):
         if fov == self._last_fov:
             return
         self._last_fov = fov
-        name = self.tabs.tabText(self.tabs.currentIndex())
+        name = self.TAB_NAMES[self.tabs.currentIndex()]
         if name == "Register":
             self._draw_drift()
         elif name == "Lanes":
@@ -1033,6 +1212,7 @@ class ExtractionDock(QWidget):
             self._refresh_registered()
             self._draw_drift()
             self.reg_status.setText("Registered and saved.")
+            self._show_extraction()
             self._say(
                 f"Registered {self.experiment.n_fovs} FOVs; saved to {store.path}. "
                 f"Drift plots: {self._diagnostics('drift')}"
@@ -1082,6 +1262,7 @@ class ExtractionDock(QWidget):
 
     def update_lanes(self) -> None:
         """The candidate lanes of the FOV on the P slider, with the tab's settings."""
+        self._mark_tabs()
         fov = self.current_fov()
         if self.registrator is None or fov is None or not self._showing("Lanes"):
             return
@@ -1192,6 +1373,7 @@ class ExtractionDock(QWidget):
                 "Next: the Trenches tab."
             )
             self._enable()
+            self._show_extraction()
 
         self._say("Detecting the lanes of every FOV…")
         self._run(job, done, "Lane detection")
@@ -1245,6 +1427,7 @@ class ExtractionDock(QWidget):
 
     def update_trenches(self) -> None:
         """The candidate trenches of the FOV on the P slider, with the tab's settings."""
+        self._mark_tabs()
         fov = self.current_fov()
         if self.lane_detector is None or fov is None or not self._showing("Trenches"):
             return
@@ -1311,6 +1494,7 @@ class ExtractionDock(QWidget):
                 "Next: the Preview tab."
             )
             self._enable()
+            self._show_extraction()
 
         self._say("Detecting the trenches of every FOV…")
         self._run(job, done, "Trench detection")
