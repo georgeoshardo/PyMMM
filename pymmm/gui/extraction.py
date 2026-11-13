@@ -21,6 +21,12 @@ dock runs the notebook's step classes and saves the same results. On opening, it
 a saved registration made with its settings, and the lanes and trenches saved after
 it, instead of computing them again.
 
+The steps save their diagnostic figures beside the ND2 as the notebook does (drift,
+lanes, trenches). The View box below the tabs holds what can change at any step: the
+coordinate grid (napari 0.10 and later; on by default, and View → Coordinate Grid
+toggles it too) and the units both viewers show, pixels or µm. The settings are in
+pixels either way.
+
 Run it with ``python -m pymmm.gui <experiment.toml or .nd2>`` (the view extra), or
 open it from napari's Plugins menu.
 """
@@ -35,10 +41,12 @@ from typing import Any
 import numpy as np
 from qtpy.QtCore import QObject, QTimer, Signal
 from qtpy.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -73,6 +81,53 @@ def channel_colormap(name: str) -> str:
         if key in lower:
             return colour
     return "gray"
+
+
+def coordinate_grid(viewer):
+    """The viewer's coordinate grid overlay (napari 0.10 and later), or None."""
+    overlays = getattr(getattr(viewer, "scene", None), "overlays", None)
+    return getattr(overlays, "coordinate_grid", None)
+
+
+def show_coordinate_grid(viewer) -> None:
+    """Turn on the viewer's coordinate grid, in the image's pixels: where trenches,
+    lanes and crops are, to read off for the settings. View → Coordinate Grid turns it
+    off again.
+    """
+    grid = coordinate_grid(viewer)
+    if grid is not None:
+        grid.visible = True
+
+
+def set_units(layers, unit: str, pixel_size_um: float) -> None:
+    """Show ``layers`` in pixels (``"pixel"``) or µm (``"micrometer"``): each layer's
+    last two axes (y, x) scaled by the pixel size, or not. The layers' data, and the
+    shapes drawn on them, stay in pixels.
+    """
+    size = pixel_size_um if unit == "micrometer" else 1.0
+    for layer in layers:
+        lead = layer.ndim - 2
+        layer.scale = (*layer.scale[:lead], size, size)
+        if hasattr(layer, "units"):  # napari 0.6 and later
+            layer.units = (*layer.units[:lead], unit, unit)
+
+
+def keep_view(viewer, layers, unit: str, pixel_size_um: float) -> None:
+    """:func:`set_units`, with the camera kept on the same pixels at the same size on
+    screen: its centre and zoom follow the change of scale.
+    """
+    if not layers:
+        return
+    before = float(layers[0].scale[-1])
+    set_units(layers, unit, pixel_size_um)
+    factor = float(layers[0].scale[-1]) / before
+    if factor == 1:
+        return
+    camera = viewer.camera
+    centre = list(camera.center)
+    centre[-2:] = [centre[-2] * factor, centre[-1] * factor]
+    camera.center = tuple(centre)
+    camera.zoom = camera.zoom / factor
 
 
 # ----------------------------------------------------------------------
@@ -222,9 +277,35 @@ class ExtractionDock(QWidget):
         self.tabs.currentChanged.connect(self._on_tab)
         self.status = QLabel("Open an experiment file.")
         self.status.setWordWrap(True)
+        # what can be changed whichever step is open, below the steps' tabs
+        self.view_box = QGroupBox("View")
+        view_layout = QVBoxLayout(self.view_box)
+        self.grid_box = QCheckBox("coordinate grid")
+        self.units = _combo([("pixels", "pixel"), ("µm", "micrometer")], "pixel")
+        self.units.currentIndexChanged.connect(self._on_units)
+        units_row = QHBoxLayout()
+        units_row.addWidget(QLabel("units"))
+        units_row.addWidget(self.units, 1)
+        view_layout.addWidget(self.grid_box)
+        view_layout.addLayout(units_row)
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs)
+        layout.addWidget(self.view_box)
         layout.addWidget(self.status)
+        grid = coordinate_grid(self.viewer)
+        if grid is None:
+            self.grid_box.hide()  # napari before 0.10
+        else:
+            show_coordinate_grid(self.viewer)
+            self.grid_box.setChecked(grid.visible)
+            self.grid_box.toggled.connect(lambda on: setattr(grid, "visible", on))
+            # View → Coordinate Grid toggles it too
+            # (napari's events pass the new value; older ones an event holding it)
+            grid.events.visible.connect(
+                lambda value: self.grid_box.setChecked(
+                    bool(getattr(value, "value", value))
+                )
+            )
         self._enable()
 
     def _experiment_tab(self) -> QWidget:
@@ -717,6 +798,7 @@ class ExtractionDock(QWidget):
             name="trenches", edge_color="red", visible=False, **shapes
         )
         self.viewer.dims.axis_labels = RAW_AXES
+        set_units(self._layers.values(), self.units.currentData(), exp.pixel_size_um)
         self.viewer.layers.selection.active = self._layers[f"registered {detection}"]
         self._refresh_registered()
         self._on_tab(self.tabs.currentIndex())
@@ -937,7 +1019,7 @@ class ExtractionDock(QWidget):
         def job():
             store.clear("registration", "lane_detection", "trench_detection")
             registrator.compute_tmats(
-                plot=False,
+                save_diagnostics=True,
                 n_jobs=workers,
                 progress=progress.changed.emit,
                 cancel=cancel,
@@ -952,7 +1034,8 @@ class ExtractionDock(QWidget):
             self._draw_drift()
             self.reg_status.setText("Registered and saved.")
             self._say(
-                f"Registered {self.experiment.n_fovs} FOVs; saved to {store.path}."
+                f"Registered {self.experiment.n_fovs} FOVs; saved to {store.path}. "
+                f"Drift plots: {self._diagnostics('drift')}"
             )
             self._enable()
 
@@ -1085,9 +1168,9 @@ class ExtractionDock(QWidget):
 
         def job():
             if edge is None:
-                detector.detect_lanes(**settings, save_diagnostics=False)
+                detector.detect_lanes(**settings, save_diagnostics=True)
             else:
-                detector.use_image_edge(edge, save_diagnostics=False)
+                detector.use_image_edge(edge, save_diagnostics=True)
             store.clear("lane_detection", "trench_detection")
             detector.save()
             return detector
@@ -1104,7 +1187,10 @@ class ExtractionDock(QWidget):
                 f"<b>Saved</b>: {total} lanes across {len(result.lanes)} FOVs"
             )
             self._lane_note()
-            self._say("Lanes saved. Next: the Trenches tab.")
+            self._say(
+                f"Lanes saved; overlays in {self._diagnostics('lanes')}. "
+                "Next: the Trenches tab."
+            )
             self._enable()
 
         self._say("Detecting the lanes of every FOV…")
@@ -1210,7 +1296,7 @@ class ExtractionDock(QWidget):
         settings = self._trench_settings()
 
         def job():
-            detector.detect_trenches(**settings, save_diagnostics=False)
+            detector.detect_trenches(**settings, save_diagnostics=True)
             detector.save()
             return detector
 
@@ -1220,11 +1306,32 @@ class ExtractionDock(QWidget):
                 f"<b>Saved</b>: {result.n_trenches} trenches across "
                 f"{len(result.trenches)} FOVs"
             )
-            self._say("Trenches saved. Next: the Preview tab.")
+            self._say(
+                f"Trenches saved; overlays in {self._diagnostics('trenches')}. "
+                "Next: the Preview tab."
+            )
             self._enable()
 
         self._say("Detecting the trenches of every FOV…")
         self._run(job, done, "Trench detection")
+
+    def _on_units(self) -> None:
+        """Show both viewers in the chosen units (the settings stay in pixels)."""
+        if self.experiment is None:
+            return
+        unit, size = self.units.currentData(), self.experiment.pixel_size_um
+        keep_view(self.viewer, list(self._layers.values()), unit, size)
+        preview = self.preview_viewer
+        if preview is not None and len(preview.layers):
+            keep_view(preview, list(preview.layers), unit, size)
+
+    def _diagnostics(self, kind: str) -> Path:
+        """Where the steps save their diagnostic figures: beside the ND2, as from
+        the notebook.
+        """
+        from pymmm._utils import get_diagnostics_dir
+
+        return get_diagnostics_dir(self.experiment.path, kind)
 
     def _show_mean(self, image: np.ndarray) -> None:
         layer = self._layers["mean"]
@@ -1275,7 +1382,9 @@ class ExtractionDock(QWidget):
                 },
             )
         viewer.layers.selection.active = viewer.layers[detection]
+        set_units(viewer.layers, self.units.currentData(), exp.pixel_size_um)
         show_position(viewer)
+        show_coordinate_grid(viewer)
         self.preview_viewer = viewer
         n = len(self.trench_detector.get_trench_table())
         self.preview_info.setText(

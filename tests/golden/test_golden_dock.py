@@ -9,6 +9,7 @@ Qt draws offscreen.
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 
@@ -28,12 +29,20 @@ pytestmark = [
 ]
 
 
+SLOT_ERRORS: list[BaseException] = []
+
+
 @pytest.fixture(scope="module")
 def qapp():
+    """Qt, offscreen. An exception in a Qt slot is kept and raised by :func:`_wait`
+    (by default PyQt aborts the process on one)."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from qtpy.QtWidgets import QApplication
 
-    return QApplication.instance() or QApplication([])
+    previous = sys.excepthook
+    sys.excepthook = lambda kind, error, trace: SLOT_ERRORS.append(error)
+    yield QApplication.instance() or QApplication([])
+    sys.excepthook = previous
 
 
 def _wait(qapp, done, timeout: float = 300) -> None:
@@ -41,8 +50,18 @@ def _wait(qapp, done, timeout: float = 300) -> None:
     while not done():
         qapp.processEvents()
         time.sleep(0.01)
+        if SLOT_ERRORS:
+            raise SLOT_ERRORS.pop()
         assert time.time() - start < timeout, "timed out"
     qapp.processEvents()
+    if SLOT_ERRORS:
+        raise SLOT_ERRORS.pop()
+
+
+def coordinate_grid(viewer):
+    from pymmm.gui.extraction import coordinate_grid
+
+    return coordinate_grid(viewer)
 
 
 def _dock(qapp, nd2):
@@ -76,6 +95,13 @@ def test_dock_reproduces_the_golden_detection_and_preview(
         "PC (rotated, not registered)",
     ]
     assert viewer.dims.axis_labels == ("T", "P", "y", "x")
+    grid = coordinate_grid(viewer)
+    if grid is not None:  # napari 0.10 and later: on, and the dock's box turns it off
+        assert grid.visible and dock.grid_box.isChecked()
+        dock.grid_box.setChecked(False)
+        assert not grid.visible
+        grid.visible = True  # View → Coordinate Grid
+        assert dock.grid_box.isChecked()
 
     # Register, in a process pool
     _choose(dock.reg_channel, REGISTRATION["registration_channel"])
@@ -91,6 +117,10 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     dock.register_button.click()
     _wait(qapp, lambda: dock._worker is None)
     check("registration_first", registration_summary(dock.registrator))
+    diagnostics = nd2.parent / f"{nd2.stem}_diagnostics"
+    assert sorted(p.name for p in (diagnostics / "drift").iterdir()) == [
+        f"drift_{fov}.png" for fov in FOVS
+    ]
     assert dock.reg_progress.value() == len(FOVS)
     sizes = pipeline.exp.data.sizes
     assert viewer.layers["PC"].data.shape == (10, 2, sizes["Y"], sizes["X"])
@@ -114,6 +144,9 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     dock.lane_apply.click()
     _wait(qapp, lambda: dock._worker is None)
     check("lanes", lanes_summary(dock.lane_detector))
+    assert {p.name for p in (diagnostics / "lanes").iterdir()} == {
+        f"lanes_{fov}.png" for fov in FOVS
+    }
 
     # Trenches
     dock.tabs.setCurrentIndex(3)
@@ -133,6 +166,9 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     dock.trench_apply.click()
     _wait(qapp, lambda: dock._worker is None)
     check("trenches", trenches_summary(dock.trench_detector))
+    assert {p.name for p in (diagnostics / "trenches").iterdir()} == {
+        f"trenches_{fov}.png" for fov in FOVS
+    }
 
     # Preview: the trench images extract() wrote
     from napari.components import ViewerModel
@@ -143,6 +179,8 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     dock.tabs.setCurrentIndex(4)
     dock.preview_button.click()
     assert dock.preview_viewer.title.endswith("trench preview")
+    if coordinate_grid(dock.preview_viewer) is not None:
+        assert coordinate_grid(dock.preview_viewer).visible
     preview = dock.open_preview(ViewerModel())
     assert preview.dims.axis_labels == ("trench", "t", "y", "x")
     root = zarr.open_group(str(pipeline.group), mode="r")
@@ -153,6 +191,22 @@ def test_dock_reproduces_the_golden_detection_and_preview(
         np.testing.assert_array_equal(
             layer.data[k], root[f"trench_{trench:04d}/0"][:, 1]
         )
+
+    # Units: µm scales the y and x of every layer of both viewers, shapes too
+    size = pipeline.exp.pixel_size_um
+    viewer.camera.center, viewer.camera.zoom = (0.0, 300.0, 1000.0), 2.0
+    dock.units.setCurrentIndex(dock.units.findData("micrometer"))
+    # the view stays on the same pixels, at the same size on screen
+    np.testing.assert_allclose(viewer.camera.center[-2:], (300 * size, 1000 * size))
+    np.testing.assert_allclose(viewer.camera.zoom, 2.0 / size)
+    assert tuple(viewer.layers["PC"].scale) == (1, 1, size, size)
+    assert tuple(viewer.layers["trenches"].scale) == (size, size)
+    assert tuple(dock.preview_viewer.layers["PC"].scale) == (1, 1, size, size)
+    assert tuple(viewer.layers["PC"].units)[-1] == "micrometer"
+    dock.units.setCurrentIndex(dock.units.findData("pixel"))
+    assert tuple(viewer.layers["trenches"].scale) == (1, 1)
+    np.testing.assert_allclose(viewer.camera.center[-2:], (300, 1000))
+    np.testing.assert_allclose(viewer.camera.zoom, 2.0)
 
     # Reopened, the dock loads all three and fills its tabs from them
     viewer2, dock2 = _dock(qapp, nd2)
