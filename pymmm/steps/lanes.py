@@ -12,7 +12,7 @@ import pandas as pd
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 
-from pymmm._utils import normalize_channel_arg, normalize_fov_arg
+from pymmm._utils import mean_without_fill, normalize_channel_arg, normalize_fov_arg
 from pymmm.source.nd2 import ND2Experiment
 from pymmm.steps.registration import Registrator
 from pymmm.store import lineage
@@ -119,8 +119,8 @@ class LaneDetector:
         pixel_size = self.experiment.pixel_size_um
         window_px = max(1, round(orientation_window_um / pixel_size))
 
-        # 1D y-profile: average along X
-        y_profile = mean_img.mean(axis=1)
+        # 1D y-profile: average along X, without the warp's zero fill
+        y_profile = mean_without_fill(mean_img, axis=1)
 
         # Gaussian smoothing
         if sigma > 0:

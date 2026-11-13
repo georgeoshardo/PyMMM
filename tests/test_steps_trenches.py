@@ -174,3 +174,45 @@ def test_detected_lanes_keep_the_trench_shape_defaults():
         "trench_length": 160,
         "trench_bottom_offset": 50,
     }
+
+
+def _trench_rows_detector(lane_y: int, orientation: int) -> TrenchDetector:
+    experiment = SimpleNamespace(channel_names=["PC"], fov_names=["f0"])
+    lane_detector = SimpleNamespace(
+        lanes={"f0": [LaneInfo(lane_y, orientation, "f0", 0)]}, image_edge=None
+    )
+    return TrenchDetector(experiment, None, lane_detector, object(), "PC")
+
+
+def test_the_zero_fill_of_a_rotation_is_left_out_of_the_profile():
+    """A rotated frame's empty corner (zeros) reads as no image, not as dark pixels,
+    so the profile is the one the image would give without it."""
+    image = np.full((200, 400), 1000.0)
+    for x in range(20, 400, 40):
+        image[:, x : x + 8] = 2000.0  # a trench every 40 px
+    corner = image.copy()
+    rows, cols = np.indices(corner.shape)
+    corner[rows < 60 - cols // 3] = 0  # a wedge, as a rotation leaves at the top
+    detector = _trench_rows_detector(lane_y=180, orientation=1)
+    settings = {
+        "sigma": 2,
+        "distance": 1,
+        "prominence": 0,
+        "height": 0,
+        "trench_width": 20,
+        "trench_length": 160,
+        "trench_bottom_offset": 10,
+        "method": "periodic",
+    }
+    plain = detector.detect_fov(image, "f0", **settings)
+    wedged = detector.detect_fov(corner, "f0", **settings)
+    np.testing.assert_allclose(wedged[1][0]["profile"], plain[1][0]["profile"])
+    assert wedged[1][0]["pitch"] == pytest.approx(40, abs=0.5)
+    assert len(wedged[0]) == len(plain[0]) == 10
+
+
+def test_a_line_with_no_image_takes_its_neighbours_value():
+    from pymmm._utils import mean_without_fill
+
+    image = np.array([[0.0, 4.0, 6.0], [0.0, 2.0, 0.0]])
+    np.testing.assert_allclose(mean_without_fill(image, axis=0), [3.0, 3.0, 6.0])

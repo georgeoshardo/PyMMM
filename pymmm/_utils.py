@@ -6,7 +6,28 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import xarray as xr
+
+
+def mean_without_fill(image: np.ndarray, axis: int) -> np.ndarray:
+    """The mean of ``image`` along ``axis``, leaving out its zero pixels: the fill a
+    warp leaves where it has no image (the corners a rotation opens, the edge drift
+    moves in). A line with no image at all takes the value of the nearest one with
+    some, so the profile has no gaps.
+    """
+    image = np.asarray(image, dtype=float)
+    data = image != 0
+    counts = data.sum(axis=axis)
+    profile = np.zeros(counts.shape)
+    np.divide(
+        np.where(data, image, 0).sum(axis=axis), counts, out=profile, where=counts > 0
+    )
+    valid = counts > 0
+    if valid.any() and not valid.all():
+        lines = np.arange(len(profile))
+        profile[~valid] = np.interp(lines[~valid], lines[valid], profile[valid])
+    return profile
 
 
 def get_diagnostics_dir(experiment_path: Path, kind: str | None = None) -> Path:

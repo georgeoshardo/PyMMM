@@ -13,7 +13,7 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import convolve, find_peaks
 from scipy.stats import theilslopes
 
-from pymmm._utils import normalize_channel_arg, normalize_fov_arg
+from pymmm._utils import mean_without_fill, normalize_channel_arg, normalize_fov_arg
 from pymmm.source.nd2 import ND2Experiment
 from pymmm.steps.lanes import LaneDetector
 from pymmm.steps.registration import Registrator
@@ -354,11 +354,13 @@ class TrenchDetector:
                 needs_flip = True
 
             # Profile over the trench bodies only: the rows that will be
-            # cropped, not the feeding channel or the far side of the lane.
+            # cropped, not the feeding channel or the far side of the lane; and
+            # not the zero fill where the registered frame has no image (the
+            # corners a rotation opens), whose edges would read as structure.
             profile_rows = mean_img[max(0, y_top) : min(img_height, y_bottom), :]
             if profile_rows.shape[0] == 0:
                 continue
-            x_profile = profile_rows.mean(axis=0)
+            x_profile = mean_without_fill(profile_rows, axis=0)
 
             if lane_sigma > 0:
                 x_profile_smooth = gaussian_filter1d(x_profile, lane_sigma)

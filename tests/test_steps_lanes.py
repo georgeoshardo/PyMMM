@@ -13,8 +13,9 @@ from fake_experiment import FOV_H, fov_experiment
 
 
 def test_lane_orientation_can_be_forced():
-    # Brighter below the lane, so "auto" infers trenches below (open up, -1).
-    image = np.zeros((200, 10))
+    # Brighter below the lane, so "auto" infers trenches below (open up, -1). The
+    # background is not 0: zero pixels are a warp's fill, left out of the profile.
+    image = np.ones((200, 10))
     image[95:105] = 10.0
     image[105:150] = 2.0
     experiment = SimpleNamespace(pixel_size_um=1.0, channel_names=["PC"])
