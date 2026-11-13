@@ -5,7 +5,7 @@ ND2 to one OME-Zarr image per trench, for mother-machine time-lapses::
     pymmm.source    the ND2 and its metadata
     pymmm.store     the stores PyMMM writes: the experiment group, its OME and GEFF
                     metadata, the companion checkpoints, provenance
-    pymmm.steps     registration, lanes, trenches, extraction, segmentation
+    pymmm.steps     registration, lanes, trenches, extraction, segmentation, tracking
 
 The step classes and the companion store are importable from ``pymmm`` itself. They
 are imported when first used, so ``pymmm.store`` alone needs only numpy and zarr.
@@ -23,6 +23,7 @@ _PUBLIC = {
     "TrenchDetector": "pymmm.steps.trenches",
     "Extractor": "pymmm.steps.extraction",
     "Segmenter": "pymmm.steps.segmentation",
+    "Tracker": "pymmm.steps.tracking",
     "CompanionStore": "pymmm.store.companion",
 }
 
@@ -34,6 +35,7 @@ if TYPE_CHECKING:  # for type checkers and editors; at run time __getattr__ impo
     from pymmm.steps.lanes import LaneDetector  # noqa: F401
     from pymmm.steps.registration import Registrator  # noqa: F401
     from pymmm.steps.segmentation import Segmenter  # noqa: F401
+    from pymmm.steps.tracking import Tracker  # noqa: F401
     from pymmm.steps.trenches import TrenchDetector  # noqa: F401
     from pymmm.store.companion import CompanionStore  # noqa: F401
 

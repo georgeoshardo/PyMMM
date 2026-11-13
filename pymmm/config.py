@@ -32,7 +32,9 @@ trench, with each trench's segmentations and tracks beside its pixels (see
 reads; an experiment group made some other way (imported from another tool's
 trenches, say) has none, and leaves it out. Relative paths (``models`` too) are
 relative to the TOML file's folder. ``experiment.segmenter()`` builds the Segmenter from it;
-``params`` are the base settings of a new segmentation.
+``params`` are the base settings of a new segmentation. ``experiment.tracker(chaintrack)``
+builds the Tracker of that segmentation; tracking has no settings in the file (its
+constants are chaintrack's recipe, frozen in the group when the experiment is fitted).
 """
 
 from __future__ import annotations
@@ -44,6 +46,7 @@ from typing import TYPE_CHECKING, Any, Dict, Union
 
 if TYPE_CHECKING:
     from pymmm.steps.segmentation import Segmenter
+    from pymmm.steps.tracking import Tracker
 
 _PATH_KEYS = ("store", "nd2")
 _REQUIRED = ("name", "store")
@@ -108,3 +111,10 @@ class Experiment:
                 models = self.source.parent / models
             kwargs["models"] = models.resolve()
         return Segmenter(self.store, **{**kwargs, **overrides})
+
+    def tracker(self, chaintrack: Union[str, Path], **overrides: Any) -> "Tracker":
+        """A :class:`~pymmm.steps.tracking.Tracker` of the experiment's segmentation,
+        running the chaintrack at ``chaintrack`` (its ``chain.py``)."""
+        from pymmm.steps.tracking import Tracker
+
+        return Tracker(self.store, self.segmentation_name, chaintrack, **overrides)

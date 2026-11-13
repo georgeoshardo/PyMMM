@@ -73,13 +73,19 @@ After extraction:
   in this process. A Dask worker on another machine needs only the environment and
   PyMMM: each task carries a trench's frames and returns its labels, the checkpoints go
   to each worker once, and the notebook alone writes the experiment group.
-- A tracker writes each trench's tracks with `pymmm.store.geff.write_tracks`: the
-  masks it chose and a GEFF graph.
+- `Tracker(path, segmentation, chaintrack=".../chain.py")` tracks every trench with
+  chaintrack, a program kept outside PyMMM: `fit(trenches, recipe)` measures the
+  experiment's own growth, division length and noise once and records them in the group,
+  and `track()` writes each trench's tracks, a GEFF graph and the masks it chose
+  (`pymmm.store.geff.write_tracks`). `track()` resumes with the trenches not tracked
+  yet, and `plot(trench)` draws a trench's kymograph with its tracks. chaintrack tracks
+  several trenches at once in its own processes, not through a Dask cluster.
 - mm-track curates the tracks in a curated copy beside them.
 
 `pymmm.config.Experiment` reads an experiment file (TOML) naming the ND2, the experiment
 group and the segmentation settings, so every notebook of the pipeline starts from the
-same file.
+same file. `experiment.segmenter()` and `experiment.tracker(chaintrack)` build the two
+steps from it.
 
 ## Reading an experiment group
 
@@ -118,6 +124,7 @@ choice" box remembers that one folder.
 | `steps.lanes`, `steps.trenches` | `LaneDetector`, `TrenchDetector`: lane and trench geometry |
 | `steps.extraction` | `Extractor`: writes the experiment group |
 | `steps.segmentation` | `Segmenter`: Omnipose labels per hypothesis |
+| `steps.tracking` | `Tracker`: runs chaintrack on the experiment group (fit, track, resume, kymograph) |
 | `steps.omnipose` | loading Omnipose models (stock or checkpoint files) and building masks by affinity |
 | `widgets` | the notebook UIs the steps open: lane, trench and segmentation tuning, the label viewer |
 | `parallel` | where batches run: the active Dask client, a process pool, or this process; `local_cluster`, a notebook's Dask cluster, whose workers outlive the Interrupt button (it then drops the queued batches) |

@@ -1,1 +1,1 @@
-"""The pipeline's steps: registration, lanes, trenches, extraction and segmentation."""
+"""The pipeline's steps: registration, lanes, trenches, extraction, segmentation and tracking."""

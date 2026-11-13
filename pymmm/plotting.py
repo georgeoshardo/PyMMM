@@ -342,3 +342,111 @@ def plot_trench_preview(
     if save_path:
         plt.savefig(save_path)
     plt.show()
+
+
+def plot_track_kymograph(
+    store_path,
+    trench_id: int,
+    run: str,
+    channel: str = "PC",
+    minutes: Optional[float] = None,
+    save_path: Optional[str] = None,
+    show: bool = True,
+) -> None:
+    """One trench's kymograph beside the same kymograph with a tracking run's tracks.
+
+    Each column is one frame: the image along the trench's centre line (the mean of the
+    7 columns around it). Over it, each cell's mask on that line, coloured by its
+    tracklet, so a band that keeps its colour is one cell from birth to division.
+    Marked from the graph: divisions (white tick), tracks that end above the bottom
+    before the last frame (red cross: a lysis, or a lost cell) and tracks that start
+    with no parent after the first frame (yellow triangle: there should be none).
+
+    Parameters
+    ----------
+    store_path : str | Path
+        Experiment group.
+    trench_id : int
+        The trench.
+    run : str
+        Tracking run: ``tracks/<run>.geff`` and ``labels/tracks.<run>`` of the trench.
+    channel : str
+        Channel of the kymograph.
+    minutes : float | None
+        Show only the first ``minutes``; ``None``: every frame.
+    """
+    import zarr
+    from matplotlib.colors import hsv_to_rgb
+    from scipy import ndimage
+
+    from pymmm.store.experiment_group import calibration, channel_index, image, open_experiment, trench_path
+
+    root = open_experiment(store_path)
+    px, dt = calibration(root)
+    base = f"{root.store.root}/{trench_path(trench_id)}"
+    pixels = np.asarray(image(root, trench_id)[:, channel_index(root, channel)]).astype(float)
+    masks = np.asarray(zarr.open_array(f"{base}/labels/tracks.{run}/0", mode="r")[:])
+    graph = zarr.open_group(f"{base}/tracks/{run}.geff", mode="r")
+    t, seg, track, y = (np.asarray(graph[f"nodes/props/{k}/values"][:]) for k in ("t", "seg_id", "track_id", "y"))
+    position = {int(i): k for k, i in enumerate(np.asarray(graph["nodes/ids"][:]))}
+    edges = [(position[int(a)], position[int(b)]) for a, b in np.asarray(graph["edges/ids"][:]).reshape(-1, 2)]
+    T, H, W = masks.shape
+
+    centre = int(np.median(np.nonzero(masks)[2])) if masks.any() else W // 2
+    kymo = pixels[:, :, max(centre - 3, 0):centre + 4].mean(2).T          # (y, t)
+    lo, hi = np.percentile(kymo, [1, 99.5])
+    kymo = np.clip((kymo - lo) / max(hi - lo, 1e-9), 0, 1)
+
+    # a hue per tracklet, stepped by the golden ratio so that neighbouring numbers differ
+    hues = (np.arange(64) * 0.61803398875) % 1
+    colours = hsv_to_rgb(np.c_[hues, np.full(64, 0.78), np.full(64, 0.95)])
+    line = masks[:, :, max(centre - 3, 0):centre + 4].max(2)              # (t, y): the mask on the centre line
+    tracklet = {(int(a), int(b)): int(c) for a, b, c in zip(t, seg, track)}
+    bands = np.zeros((H, T, 4))
+    rows = {}
+    for frame in range(T):
+        for value in np.unique(line[frame][line[frame] > 0]):
+            k = tracklet.get((frame, int(value)))
+            if k is not None:
+                bands[line[frame] == value, frame, :3] = colours[k % 64]
+                bands[line[frame] == value, frame, 3] = 0.55
+        for value, where in enumerate(ndimage.find_objects(masks[frame]), start=1):
+            if where is not None:
+                rows[(frame, value)] = (where[0].start, where[0].stop - 1)
+    children, parents = np.zeros(len(t), int), np.zeros(len(t), int)
+    for a, b in edges:
+        children[a] += 1
+        parents[b] += 1
+    lowest = np.zeros(T, int)
+    for (frame, _), (_, bottom) in rows.items():
+        lowest[frame] = max(lowest[frame], bottom)
+    end = int(np.median(lowest[lowest > 0])) if (lowest > 0).any() else H    # where the masks stop
+    cell = float(np.median([b - a + 1 for a, b in rows.values()])) if rows else 0.0
+    nodes = range(len(t))
+    divisions = [k for k in nodes if children[k] == 2]
+    ends = [k for k in nodes if children[k] == 0 and t[k] < T - 1
+            and rows[(int(t[k]), int(seg[k]))][1] < end - 1.5 * cell]
+    starts = [k for k in nodes if parents[k] == 0 and t[k] > t.min()]
+
+    extent = (0, T * dt, H * px, 0)
+    fig, axes = plt.subplots(1, 2, figsize=(13, 8), constrained_layout=True, sharey=True)
+    for ax in axes:
+        ax.imshow(kymo, cmap="gray", aspect="auto", extent=extent, interpolation="nearest")
+        ax.set_xlabel("time (min)")
+        if minutes is not None:
+            ax.set_xlim(0, minutes)
+    axes[0].set_ylabel("distance from the closed end (µm)")
+    axes[0].set_title(channel, loc="left")
+    axes[1].imshow(bands, aspect="auto", extent=extent, interpolation="nearest")
+    for which, marker, colour, size in ((divisions, "_", "white", 26), (ends, "X", "#e5202a", 70),
+                                        (starts, "^", "#f2c500", 60)):
+        if which:
+            tick = marker == "_"
+            axes[1].scatter((t[which] + 0.5) * dt, y[which] * px, marker=marker, s=size, c=colour,
+                            edgecolors=None if tick else "black", linewidths=1.2 if tick else 0.6, zorder=5)
+    axes[1].set_title(f"{run}: {len(divisions)} divisions, {len(ends)} tracks end above the bottom, "
+                      f"{len(starts)} start with no parent", loc="left")
+    fig.suptitle(f"trench {trench_id}: a band of one colour is one cell from birth to division.  White tick: division.  "
+                 "Red cross: ends above the bottom.  Yellow triangle: starts with no parent.",
+                 x=0.01, ha="left", fontsize=9)
+    _finish(fig, save_path, show)
