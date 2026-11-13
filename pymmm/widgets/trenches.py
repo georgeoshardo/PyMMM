@@ -292,6 +292,12 @@ def trench_widget(detector: TrenchDetector) -> None:
                 for p in lane_profiles
                 if "outside" in p
             )
+            + (
+                "<br>Spacing: this FOV's own estimate; Apply estimates it across all "
+                "FOVs"
+                if method_select.value == "periodic" and not pitch_slider.value
+                else ""
+            )
         )
 
         with output:

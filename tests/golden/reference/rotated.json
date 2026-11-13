@@ -154,7 +154,7 @@
     "zarr_json_sha256": "4e48d132272e9dd7b5242fe946904a0df82e4318e8ceec91ef85a799f1d2d550"
    },
    "detection": {
-    "zarr_json_sha256": "9875ba6169db813f7ac5a5686a456dc7b42989df1ab533e57da4541fb4009766"
+    "zarr_json_sha256": "f454207a701b1774fd82713c88c3f34ac07ea4b2af987ff15fd89befb5e435d0"
    },
    "events": {
     "zarr_json_sha256": "e458bc25781ef9b455a9b17b4978444bd2be91f593fb9c090aa13a9665c82fc8"
@@ -1115,6 +1115,7 @@
   "params": {
    "distance": 100.0,
    "expected_pitch": 0.0,
+   "experiment_pitch": 154.21342701990795,
    "height": 0,
    "lane_params": {},
    "mean_from": "end",

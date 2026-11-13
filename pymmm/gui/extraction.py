@@ -279,6 +279,8 @@ class ExtractionDock(QWidget):
         self._worker = None
         self._cancel: threading.Event | None = None
         self._mean_jobs: set[tuple[str, str]] = set()
+        self._pitch_job = None  # the detection images being computed for the pitch
+        self._pitches: dict[tuple, float | None] = {}  # experiment pitch by settings
         self._opened_file: Path | None = None
         self._opened_fields: tuple[str, ...] | None = None
         self._legacy_mean = dict(DETECTION_MEAN)
@@ -1508,6 +1510,20 @@ class ExtractionDock(QWidget):
         self._show_mean(image)
         detector = self._trench_detector()
         settings = self._trench_settings()
+        pitch_note = ""
+        if settings["method"] == "periodic" and not settings["expected_pitch"]:
+            pitch = self._experiment_pitch(detector, settings)
+            if pitch is None:
+                pitch_note = (
+                    "<br>Spacing: this FOV's own estimate, while the experiment's is "
+                    "estimated from every FOV"
+                )
+            else:
+                settings = {**settings, "expected_pitch": pitch}
+                pitch_note = (
+                    f"<br>Spacing {pitch:.1f} px, estimated across all "
+                    f"{self.experiment.n_fovs} FOVs (as Apply does)"
+                )
         trenches, profiles, _ = detector.detect_fov(image, fov, **settings)
         boxes = [
             np.array([[t.y_top, t.x_left], [t.y_bottom, t.x_right]]) for t in trenches
@@ -1538,8 +1554,57 @@ class ExtractionDock(QWidget):
         self.trench_status.setText(
             f"<b>{fov}</b>: {n} trench{'es' if n != 1 else ''}"
             + "".join(f"<br>No trenches kept for the {note}" for note in outside)
+            + pitch_note
         )
         self._say("Move the P slider to check other FOVs, then apply.")
+
+    def _experiment_pitch(self, detector, settings: dict[str, Any]) -> float | None:
+        """The trench spacing across every FOV, as Apply finds it, for the preview
+        (:meth:`TrenchDetector.experiment_pitch`). It needs every FOV's detection
+        image: the first time, they are computed in the background and the preview
+        redrawn when they are in; None meanwhile.
+        """
+        registrator, channel = self.registrator, self.det_channel.currentData()
+        mean = self._trench_mean()
+        frames = tuple(mean_frames(self.experiment.n_timepoints, **mean))
+        fovs = self.experiment.fov_names
+        cache = registrator._registered_mean_cache
+        keys = [(fov, channel, frames) for fov in fovs]
+        if not all(key in cache for key in keys):
+            job = (registrator, channel, frames)
+            if self._pitch_job != job:
+                from napari.qt.threading import create_worker
+
+                self._pitch_job = job
+                worker = create_worker(
+                    registrator.compute_registered_means, fovs, channel, **mean
+                )
+                worker.returned.connect(lambda _: self._trench_timer.start())
+                worker.finished.connect(lambda: setattr(self, "_pitch_job", None))
+                worker.start()
+                self._say(
+                    f"Computing the detection images of all {len(fovs)} FOVs, to "
+                    "estimate the trench spacing across the experiment…"
+                )
+            return None
+        shape = (
+            settings["sigma"],
+            settings["trench_width"],
+            settings["trench_length"],
+            settings["trench_bottom_offset"],
+            repr(settings["lane_params"]),
+        )
+        key = (registrator, channel, frames, shape)
+        if key not in self._pitches:
+            self._pitches[key] = detector.experiment_pitch(
+                {fov: cache[k] for fov, k in zip(fovs, keys)},
+                settings["sigma"],
+                settings["trench_width"],
+                settings["trench_length"],
+                settings["trench_bottom_offset"],
+                lane_params=settings["lane_params"],
+            )
+        return self._pitches[key]
 
     def apply_trenches(self) -> None:
         """Detect the trenches of every FOV with the tab's settings and save them."""

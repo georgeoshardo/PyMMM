@@ -274,6 +274,18 @@ def _trench_profile(n_trenches=12, pitch=40, width=8, bright_every=1):
     return profile
 
 
+def test_the_experiment_pitch_holds_where_one_fov_alone_shows_twice_it():
+    from pymmm.steps.trenches import common_pitch, estimate_pitch
+
+    alternating = _trench_profile(bright_every=2)
+    assert estimate_pitch(alternating, 8, len(alternating) / 2, 8) == pytest.approx(
+        80, abs=1
+    )
+    profiles = [alternating] + [_trench_profile() for _ in range(5)]
+    assert common_pitch(profiles, 8) == pytest.approx(40, abs=1)
+    assert common_pitch([np.ones(10)], 8) is None  # too short to tell
+
+
 def test_one_artefact_far_more_symmetric_than_any_trench_does_not_hide_them():
     from pymmm.steps.trenches import periodic_trench_centres
 

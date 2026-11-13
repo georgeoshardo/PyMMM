@@ -579,6 +579,7 @@
      "channel": "PC",
      "distance": 100.0,
      "expected_pitch": 0.0,
+     "experiment_pitch": 154.52601641411192,
      "height": 0,
      "lane_params": {},
      "mean_from": "end",

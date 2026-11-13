@@ -19,6 +19,6 @@
    "shape": [2, 1560, 2304],
    "sum": 18654363961.54785
   },
-  "text": "<b>XYPos:2</b> \u2014 14 candidate trenches"
+  "text": "<b>XYPos:2</b> \u2014 14 candidate trenches<br>Spacing: this FOV's own estimate; Apply estimates it across all FOVs"
  }
 }

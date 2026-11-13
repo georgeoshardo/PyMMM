@@ -70,11 +70,26 @@ def estimate_pitch(
     say, every other trench holds cells), so the strongest alone can be a
     multiple. The lag is refined to sub-pixel precision with a parabola.
     """
+    return _strongest_spacing(
+        _structure_autocorrelation(profile, feature_scale), min_pitch, max_pitch
+    )
+
+
+def _structure_autocorrelation(profile: np.ndarray, feature_scale: float) -> np.ndarray:
+    """The autocorrelation of a profile's structure envelope (:func:`estimate_pitch`),
+    1 at lag 0.
+    """
     detail = profile - gaussian_filter1d(profile, max(feature_scale, 1))
     envelope = gaussian_filter1d(np.abs(detail), 3)
     centred = envelope - envelope.mean()
     autocorr = np.correlate(centred, centred, "full")[len(centred) - 1 :]
-    autocorr = autocorr / autocorr[0] if autocorr[0] > 0 else autocorr
+    return autocorr / autocorr[0] if autocorr[0] > 0 else autocorr
+
+
+def _strongest_spacing(
+    autocorr: np.ndarray, min_pitch: float, max_pitch: float
+) -> float:
+    """The pitch an autocorrelation shows (:func:`estimate_pitch`)."""
     lo = max(1, int(np.floor(min_pitch)))
     hi = min(len(autocorr) - 1, int(np.ceil(max_pitch)) + 1)
     if hi - lo < 1:
@@ -93,6 +108,24 @@ def estimate_pitch(
         if denominator != 0:
             return float(lag + 0.5 * (a - c) / denominator)
     return float(lag)
+
+
+def common_pitch(profiles: Sequence[np.ndarray], trench_width: int) -> float | None:
+    """One trench spacing for many lanes' x-profiles. The chip's trenches are spaced
+    the same in every FOV, but a FOV whose trenches look alike two by two (cells in
+    every other one) can show twice the spacing on its own. Their structure
+    autocorrelations (:func:`estimate_pitch`) are averaged, then read as for one
+    profile, searching from ``trench_width`` to half a profile. None when no profile
+    is long enough (three trench widths).
+    """
+    long_enough = [p for p in profiles if len(p) >= 3 * max(trench_width, 3)]
+    if not long_enough:
+        return None
+    n = min(len(p) for p in long_enough)
+    autocorr = np.mean(
+        [_structure_autocorrelation(p[:n], trench_width) for p in long_enough], axis=0
+    )
+    return _strongest_spacing(autocorr, max(trench_width, 3), n / 2)
 
 
 def mirror_symmetry(profile: np.ndarray, half_window: int) -> np.ndarray:
@@ -237,6 +270,42 @@ def periodic_trench_centres(
             )
     centres = centres[np.asarray(keep, dtype=bool)]
     return {"centres": centres, "symmetry": symmetry, "pitch": float(slope)}
+
+
+def _box_rows(
+    lane_y: int, orientation: int, offset: int, length: int
+) -> tuple[int, int, bool]:
+    """A lane's trench boxes: their rows (``y_top``, ``y_bottom``, half-open) and
+    whether the crop is flipped (trenches below the lane, opening up).
+    """
+    if orientation == 1:
+        return lane_y - offset - length, lane_y - offset, False
+    return lane_y + offset, lane_y + offset + length, True
+
+
+def _lane_profile(
+    mean_img: np.ndarray,
+    y_top: int,
+    y_bottom: int,
+    sigma: float,
+    conv_filter: np.ndarray | None = None,
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """A lane's x-profile and its smoothed copy; ``(None, None)`` when no row of its
+    boxes is in the image.
+
+    The profile is over the trench bodies only: the rows that will be cropped, not
+    the feeding channel or the far side of the lane; and not the zero fill where
+    the registered frame has no image (the corners a rotation opens), whose edges
+    would read as structure.
+    """
+    rows = mean_img[max(0, y_top) : min(mean_img.shape[0], y_bottom), :]
+    if rows.shape[0] == 0:
+        return None, None
+    profile = mean_without_fill(rows, axis=0)
+    smooth = gaussian_filter1d(profile, sigma) if sigma > 0 else profile.copy()
+    if conv_filter is not None:
+        smooth = convolve(smooth, conv_filter) / conv_filter.sum()
+    return profile, smooth
 
 
 def _outside_image(
@@ -406,24 +475,16 @@ class TrenchDetector:
                 "trench_bottom_offset", trench_bottom_offset
             )
 
-            if orientation == 1:
-                y_top = lane_y - lane_bottom_offset - trench_length
-                y_bottom = lane_y - lane_bottom_offset
-                needs_flip = False
-            else:
-                y_top = lane_y + lane_bottom_offset
-                y_bottom = lane_y + lane_bottom_offset + trench_length
-                needs_flip = True
-
-            # Profile over the trench bodies only: the rows that will be
-            # cropped, not the feeding channel or the far side of the lane; and
-            # not the zero fill where the registered frame has no image (the
-            # corners a rotation opens), whose edges would read as structure.
-            profile_rows = mean_img[max(0, y_top) : min(img_height, y_bottom), :]
+            y_top, y_bottom, needs_flip = _box_rows(
+                lane_y, orientation, lane_bottom_offset, trench_length
+            )
+            x_profile, x_profile_smooth = _lane_profile(
+                mean_img, y_top, y_bottom, lane_sigma, conv_filter
+            )
             outside = _outside_image(
                 lane_y, orientation, lane_bottom_offset, y_top, y_bottom, img_height
             )
-            if profile_rows.shape[0] == 0:  # no row of the boxes is in the image
+            if x_profile is None:  # no row of the boxes is in the image
                 lane_profiles.append(
                     {
                         "lane_index": lane_idx,
@@ -434,17 +495,6 @@ class TrenchDetector:
                     }
                 )
                 continue
-            x_profile = mean_without_fill(profile_rows, axis=0)
-
-            if lane_sigma > 0:
-                x_profile_smooth = gaussian_filter1d(x_profile, lane_sigma)
-            else:
-                x_profile_smooth = x_profile.copy()
-
-            if conv_filter is not None:
-                x_profile_smooth = (
-                    convolve(x_profile_smooth, conv_filter) / conv_filter.sum()
-                )
 
             lane_profile = {
                 "lane_index": lane_idx,
@@ -506,6 +556,38 @@ class TrenchDetector:
                 trench_counter += 1
 
         return fov_trenches, lane_profiles, trench_counter
+
+    def experiment_pitch(
+        self,
+        mean_images: dict[str, np.ndarray],
+        sigma: float,
+        trench_width: int,
+        trench_length: int,
+        trench_bottom_offset: int,
+        conv_filter: np.ndarray | None = None,
+        lane_params: dict[int, dict[str, Any]] | None = None,
+    ) -> float | None:
+        """The trench spacing of the whole experiment, from every lane of these
+        FOVs' detection images (:func:`common_pitch`), with the boxes' rows and
+        smoothing that detection uses. The periodic method looks for it in every FOV
+        when ``expected_pitch`` is 0, rather than each FOV's own estimate.
+        """
+        profiles = []
+        for fov, image in mean_images.items():
+            for lane in self.lane_detector.lanes.get(fov, []):
+                override = (lane_params or {}).get(lane.lane_index, {})
+                y_top, y_bottom, _ = _box_rows(
+                    lane.y_center,
+                    lane.orientation,
+                    override.get("trench_bottom_offset", trench_bottom_offset),
+                    trench_length,
+                )
+                _, smooth = _lane_profile(
+                    image, y_top, y_bottom, override.get("sigma", sigma), conv_filter
+                )
+                if smooth is not None:
+                    profiles.append(smooth)
+        return common_pitch(profiles, trench_width)
 
     def detect_trenches(
         self,
@@ -574,7 +656,8 @@ class TrenchDetector:
             ``expected_pitch`` and ``min_symmetry`` to ``"periodic"`` only.
         expected_pitch : float
             Periodic method: approximate trench spacing in pixels (searched
-            ±20%), or 0 to estimate it from the profile.
+            ±20%), or 0 to estimate it from every FOV together
+            (:meth:`experiment_pitch`, recorded as ``experiment_pitch``).
         min_symmetry : float
             Periodic method: drop centres whose symmetry score (0-1) is lower,
             e.g. where a trench is missing.
@@ -611,6 +694,21 @@ class TrenchDetector:
         mean_images = self.registrator.compute_registered_means(
             channel=self.channel, mean_n_frames=mean_n_frames, mean_from=mean_from
         )
+        # the periodic method looks for the experiment's spacing in every FOV,
+        # unless one is given
+        pitch = None
+        if method == "periodic" and not expected_pitch:
+            pitch = self.experiment_pitch(
+                mean_images,
+                sigma,
+                trench_width,
+                trench_length,
+                trench_bottom_offset,
+                conv_filter,
+                lane_params,
+            )
+            if pitch is not None:
+                print(f"Trench spacing across all FOVs: {pitch:.1f} px")
         for fov in self.experiment.fov_names:
             mean_img = mean_images[fov]
             fov_trenches, profiles, trench_counter = self.detect_fov(
@@ -627,7 +725,7 @@ class TrenchDetector:
                 start_id=trench_counter,
                 lane_params=lane_params,
                 method=method,
-                expected_pitch=expected_pitch,
+                expected_pitch=expected_pitch or pitch or 0,
                 min_symmetry=min_symmetry,
             )
             trenches[fov] = fov_trenches
@@ -646,6 +744,7 @@ class TrenchDetector:
             "trench_bottom_offset": trench_bottom_offset,
             "method": method,
             "expected_pitch": expected_pitch,
+            "experiment_pitch": pitch,
             "min_symmetry": min_symmetry,
             "mean_n_frames": mean_n_frames,
             "mean_from": mean_from,

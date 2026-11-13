@@ -162,7 +162,8 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     dock.trench_length.setValue(TRENCHES["trench_length"])
     dock.trench_offset.setValue(TRENCHES["trench_bottom_offset"])
     dock.update_trenches()
-    _wait(qapp, lambda: f"{FOVS[1]}</b>:" in dock.trench_status.text())
+    # previewed with the spacing across every FOV, as Apply finds it
+    _wait(qapp, lambda: "estimated across all 2 FOVs" in dock.trench_status.text())
     boxes = viewer.layers["trenches"].data
     assert len(boxes) == len(pipeline.trenches.trenches[FOVS[1]])
     dock.trench_apply.click()
