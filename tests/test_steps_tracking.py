@@ -17,7 +17,7 @@ from pymmm.config import Experiment
 from pymmm.steps.tracking import Tracker, trench_ranges
 from pymmm.store import experiment_group as eg
 
-STAND_IN = '''
+STAND_IN = """
 import json, sys
 from pathlib import Path
 
@@ -47,7 +47,7 @@ else:
         root.require_group(f"{eg.trench_path(t)}/tracks/{option('--out')}.geff")
         eg.write_label_image(root, t, f"tracks.{option('--out')}", np.zeros((%d, %d, %d), np.uint16))
         print(f"trench {t}: tracked")
-''' % (N_T, H, W)
+""" % (N_T, H, W)
 
 
 @pytest.fixture
@@ -92,23 +92,65 @@ def test_fit_then_track_runs_chaintrack_on_the_group(segmented, capsys):
     assert values == {"growth_per_min": 0.03}
     assert tracker.fit_record["trenches"] == TRENCHES[:2]
 
-    assert tracker.track() == TRENCHES[:2]          # every segmented trench, not trench 12
+    assert tracker.track() == TRENCHES[:2]  # every segmented trench, not trench 12
     assert not tracker.is_complete()
     assert tracker.record == {"fit": {"name": "seg"}}
-    assert "trench 10: tracked" in capsys.readouterr().out   # chaintrack's lines are shown
+    assert (
+        "trench 10: tracked" in capsys.readouterr().out
+    )  # chaintrack's lines are shown
     fit, run = calls(segmented)
-    assert fit == ["fit", "10-11", "--store", str(segmented), "--seg", "seg", "--fit", "seg",
-                   "--recipe", str(segmented.parent / "recipe.toml")]
-    assert run == ["run", "10-11", "--store", str(segmented), "--seg", "seg", "--fit", "seg", "--out", "chain"]
+    assert fit == [
+        "fit",
+        "10-11",
+        "--store",
+        str(segmented),
+        "--seg",
+        "seg",
+        "--fit",
+        "seg",
+        "--recipe",
+        str(segmented.parent / "recipe.toml"),
+    ]
+    assert run == [
+        "run",
+        "10-11",
+        "--store",
+        str(segmented),
+        "--seg",
+        "seg",
+        "--fit",
+        "seg",
+        "--out",
+        "chain",
+    ]
 
 
 def test_track_resumes_with_the_trenches_not_tracked_yet(segmented, capsys):
-    tracker = Tracker(segmented, "seg", segmented.parent / "chain.py", run="other", fit="wide", workers=2)
+    tracker = Tracker(
+        segmented,
+        "seg",
+        segmented.parent / "chain.py",
+        run="other",
+        fit="wide",
+        workers=2,
+    )
     tracker.fit([10], segmented.parent / "recipe.toml")
     tracker.track([10])
     tracker.track()
-    assert calls(segmented)[-1] == ["run", "11", "--store", str(segmented), "--seg", "seg", "--fit", "wide",
-                                    "--out", "other", "--workers", "2"]
+    assert calls(segmented)[-1] == [
+        "run",
+        "11",
+        "--store",
+        str(segmented),
+        "--seg",
+        "seg",
+        "--fit",
+        "wide",
+        "--out",
+        "other",
+        "--workers",
+        "2",
+    ]
     n = len(calls(segmented))
     assert tracker.track() == TRENCHES[:2]
     assert len(calls(segmented)) == n and "tracked already" in capsys.readouterr().out
@@ -128,6 +170,13 @@ def test_a_failing_chaintrack_raises(segmented, capsys):
 
 def test_experiment_builds_the_tracker_of_its_segmentation(segmented):
     (segmented.parent / "exp.toml").write_text(
-        'name = "exp"\nstore = "exp.zarr"\n[segmentation]\nchannel = "PC"\nname = "seg"\n')
-    tracker = Experiment.load(segmented.parent / "exp.toml").tracker(segmented.parent / "chain.py", run="r")
-    assert (tracker.segmentation, tracker.run, tracker.store_path) == ("seg", "r", segmented)
+        'name = "exp"\nstore = "exp.zarr"\n[segmentation]\nchannel = "PC"\nname = "seg"\n'
+    )
+    tracker = Experiment.load(segmented.parent / "exp.toml").tracker(
+        segmented.parent / "chain.py", run="r"
+    )
+    assert (tracker.segmentation, tracker.run, tracker.store_path) == (
+        "seg",
+        "r",
+        segmented,
+    )

@@ -4,7 +4,17 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 import zarr
@@ -67,22 +77,39 @@ def segmentation_widget(segmenter: "Segmenter", batch_size: int = 64) -> None:
     n_t, _, n_y, n_x = image(segmenter.root, trench_ids[0]).shape
 
     hypothesis_select = widgets.Dropdown(
-        options=segmenter.hypotheses, value=segmenter.hypotheses[0], description="hypothesis",
+        options=segmenter.hypotheses,
+        value=segmenter.hypotheses[0],
+        description="hypothesis",
     )
     overrides_label = widgets.HTML(value="")
     trench_slider = slider("int", "trench (index)", 0, 0, len(trench_ids) - 1, 1)
-    floor_slider = slider("int", "upper-bound floor", int(params["floor"]), 0,
-                          max(int(params["floor"] * 4), 1), 1)
+    floor_slider = slider(
+        "int",
+        "upper-bound floor",
+        int(params["floor"]),
+        0,
+        max(int(params["floor"] * 4), 1),
+        1,
+    )
     gain_slider = slider("float", "gain", params["gain"], 0.5, 3.0, 0.05)
     rescale_slider = slider("float", "image scale", params["rescale"], 0.5, 1.5, 0.05)
-    mask_slider = slider("float", "mask threshold", params["mask_threshold"], -3.0, 3.0, 0.1)
-    flow_slider = slider("float", "flow threshold", params["flow_threshold"], 0.0, 1.5, 0.05)
+    mask_slider = slider(
+        "float", "mask threshold", params["mask_threshold"], -3.0, 3.0, 0.1
+    )
+    flow_slider = slider(
+        "float", "flow threshold", params["flow_threshold"], 0.0, 1.5, 0.05
+    )
     area_slider = slider("float", "min area (µm²)", params["min_area"], 0.0, 5.0, 0.05)
     contrast_on = params["min_contrast"] is not None
     contrast_check = widgets.Checkbox(value=contrast_on, description="drop faint masks")
-    contrast_slider = slider("float", "min contrast (σ)",
-                             params["min_contrast"] if contrast_on else DEFAULT_PARAMS["min_contrast"],
-                             0.0, 20.0, 0.5)
+    contrast_slider = slider(
+        "float",
+        "min contrast (σ)",
+        params["min_contrast"] if contrast_on else DEFAULT_PARAMS["min_contrast"],
+        0.0,
+        20.0,
+        0.5,
+    )
     run_btn = widgets.Button(description="Segment trench", button_style="primary")
     apply_btn = widgets.Button(description="Apply", button_style="success")
     preview_label = widgets.HTML(value="")
@@ -101,17 +128,27 @@ def segmentation_widget(segmenter: "Segmenter", batch_size: int = 64) -> None:
             "mask_threshold": float(mask_slider.value),
             "flow_threshold": float(flow_slider.value),
             "min_area": float(area_slider.value),
-            "min_contrast": float(contrast_slider.value) if contrast_check.value else None,
+            "min_contrast": float(contrast_slider.value)
+            if contrast_check.value
+            else None,
         }
 
     def _show_overrides(_change: Any = None) -> None:
         spec = segmenter.spec(hypothesis_select.value)
-        source = (f"checkpoint {spec['checkpoint']}" if "checkpoint" in spec
-                  else f"model {spec['model']}")
+        source = (
+            f"checkpoint {spec['checkpoint']}"
+            if "checkpoint" in spec
+            else f"model {spec['model']}"
+        )
         over = overrides(spec)
-        overrides_label.value = source + "; " + (
-            "overrides: " + ", ".join(f"{k} {v}" for k, v in over.items())
-            if over else "uses the sliders as they are"
+        overrides_label.value = (
+            source
+            + "; "
+            + (
+                "overrides: " + ", ".join(f"{k} {v}" for k, v in over.items())
+                if over
+                else "uses the sliders as they are"
+            )
         )
 
     def _update(_change: Any = None) -> None:
@@ -124,7 +161,9 @@ def segmentation_widget(segmenter: "Segmenter", batch_size: int = 64) -> None:
         stack = segmenter.read(tid)
         bounds = trench_bounds(stack, current["floor"])
         start = time.perf_counter()
-        masks, failed = segmenter.segment_stack(stack, bounds, hypothesis, current, batch_size)
+        masks, failed = segmenter.segment_stack(
+            stack, bounds, hypothesis, current, batch_size
+        )
         elapsed = time.perf_counter() - start
         viewer_data[:] = label_overlay(stack, masks)
         image_viewer.data_wrapper.data_changed.emit()
@@ -162,10 +201,26 @@ def segmentation_widget(segmenter: "Segmenter", batch_size: int = 64) -> None:
     trench_slider.observe(_update, names="value")
     hypothesis_select.observe(_update, names="value")
 
-    show([hypothesis_select, overrides_label, trench_slider, floor_slider, gain_slider,
-          rescale_slider, mask_slider, flow_slider, area_slider, contrast_check, contrast_slider,
-          widgets.HBox([run_btn, apply_btn]), status_label],
-         preview_label, image_viewer, output)
+    show(
+        [
+            hypothesis_select,
+            overrides_label,
+            trench_slider,
+            floor_slider,
+            gain_slider,
+            rescale_slider,
+            mask_slider,
+            flow_slider,
+            area_slider,
+            contrast_check,
+            contrast_slider,
+            widgets.HBox([run_btn, apply_btn]),
+            status_label,
+        ],
+        preview_label,
+        image_viewer,
+        output,
+    )
     _update()
 
 
@@ -231,13 +286,23 @@ def _label_overlay(segmenter: "Segmenter") -> Any:
             )
             per_trench = []
             for k in range(len(ids))[trench]:
-                frames = np.asarray(image(segmenter.root, ids[k])[t, segmenter.channel_index])
+                frames = np.asarray(
+                    image(segmenter.root, ids[k])[t, segmenter.channel_index]
+                )
                 arrays = _labels(ids[k])
-                per_trench.append(np.stack([
-                    label_overlay(frames, np.zeros(frames.shape, np.uint16) if arrays is None
-                                  else np.asarray(arrays[j][t]))
-                    for j in range(len(hypotheses))[h]
-                ]))
+                per_trench.append(
+                    np.stack(
+                        [
+                            label_overlay(
+                                frames,
+                                np.zeros(frames.shape, np.uint16)
+                                if arrays is None
+                                else np.asarray(arrays[j][t]),
+                            )
+                            for j in range(len(hypotheses))[h]
+                        ]
+                    )
+                )
             return np.stack(per_trench, axis=1)[..., c, y, x]
 
     return _LabelOverlay(segmenter)

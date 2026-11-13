@@ -28,13 +28,23 @@ def lane_widget(detector: "LaneDetector") -> None:
     mean_image = MeanImages(detector.registrator, detector.channel)
 
     fov_select = widgets.Dropdown(
-        options=list(experiment.fov_names), value=experiment.fov_names[0], description="FOV",
+        options=list(experiment.fov_names),
+        value=experiment.fov_names[0],
+        description="FOV",
     )
     sigma_slider = slider("float", "sigma", params.get("sigma", 40), 0, 200, 1)
-    distance_slider = slider("float", "distance", params.get("distance", 300), 10, 1000, 10)
+    distance_slider = slider(
+        "float", "distance", params.get("distance", 300), 10, 1000, 10
+    )
     height_slider = slider("float", "height", params.get("height", 5000), 0, 50000, 100)
-    orientation_slider = slider("float", "orient. window (µm)",
-                                params.get("orientation_window_um", 20), 1, 100, 1)
+    orientation_slider = slider(
+        "float",
+        "orient. window (µm)",
+        params.get("orientation_window_um", 20),
+        1,
+        100,
+        1,
+    )
     orientation_select = widgets.Dropdown(
         options=[
             ("auto (compare brightness)", "auto"),
@@ -52,10 +62,12 @@ def lane_widget(detector: "LaneDetector") -> None:
     output = widgets.Output()
 
     viewer_data = np.zeros(
-        (3, experiment.data.sizes["Y"], experiment.data.sizes["X"]), dtype=np.float32,
+        (3, experiment.data.sizes["Y"], experiment.data.sizes["X"]),
+        dtype=np.float32,
     )
-    image_viewer = overlay_viewer(viewer_data, 0, detector.channel,
-                                  [("open down", "red"), ("open up", "cyan")])
+    image_viewer = overlay_viewer(
+        viewer_data, 0, detector.channel, [("open down", "red"), ("open up", "cyan")]
+    )
 
     def _update(_change: Any = None) -> None:
         fov = fov_select.value
@@ -95,7 +107,9 @@ def lane_widget(detector: "LaneDetector") -> None:
             ax_prof.plot(xs, y_profile, color="grey", alpha=0.5, label="raw")
             ax_prof.plot(xs, y_profile_smooth, color="blue", label="smoothed")
             if len(peaks) > 0:
-                ax_prof.plot(peaks, y_profile_smooth[peaks], "rv", markersize=8, label="peaks")
+                ax_prof.plot(
+                    peaks, y_profile_smooth[peaks], "rv", markersize=8, label="peaks"
+                )
             ax_prof.set_xlabel("y pixel")
             ax_prof.set_ylabel("intensity")
             ax_prof.set_title("Y-profile")
@@ -117,11 +131,29 @@ def lane_widget(detector: "LaneDetector") -> None:
         status_label.value = f"<b>Applied</b> — {total} lanes across {len(lanes)} FOVs"
 
     apply_btn.on_click(_on_apply)
-    for w in [fov_select, sigma_slider, distance_slider,
-              height_slider, orientation_slider, orientation_select]:
+    for w in [
+        fov_select,
+        sigma_slider,
+        distance_slider,
+        height_slider,
+        orientation_slider,
+        orientation_select,
+    ]:
         w.observe(_update, names="value")
 
-    show([fov_select, sigma_slider, distance_slider, height_slider, orientation_select,
-          orientation_slider, apply_btn, status_label],
-         preview_label, image_viewer, output)
+    show(
+        [
+            fov_select,
+            sigma_slider,
+            distance_slider,
+            height_slider,
+            orientation_select,
+            orientation_slider,
+            apply_btn,
+            status_label,
+        ],
+        preview_label,
+        image_viewer,
+        output,
+    )
     _update()

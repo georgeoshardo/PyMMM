@@ -26,15 +26,17 @@ REFERENCE_DIR = Path(__file__).parent / "reference"
 UPDATE = os.environ.get("PYMMM_GOLDEN_UPDATE") == "1"
 _updated: set[str] = set()  # references written by this run
 
-VOLATILE_KEYS = frozenset({
-    "provenance",          # code and library versions, and when
-    "created",
-    "extraction_created",  # the extraction's "created", copied into a segmentation's record
-    "made_on",             # the machine and GPU that segmented a trench
-    "source_nd2",          # the path of the scratch symlink
-    "source_mtime_ns",
-    "geff_version",
-})
+VOLATILE_KEYS = frozenset(
+    {
+        "provenance",  # code and library versions, and when
+        "created",
+        "extraction_created",  # the extraction's "created", copied into a segmentation's record
+        "made_on",  # the machine and GPU that segmented a trench
+        "source_nd2",  # the path of the scratch symlink
+        "source_mtime_ns",
+        "geff_version",
+    }
+)
 """Keys whose values differ between runs; their presence is still checked."""
 VOLATILE = "<volatile>"
 
@@ -42,7 +44,9 @@ VOLATILE = "<volatile>"
 def scrub(value: Any) -> Any:
     """``value`` with the values of :data:`VOLATILE_KEYS` replaced, at any depth."""
     if isinstance(value, dict):
-        return {k: VOLATILE if k in VOLATILE_KEYS else scrub(v) for k, v in value.items()}
+        return {
+            k: VOLATILE if k in VOLATILE_KEYS else scrub(v) for k, v in value.items()
+        }
     if isinstance(value, (list, tuple)):
         return [scrub(v) for v in value]
     return value
@@ -75,15 +79,24 @@ def digest(array: Any) -> dict:
     a = np.asarray(array)
     if a.dtype.kind in "OUST":
         text = "\x00".join(str(v) for v in a.ravel().tolist())
-        return {"shape": list(a.shape), "dtype": "str",
-                "sha256": sha256(f"{a.shape}|".encode() + text.encode())}
+        return {
+            "shape": list(a.shape),
+            "dtype": "str",
+            "sha256": sha256(f"{a.shape}|".encode() + text.encode()),
+        }
     a = np.ascontiguousarray(a)
-    out = {"shape": list(a.shape), "dtype": a.dtype.str,
-           "sha256": sha256(f"{a.dtype.str}{a.shape}|".encode() + a.tobytes())}
+    out = {
+        "shape": list(a.shape),
+        "dtype": a.dtype.str,
+        "sha256": sha256(f"{a.dtype.str}{a.shape}|".encode() + a.tobytes()),
+    }
     if a.dtype.kind in "biuf" and a.size:
         values = a.astype(np.float64)
-        out.update(sum=float(np.nansum(values)), min=float(np.nanmin(values)),
-                   max=float(np.nanmax(values)))
+        out.update(
+            sum=float(np.nansum(values)),
+            min=float(np.nanmin(values)),
+            max=float(np.nanmax(values)),
+        )
     return out
 
 
@@ -99,17 +112,24 @@ def manifest(
     keeps a hash of the file list instead of the list.
     """
     root = Path(path)
-    files = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
+    files = sorted(
+        p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()
+    )
     if not list_files:
         files = sha256("\n".join(files).encode())
     nodes = {}
     for meta_path in sorted(root.rglob("zarr.json")):
         key = meta_path.parent.relative_to(root).as_posix()
         meta = scrub(json.loads(meta_path.read_text()))
-        entry = (meta if detail(key) else
-                 {"zarr_json_sha256": sha256(json.dumps(meta, sort_keys=True).encode())})
+        entry = (
+            meta
+            if detail(key)
+            else {"zarr_json_sha256": sha256(json.dumps(meta, sort_keys=True).encode())}
+        )
         if meta.get("node_type") == "array":
-            entry["data"] = digest(zarr.open_array(str(meta_path.parent), mode="r")[...])
+            entry["data"] = digest(
+                zarr.open_array(str(meta_path.parent), mode="r")[...]
+            )
         nodes[key] = entry
     return {"files": files, "nodes": nodes}
 
@@ -125,8 +145,11 @@ def differences(expected: Any, actual: Any, where: str = "") -> Iterator[str]:
                 yield f"{here}: unexpected {_short(actual[key])}"
             else:
                 yield from differences(expected[key], actual[key], here)
-    elif (isinstance(expected, list) and isinstance(actual, list)
-          and len(expected) == len(actual)):
+    elif (
+        isinstance(expected, list)
+        and isinstance(actual, list)
+        and len(expected) == len(actual)
+    ):
         for i, (e, a) in enumerate(zip(expected, actual)):
             yield from differences(e, a, f"{where}[{i}]")
     elif json.dumps(expected) != json.dumps(actual):  # NaN equals NaN here
@@ -142,11 +165,15 @@ def dumps(value: Any, depth: int = 0) -> str:
     """JSON with one key per line and lists of numbers or strings on one line."""
     pad, inner = " " * depth, " " * (depth + 1)
     if isinstance(value, dict) and value:
-        items = [f"{inner}{json.dumps(k)}: {dumps(v, depth + 1)}"
-                 for k, v in sorted(value.items())]
+        items = [
+            f"{inner}{json.dumps(k)}: {dumps(v, depth + 1)}"
+            for k, v in sorted(value.items())
+        ]
         return "{\n" + ",\n".join(items) + f"\n{pad}}}"
     if isinstance(value, list) and any(isinstance(v, (dict, list)) for v in value):
-        return "[\n" + ",\n".join(inner + dumps(v, depth + 1) for v in value) + f"\n{pad}]"
+        return (
+            "[\n" + ",\n".join(inner + dumps(v, depth + 1) for v in value) + f"\n{pad}]"
+        )
     return json.dumps(value)
 
 
@@ -169,5 +196,7 @@ def check(name: str, actual: Any) -> None:
     if found:
         shown = "\n  ".join(found[:40])
         more = f"\n  … and {len(found) - 40} more" if len(found) > 40 else ""
-        pytest.fail(f"{name}: {len(found)} differences from {path.name}\n  {shown}{more}",
-                    pytrace=False)
+        pytest.fail(
+            f"{name}: {len(found)} differences from {path.name}\n  {shown}{more}",
+            pytrace=False,
+        )

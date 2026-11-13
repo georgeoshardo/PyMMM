@@ -31,14 +31,21 @@ def test_segmenter(pipeline, tmp_path):
         names, arrays = eg.segmentation(root, trench, segmenter.name)
         for name, labels in zip(names, arrays):
             cells[f"{trench}/{name}"] = [int(frame.max()) for frame in labels[...]]
-            assert all(np.unique(frame).size == frame.max() + 1 for frame in labels[...])
-    check("segmentation", {
-        "params": segmenter.params,
-        "hypotheses": segmenter.hypotheses,
-        "finished": segmenter.finished(),
-        "bounds": {trench: segmenter.bounds(trench) for trench in SEGMENTED},
-        "record": scrub(eg.records(root, "segmentations")),
-        "cells_per_frame": cells,
-        "labels": {trench: manifest(group / eg.trench_path(trench) / "labels")
-                   for trench in SEGMENTED},
-    })
+            assert all(
+                np.unique(frame).size == frame.max() + 1 for frame in labels[...]
+            )
+    check(
+        "segmentation",
+        {
+            "params": segmenter.params,
+            "hypotheses": segmenter.hypotheses,
+            "finished": segmenter.finished(),
+            "bounds": {trench: segmenter.bounds(trench) for trench in SEGMENTED},
+            "record": scrub(eg.records(root, "segmentations")),
+            "cells_per_frame": cells,
+            "labels": {
+                trench: manifest(group / eg.trench_path(trench) / "labels")
+                for trench in SEGMENTED
+            },
+        },
+    )

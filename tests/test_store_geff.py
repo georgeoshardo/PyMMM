@@ -42,9 +42,15 @@ def test_tracklets_and_lineages_follow_the_geff_definitions():
 
 def test_read_trench_geff_maps_edges_past_gaps_in_node_ids(tmp_path):
     # a curated graph: node ids 2, 9, 5 (stored out of order, with gaps); edges 2->9, 2->5
-    graph = zarr.open_group(str(tmp_path / "trench_0007" / GEFF_NAME), mode="w", zarr_format=3)
+    graph = zarr.open_group(
+        str(tmp_path / "trench_0007" / GEFF_NAME), mode="w", zarr_format=3
+    )
     graph.create_array("nodes/ids", data=np.array([9, 2, 5]))
-    for key, values in {"t": [1, 0, 1], "seg_id": [1, 1, 2], "y": [1.5, 1.5, 5.5]}.items():
+    for key, values in {
+        "t": [1, 0, 1],
+        "seg_id": [1, 1, 2],
+        "y": [1.5, 1.5, 5.5],
+    }.items():
         graph.create_array(f"nodes/props/{key}/values", data=np.asarray(values))
     graph.create_array("edges/ids", data=np.array([[2, 9], [2, 5]]))
     graph.create_array("edges/props/score/values", data=np.array([0.9, 0.8]))
@@ -66,11 +72,24 @@ def test_write_tracks_writes_a_geff_beside_its_masks(experiment):
     masks = np.zeros((5, 6, 4), dtype=np.uint16)
     masks[0, :2] = 1
     masks[1, :3] = 1
-    nodes = {"t": np.asarray([0, 1], np.int32), "y": np.asarray([0.5, 1.0], np.float32),
-             "x": np.asarray([1.5, 1.5], np.float32), "seg_id": np.asarray([1, 1], np.int32),
-             "track_id": np.asarray([0, 0]), "lineage_id": np.asarray([0, 0])}
-    path = write_tracks(root, 4, "run", nodes, np.asarray([[0, 1]]), np.asarray([np.nan]), masks,
-                           extra={"tracker": "test"})
+    nodes = {
+        "t": np.asarray([0, 1], np.int32),
+        "y": np.asarray([0.5, 1.0], np.float32),
+        "x": np.asarray([1.5, 1.5], np.float32),
+        "seg_id": np.asarray([1, 1], np.int32),
+        "track_id": np.asarray([0, 0]),
+        "lineage_id": np.asarray([0, 0]),
+    }
+    path = write_tracks(
+        root,
+        4,
+        "run",
+        nodes,
+        np.asarray([[0, 1]]),
+        np.asarray([np.nan]),
+        masks,
+        extra={"tracker": "test"},
+    )
 
     assert path == experiment / "trench_0004" / "tracks" / "run.geff"
     assert has_tracks(root, 4, "run") and not has_tracks(root, 3, "run")
@@ -79,8 +98,12 @@ def test_write_tracks_writes_a_geff_beside_its_masks(experiment):
     meta = json.loads((path / "zarr.json").read_text())["attributes"]["geff"]
     assert meta["related_objects"][0]["path"] == "../../labels/tracks.run"
     assert meta["related_objects"][0]["node_prop"] == "seg_id"
-    assert meta["related_objects"][1] == {"type": "image", "path": "../..", "label_prop": None,
-                                          "node_prop": None}
+    assert meta["related_objects"][1] == {
+        "type": "image",
+        "path": "../..",
+        "label_prop": None,
+        "node_prop": None,
+    }
     assert meta["extra"]["trench"] == 4 and meta["extra"]["pixel_size_um"] == 0.1
     graph, _ = geff.read(str(path))
     assert sorted(graph.nodes) == [1, 2] and list(graph.edges) == [(1, 2)]

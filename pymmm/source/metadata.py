@@ -74,10 +74,7 @@ def _extract_frame_scalars(frame_metadata: dict[str, Any]) -> dict[str, Any]:
         "relative_time": (
             float(relative_time) if relative_time is not None else np.nan
         ),
-        "julian_date": (
-            float(julian_date)
-            if julian_date is not None else np.nan
-        ),
+        "julian_date": (float(julian_date) if julian_date is not None else np.nan),
         "stage_position": stage_xyz,
         "pfs_offset": float(pfs_offset) if pfs_offset is not None else np.nan,
     }
@@ -164,7 +161,9 @@ def _values_to_array(values: Sequence[Any]) -> np.ndarray:
 def _normalize_name(name: str) -> str:
     """Normalize a free-form field name into snake_case."""
     normalized = str(name).replace("µ", "u").replace("μ", "u")
-    normalized = re.sub(r"\[(.*?)\]", lambda match: "_" + _normalize_name(match.group(1)), normalized)
+    normalized = re.sub(
+        r"\[(.*?)\]", lambda match: "_" + _normalize_name(match.group(1)), normalized
+    )
     normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", normalized)
     normalized = re.sub(r"[^0-9a-zA-Z]+", "_", normalized)
     normalized = re.sub(r"_+", "_", normalized).strip("_").lower()
@@ -191,7 +190,9 @@ def extract_source_frame_metadata(experiment: Any) -> dict[str, Any]:
     frame_metadata_json = np.empty((n_fovs,), dtype=object)
 
     with nd2.ND2File(experiment.path) as nd2_file:
-        coord_axes = [axis for axis in nd2_file.sizes if axis not in {"X", "Y", "C", "S"}]
+        coord_axes = [
+            axis for axis in nd2_file.sizes if axis not in {"X", "Y", "C", "S"}
+        ]
         coord_shape = tuple(int(nd2_file.sizes[axis]) for axis in coord_axes)
         axis_positions = {axis: idx for idx, axis in enumerate(coord_axes)}
 
@@ -208,16 +209,15 @@ def extract_source_frame_metadata(experiment: Any) -> dict[str, Any]:
 
                 seq_index = (
                     int(np.ravel_multi_index(tuple(coords), coord_shape))
-                    if coord_axes else 0
+                    if coord_axes
+                    else 0
                 )
                 frame_dict = _to_builtin(nd2_file.frame_metadata(seq_index))
                 scalars = _extract_frame_scalars(frame_dict)
 
                 source_seq_index[local_p, local_t] = seq_index
                 relative_time[local_p, local_t] = scalars["relative_time"]
-                julian_date[local_p, local_t] = scalars[
-                    "julian_date"
-                ]
+                julian_date[local_p, local_t] = scalars["julian_date"]
                 stage_position[local_p, local_t] = scalars["stage_position"]
                 pfs_offset[local_p, local_t] = scalars["pfs_offset"]
 
@@ -241,8 +241,12 @@ def extract_source_frame_metadata(experiment: Any) -> dict[str, Any]:
         # often reports pfsOffset as null.
         acquisition_event_records: list[dict[str, Any]] = []
         if not bool(nd2_file.is_legacy):
-            local_p_of = {int(raw): idx for idx, raw in enumerate(original_p_index.tolist())}
-            local_t_of = {int(raw): idx for idx, raw in enumerate(original_t_index.tolist())}
+            local_p_of = {
+                int(raw): idx for idx, raw in enumerate(original_p_index.tolist())
+            }
+            local_t_of = {
+                int(raw): idx for idx, raw in enumerate(original_t_index.tolist())
+            }
             for row in nd2_file.events(orient="records"):
                 row_dict = _to_builtin(row)
                 if "Index" not in row_dict:
@@ -251,9 +255,16 @@ def extract_source_frame_metadata(experiment: Any) -> dict[str, Any]:
 
                 local_p = local_p_of.get(int(row_dict.get("P Index", 0)))
                 local_t = local_t_of.get(int(row_dict.get("T Index", 0)))
-                if local_p is None or local_t is None or int(row_dict.get("Z Index", 0)) != 0:
+                if (
+                    local_p is None
+                    or local_t is None
+                    or int(row_dict.get("Z Index", 0)) != 0
+                ):
                     continue
-                for column, target in (("PFS Offset", pfs_offset), ("PFS Status", pfs_status)):
+                for column, target in (
+                    ("PFS Offset", pfs_offset),
+                    ("PFS Status", pfs_status),
+                ):
                     value = _replace_nan_with_none(row_dict.get(column))
                     if value is not None:
                         target[local_p, local_t] = float(value)
@@ -277,9 +288,13 @@ SOURCE_FRAME_ATTRS = {
     "original_p_index": {"long_name": "FOV (P) index in the source ND2"},
     "source_seq_index": {"long_name": "frame sequence index in the source ND2"},
     "relative_time": {
-        "units": "millisecond", "long_name": "acquisition time since experiment start",
+        "units": "millisecond",
+        "long_name": "acquisition time since experiment start",
     },
-    "julian_date": {"units": "day", "long_name": "absolute acquisition time as Julian date"},
+    "julian_date": {
+        "units": "day",
+        "long_name": "absolute acquisition time as Julian date",
+    },
     "pfs_offset": {"long_name": "Nikon Perfect Focus System offset (device units)"},
     "pfs_status": {"long_name": "Nikon Perfect Focus System status (1 = in focus)"},
     "stage_position": {"units": "micrometer", "long_name": "stage position"},
@@ -323,8 +338,15 @@ def build_source_frames_dataset(metadata: dict[str, Any]) -> xr.Dataset:
     return dataset
 
 
-_UNIT_NAMES = {"s": "second", "ms": "millisecond", "µm": "micrometer", "μm": "micrometer",
-               "um": "micrometer", "nm": "nanometer", "°c": "degree_Celsius"}
+_UNIT_NAMES = {
+    "s": "second",
+    "ms": "millisecond",
+    "µm": "micrometer",
+    "μm": "micrometer",
+    "um": "micrometer",
+    "nm": "nanometer",
+    "°c": "degree_Celsius",
+}
 
 
 def _split_unit(column: str) -> tuple[str, str | None]:
@@ -409,7 +431,9 @@ def _color_hex(color: Mapping[str, Any] | None) -> str:
     if not color:
         return ""
     return "#{:02X}{:02X}{:02X}".format(
-        int(color.get("r", 0)), int(color.get("g", 0)), int(color.get("b", 0)),
+        int(color.get("r", 0)),
+        int(color.get("g", 0)),
+        int(color.get("b", 0)),
     )
 
 
@@ -440,7 +464,9 @@ def build_acquisition_dataset(
     exposures += [None] * (len(channel_records) - len(exposures))
 
     def _channel_var(values, dtype, **attrs):
-        return xr.DataArray(np.asarray(values, dtype=dtype), dims=(coord_name,), attrs=attrs)
+        return xr.DataArray(
+            np.asarray(values, dtype=dtype), dims=(coord_name,), attrs=attrs
+        )
 
     def _nan(value):
         return np.nan if value is None else float(value)
@@ -449,23 +475,31 @@ def build_acquisition_dataset(
     microscopes = [record.get("microscope") or {} for record in channel_records]
     data_vars = {
         "exposure_time": _channel_var(
-            [_nan(v) for v in exposures], np.float64,
-            units="millisecond", long_name="camera exposure time",
+            [_nan(v) for v in exposures],
+            np.float64,
+            units="millisecond",
+            long_name="camera exposure time",
         ),
         "emission_wavelength": _channel_var(
-            [_nan(ch.get("emissionLambdaNm")) for ch in channels], np.float64,
-            units="nanometer", long_name="emission wavelength",
+            [_nan(ch.get("emissionLambdaNm")) for ch in channels],
+            np.float64,
+            units="nanometer",
+            long_name="emission wavelength",
         ),
         "excitation_wavelength": _channel_var(
-            [_nan(ch.get("excitationLambdaNm")) for ch in channels], np.float64,
-            units="nanometer", long_name="excitation wavelength",
+            [_nan(ch.get("excitationLambdaNm")) for ch in channels],
+            np.float64,
+            units="nanometer",
+            long_name="excitation wavelength",
         ),
         "color": _channel_var(
-            [_color_hex(ch.get("color")) for ch in channels], object,
+            [_color_hex(ch.get("color")) for ch in channels],
+            object,
             long_name="display color (#RRGGBB)",
         ),
         "modality": _channel_var(
-            [",".join(m.get("modalityFlags") or []) for m in microscopes], object,
+            [",".join(m.get("modalityFlags") or []) for m in microscopes],
+            object,
             long_name="imaging modality flags",
         ),
     }
@@ -507,12 +541,13 @@ def _median_frame_interval_ms(event_rows: Sequence[Mapping[str, Any]]) -> float 
     for row in event_rows:
         if "Index" not in row or row.get("Time [s]") is None:
             continue
-        times_by_fov.setdefault(int(row.get("P Index", 0)), {})[int(row.get("T Index", 0))] = (
-            float(row["Time [s]"]) * 1000.0
-        )
+        times_by_fov.setdefault(int(row.get("P Index", 0)), {})[
+            int(row.get("T Index", 0))
+        ] = float(row["Time [s]"]) * 1000.0
     gaps = [
         np.diff([times[t] for t in sorted(times)])
-        for times in times_by_fov.values() if len(times) > 1
+        for times in times_by_fov.values()
+        if len(times) > 1
     ]
     if not gaps:
         return None

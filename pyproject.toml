@@ -58,3 +58,49 @@ markers = [
     "tracks: needs the tracks extra (geff)",
     "view: needs the view extra (napari)",
 ]
+
+# Lint and format with ruff (`ruff check`, `ruff format`; run by the pre-commit hooks).
+# The rule set is nd2's (github.com/tlambert03/nd2). The rules under "not yet" are
+# switched off until the code is brought up to them.
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["pymmm", "tests"]
+
+[tool.ruff.format]
+# Leave the code blocks of README.md and the docs as written: their comments are aligned by hand.
+exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes: unused names, undefined names
+    "D", "D417", # docstrings (numpy convention), every parameter documented
+    "I",        # import order
+    "UP",       # syntax for the oldest supported Python
+    "S",        # bandit: security
+    "C4",       # comprehensions
+    "B",        # bugbear: likely bugs
+    "A001",     # shadowing a builtin
+    "RUF",      # ruff's own rules
+    "SIM105",   # contextlib.suppress
+    "TID",      # tidy imports
+    "TC",       # imports needed only for type hints
+]
+ignore = [
+    "D401",     # first line in the imperative mood (as nd2)
+    "D100",     # module docstrings (as nd2)
+    # not yet:
+    "E501",     # lines longer than 88 characters; the formatter wraps code, not text
+    "D102", "D103", "D105", "D107",  # a docstring on every public function and method
+    "D205",     # a blank line after a docstring's first line
+    "RUF001", "RUF002", "RUF003",    # µ, × and en dashes in strings and comments
+    "B905",     # zip() without strict=: each call needs deciding
+    "TC001", "TC002", "TC003",       # moving type-only imports under TYPE_CHECKING
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "S"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"

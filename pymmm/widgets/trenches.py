@@ -32,7 +32,9 @@ def trench_widget(detector: "TrenchDetector") -> None:
     mean_image = MeanImages(detector.registrator, detector.channel)
 
     fov_select = widgets.Dropdown(
-        options=list(experiment.fov_names), value=experiment.fov_names[0], description="FOV",
+        options=list(experiment.fov_names),
+        value=experiment.fov_names[0],
+        description="FOV",
     )
     lane_controls = widgets.VBox()
     method_select = widgets.Dropdown(
@@ -44,34 +46,63 @@ def trench_widget(detector: "TrenchDetector") -> None:
         description="method",
         style=STYLE,
     )
-    pitch_slider = slider("float", "expected pitch (0 = auto)", params.get("expected_pitch", 0),
-                          0, experiment.data.sizes["X"] / 2, 1)
-    symmetry_slider = slider("float", "min symmetry", params.get("min_symmetry", 0.1), 0, 1, 0.05)
+    pitch_slider = slider(
+        "float",
+        "expected pitch (0 = auto)",
+        params.get("expected_pitch", 0),
+        0,
+        experiment.data.sizes["X"] / 2,
+        1,
+    )
+    symmetry_slider = slider(
+        "float", "min symmetry", params.get("min_symmetry", 0.1), 0, 1, 0.05
+    )
     sigma_slider = slider("float", "sigma", params.get("sigma", 4), 0, 50, 0.5)
-    distance_slider = slider("float", "distance", params.get("distance", 100), 1, 500, 1)
-    prominence_slider = slider("float", "prominence", params.get("prominence", 10), 0, 500, 1)
-    trench_width_slider = slider("int", "trench width", params.get("trench_width") or 32,
-                                 1, 200, 1)
-    shape = detector.shape_defaults()  # the whole height when the lanes are the image's edge
-    trench_length_slider = slider("int", "trench length",
-                                  params.get("trench_length", shape["trench_length"]),
-                                  10, experiment.data.sizes["Y"], 5)
+    distance_slider = slider(
+        "float", "distance", params.get("distance", 100), 1, 500, 1
+    )
+    prominence_slider = slider(
+        "float", "prominence", params.get("prominence", 10), 0, 500, 1
+    )
+    trench_width_slider = slider(
+        "int", "trench width", params.get("trench_width") or 32, 1, 200, 1
+    )
+    shape = (
+        detector.shape_defaults()
+    )  # the whole height when the lanes are the image's edge
+    trench_length_slider = slider(
+        "int",
+        "trench length",
+        params.get("trench_length", shape["trench_length"]),
+        10,
+        experiment.data.sizes["Y"],
+        5,
+    )
     trench_bottom_offset_slider = slider(
-        "int", "bottom offset",
-        params.get("trench_bottom_offset", shape["trench_bottom_offset"]), -200, 200, 5)
+        "int",
+        "bottom offset",
+        params.get("trench_bottom_offset", shape["trench_bottom_offset"]),
+        -200,
+        200,
+        5,
+    )
     apply_btn = widgets.Button(description="Apply to all FOVs", button_style="primary")
     preview_label = widgets.HTML(value="")
     status_label = widgets.HTML(value="")
     output = widgets.Output()
     viewer_data = np.zeros(
-        (2, experiment.data.sizes["Y"], experiment.data.sizes["X"]), dtype=np.float32,
+        (2, experiment.data.sizes["Y"], experiment.data.sizes["X"]),
+        dtype=np.float32,
     )
-    image_viewer = overlay_viewer(viewer_data, 0, detector.channel,
-                                  [("candidate trenches", "red")])
+    image_viewer = overlay_viewer(
+        viewer_data, 0, detector.channel, [("candidate trenches", "red")]
+    )
 
     lane_widget_state: Dict[int, Dict[str, widgets.Widget]] = {}
     lane_override_values: Dict[int, Dict[str, Any]] = {
-        int(lane_idx): {key: value for key, value in values.items() if key in LANE_PARAMETERS}
+        int(lane_idx): {
+            key: value for key, value in values.items() if key in LANE_PARAMETERS
+        }
         for lane_idx, values in params.get("lane_params", {}).items()
     }
     syncing_lane_widgets = False
@@ -140,17 +171,40 @@ def trench_widget(detector: "TrenchDetector") -> None:
             lane_idx = lane_info.lane_index
             overrides = lane_override_values.get(lane_idx, {})
             lane_widgets = {
-                "sigma": slider("float", f"L{lane_idx} sigma",
-                                overrides.get("sigma", sigma_slider.value), 0, 50, 0.5),
-                "distance": slider("float", f"L{lane_idx} distance",
-                                   overrides.get("distance", distance_slider.value), 1, 500, 1),
-                "prominence": slider("float", f"L{lane_idx} prominence",
-                                     overrides.get("prominence", prominence_slider.value),
-                                     0, 500, 1),
+                "sigma": slider(
+                    "float",
+                    f"L{lane_idx} sigma",
+                    overrides.get("sigma", sigma_slider.value),
+                    0,
+                    50,
+                    0.5,
+                ),
+                "distance": slider(
+                    "float",
+                    f"L{lane_idx} distance",
+                    overrides.get("distance", distance_slider.value),
+                    1,
+                    500,
+                    1,
+                ),
+                "prominence": slider(
+                    "float",
+                    f"L{lane_idx} prominence",
+                    overrides.get("prominence", prominence_slider.value),
+                    0,
+                    500,
+                    1,
+                ),
                 "trench_bottom_offset": slider(
-                    "int", f"L{lane_idx} bottom offset",
-                    overrides.get("trench_bottom_offset", trench_bottom_offset_slider.value),
-                    -200, 200, 5),
+                    "int",
+                    f"L{lane_idx} bottom offset",
+                    overrides.get(
+                        "trench_bottom_offset", trench_bottom_offset_slider.value
+                    ),
+                    -200,
+                    200,
+                    5,
+                ),
             }
             for param_name, widget in lane_widgets.items():
                 widget.observe(_make_lane_observer(lane_idx, param_name), names="value")
@@ -166,7 +220,9 @@ def trench_widget(detector: "TrenchDetector") -> None:
                 accordion.set_title(idx, f"Lane {lane_info.lane_index} controls")
             lane_controls.children = (accordion,)
         else:
-            lane_controls.children = (widgets.HTML("<i>No lanes detected for this FOV.</i>"),)
+            lane_controls.children = (
+                widgets.HTML("<i>No lanes detected for this FOV.</i>"),
+            )
 
         _update()
 
@@ -196,7 +252,9 @@ def trench_widget(detector: "TrenchDetector") -> None:
         _sync_method_controls()
         fov = fov_select.value
         mean_img = mean_image(fov)
-        fov_trenches, lane_profiles, _ = detector.detect_fov(mean_img, fov, **_settings())
+        fov_trenches, lane_profiles, _ = detector.detect_fov(
+            mean_img, fov, **_settings()
+        )
         n_trenches = len(fov_trenches)
         n_lanes = len(lane_profiles)
 
@@ -211,17 +269,15 @@ def trench_widget(detector: "TrenchDetector") -> None:
             x_stop = min(image_width, trench.x_right)
             if y_start >= y_stop or x_start >= x_stop:
                 continue
-            trench_mask[y_start:min(y_start + 2, y_stop), x_start:x_stop] = 1
-            trench_mask[max(y_stop - 2, y_start):y_stop, x_start:x_stop] = 1
-            trench_mask[y_start:y_stop, x_start:min(x_start + 2, x_stop)] = 1
-            trench_mask[y_start:y_stop, max(x_stop - 2, x_start):x_stop] = 1
+            trench_mask[y_start : min(y_start + 2, y_stop), x_start:x_stop] = 1
+            trench_mask[max(y_stop - 2, y_start) : y_stop, x_start:x_stop] = 1
+            trench_mask[y_start:y_stop, x_start : min(x_start + 2, x_stop)] = 1
+            trench_mask[y_start:y_stop, max(x_stop - 2, x_start) : x_stop] = 1
         # Blank the image under the outlines so they stay visible where the
         # percentile contrast saturates (e.g. the feeding channel).
         viewer_data[0][trench_mask > 0] = mean_img.min()
         image_viewer.data_wrapper.data_changed.emit()
-        preview_label.value = (
-            f"<b>{fov}</b> — {n_trenches} candidate trench{'es' if n_trenches != 1 else ''}"
-        )
+        preview_label.value = f"<b>{fov}</b> — {n_trenches} candidate trench{'es' if n_trenches != 1 else ''}"
 
         with output:
             output.clear_output(wait=True)
@@ -231,7 +287,10 @@ def trench_widget(detector: "TrenchDetector") -> None:
                 ax.axis("off")
             else:
                 fig, axes = plt.subplots(
-                    n_lanes, 1, figsize=(7, max(3, 2.5 * n_lanes)), squeeze=False,
+                    n_lanes,
+                    1,
+                    figsize=(7, max(3, 2.5 * n_lanes)),
+                    squeeze=False,
                 )
                 for i, lane_profile in enumerate(lane_profiles):
                     _plot_lane_profile(axes[i, 0], lane_profile, symmetry_slider.value)
@@ -248,19 +307,45 @@ def trench_widget(detector: "TrenchDetector") -> None:
 
     apply_btn.on_click(_on_apply)
     fov_select.observe(_rebuild_lane_controls, names="value")
-    for w in [sigma_slider, distance_slider, prominence_slider, trench_width_slider,
-              trench_length_slider, trench_bottom_offset_slider,
-              method_select, pitch_slider, symmetry_slider]:
+    for w in [
+        sigma_slider,
+        distance_slider,
+        prominence_slider,
+        trench_width_slider,
+        trench_length_slider,
+        trench_bottom_offset_slider,
+        method_select,
+        pitch_slider,
+        symmetry_slider,
+    ]:
         w.observe(_on_global_change, names="value")
 
-    show([fov_select, method_select, sigma_slider, distance_slider, prominence_slider,
-          pitch_slider, symmetry_slider, trench_width_slider, trench_length_slider,
-          trench_bottom_offset_slider, lane_controls, apply_btn, status_label],
-         preview_label, image_viewer, output)
+    show(
+        [
+            fov_select,
+            method_select,
+            sigma_slider,
+            distance_slider,
+            prominence_slider,
+            pitch_slider,
+            symmetry_slider,
+            trench_width_slider,
+            trench_length_slider,
+            trench_bottom_offset_slider,
+            lane_controls,
+            apply_btn,
+            status_label,
+        ],
+        preview_label,
+        image_viewer,
+        output,
+    )
     _rebuild_lane_controls()
 
 
-def _plot_lane_profile(ax: Any, lane_profile: Dict[str, Any], min_symmetry: float) -> None:
+def _plot_lane_profile(
+    ax: Any, lane_profile: Dict[str, Any], min_symmetry: float
+) -> None:
     """One lane's x-profile, its trench centres and, for the periodic method, the
     symmetry score against its threshold."""
     x_prof, x_smooth = lane_profile["profile"], lane_profile["smooth"]
@@ -273,8 +358,14 @@ def _plot_lane_profile(ax: Any, lane_profile: Dict[str, Any], min_symmetry: floa
         for centre in centres:
             ax.axvline(centre, color="red", lw=1, alpha=0.8)
         ax_sym = ax.twinx()
-        ax_sym.plot(xs, lane_profile["symmetry"], color="tab:green", alpha=0.6, lw=1,
-                    label="symmetry")
+        ax_sym.plot(
+            xs,
+            lane_profile["symmetry"],
+            color="tab:green",
+            alpha=0.6,
+            lw=1,
+            label="symmetry",
+        )
         ax_sym.axhline(min_symmetry, color="tab:green", ls="--", lw=1)
         ax_sym.set_ylim(-1, 1.05)
         ax_sym.set_ylabel("symmetry", color="tab:green")

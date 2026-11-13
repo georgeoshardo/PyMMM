@@ -59,7 +59,9 @@ def test_extract_source_frame_metadata_tracks_subset(monkeypatch, tmp_path):
 
 def test_time_interval_is_median_of_real_frame_gaps():
     rows = [{"Time [s]": 0.0, "Events": "Command Executed"}]
-    for t, (t0, t1) in enumerate([(0.0, 1.0), (60.0, 61.5), (121.0, 122.0), (180.0, 181.0)]):
+    for t, (t0, t1) in enumerate(
+        [(0.0, 1.0), (60.0, 61.5), (121.0, 122.0), (180.0, 181.0)]
+    ):
         rows += [
             {"Index": 2 * t, "T Index": t, "P Index": 0, "Time [s]": t0},
             {"Index": 2 * t + 1, "T Index": t, "P Index": 1, "Time [s]": t1},

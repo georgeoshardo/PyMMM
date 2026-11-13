@@ -34,14 +34,29 @@ def imshow(data: Any, **kwargs: Any) -> Any:
     return pygfx_ndv().imshow(data, **kwargs)
 
 
-def slider(kind: str, description: str, value: float, low: float, high: float,
-           step: float, **kwargs: Any) -> Any:
+def slider(
+    kind: str,
+    description: str,
+    value: float,
+    low: float,
+    high: float,
+    step: float,
+    **kwargs: Any,
+) -> Any:
     """An ``"int"`` or ``"float"`` slider that reports only when released."""
     import ipywidgets as widgets
 
     cls = widgets.IntSlider if kind == "int" else widgets.FloatSlider
-    return cls(value=value, min=low, max=high, step=step, description=description,
-               continuous_update=False, style=STYLE, **kwargs)
+    return cls(
+        value=value,
+        min=low,
+        max=high,
+        step=step,
+        description=description,
+        continuous_update=False,
+        style=STYLE,
+        **kwargs,
+    )
 
 
 class MeanImages:
@@ -54,11 +69,14 @@ class MeanImages:
     def __call__(self, fov: str) -> np.ndarray:
         if fov not in self._images:
             self._images[fov] = self.registrator.get_registered_mean_of_timestack(
-                fov=fov, channel=self.channel)
+                fov=fov, channel=self.channel
+            )
         return self._images[fov]
 
 
-def overlay_luts(image_name: str, overlays: Sequence[Tuple[str, str]]) -> Dict[int, dict]:
+def overlay_luts(
+    image_name: str, overlays: Sequence[Tuple[str, str]]
+) -> Dict[int, dict]:
     """ndv LUTs: channel 0 the image at PyMMM's percentile contrast, then one 0–1
     overlay per ``(name, colormap)``."""
     from pymmm.plotting import NDV_CLIMS
@@ -69,12 +87,20 @@ def overlay_luts(image_name: str, overlays: Sequence[Tuple[str, str]]) -> Dict[i
     return luts
 
 
-def overlay_viewer(data: np.ndarray, channel_axis: int, image_name: str,
-                   overlays: Sequence[Tuple[str, str]]) -> Any:
+def overlay_viewer(
+    data: np.ndarray,
+    channel_axis: int,
+    image_name: str,
+    overlays: Sequence[Tuple[str, str]],
+) -> Any:
     """An ndv viewer of ``data`` (updated in place; then emit
     ``viewer.data_wrapper.data_changed``) shown as a composite of its channels."""
-    return pygfx_ndv().ArrayViewer(data, channel_axis=channel_axis, channel_mode="composite",
-                                   luts=overlay_luts(image_name, overlays))
+    return pygfx_ndv().ArrayViewer(
+        data,
+        channel_axis=channel_axis,
+        channel_mode="composite",
+        luts=overlay_luts(image_name, overlays),
+    )
 
 
 def show(controls: List[Any], preview: Any, viewer: Any, output: Any) -> None:
@@ -82,5 +108,8 @@ def show(controls: List[Any], preview: Any, viewer: Any, output: Any) -> None:
     import ipywidgets as widgets
     from IPython import display
 
-    display.display(widgets.HBox([
-        widgets.VBox(controls), widgets.VBox([preview, viewer.widget(), output])]))
+    display.display(
+        widgets.HBox(
+            [widgets.VBox(controls), widgets.VBox([preview, viewer.widget(), output])]
+        )
+    )

@@ -71,13 +71,13 @@ def estimate_pitch(
     detail = profile - gaussian_filter1d(profile, max(feature_scale, 1))
     envelope = gaussian_filter1d(np.abs(detail), 3)
     centred = envelope - envelope.mean()
-    autocorr = np.correlate(centred, centred, "full")[len(centred) - 1:]
+    autocorr = np.correlate(centred, centred, "full")[len(centred) - 1 :]
     autocorr = autocorr / autocorr[0] if autocorr[0] > 0 else autocorr
     lo = max(1, int(np.floor(min_pitch)))
     hi = min(len(autocorr) - 1, int(np.ceil(max_pitch)) + 1)
     if hi - lo < 1:
         raise ValueError("Pitch search range is empty for this profile length.")
-    peaks, _ = find_peaks(autocorr[lo - 1:hi + 1])
+    peaks, _ = find_peaks(autocorr[lo - 1 : hi + 1])
     peaks = peaks + lo - 1
     peaks = peaks[(peaks >= lo) & (peaks < hi)]
     if len(peaks):
@@ -86,7 +86,7 @@ def estimate_pitch(
     else:
         lag = lo + int(np.argmax(autocorr[lo:hi]))
     if 0 < lag < len(autocorr) - 1:
-        a, b, c = autocorr[lag - 1:lag + 2]
+        a, b, c = autocorr[lag - 1 : lag + 2]
         denominator = a - 2 * b + c
         if denominator != 0:
             return float(lag + 0.5 * (a - c) / denominator)
@@ -107,9 +107,9 @@ def mirror_symmetry(profile: np.ndarray, half_window: int) -> np.ndarray:
     detail = profile - gaussian_filter1d(profile, 3 * half_window)
     windows = sliding_window_view(detail, 2 * half_window + 1)
     left = windows[:, :half_window][:, ::-1]
-    right = windows[:, half_window + 1:]
+    right = windows[:, half_window + 1 :]
     score = np.full(len(profile), np.nan)
-    score[half_window:len(profile) - half_window] = (left * right).mean(axis=1)
+    score[half_window : len(profile) - half_window] = (left * right).mean(axis=1)
     peak = np.nanmax(score)
     return score / peak if peak > 0 else score
 
@@ -162,7 +162,11 @@ def periodic_trench_centres(
     valid = ~np.isnan(symmetry)
     weights = np.clip(symmetry[valid], 0, None) ** 4
     angles = 2 * np.pi * xs[valid] / pitch
-    phase = (np.angle(np.sum(weights * np.exp(1j * angles))) % (2 * np.pi)) * pitch / (2 * np.pi)
+    phase = (
+        (np.angle(np.sum(weights * np.exp(1j * angles))) % (2 * np.pi))
+        * pitch
+        / (2 * np.pi)
+    )
 
     # Refine each lattice site to the local symmetry maximum, then fit a line
     # through the refined centres (absorbs small scale/rotation errors). Only
@@ -171,7 +175,10 @@ def periodic_trench_centres(
     radius = max(1, int(pitch / 6))
     sites, refined = [], []
     for k, centre in enumerate(np.arange(phase, n, pitch)):
-        lo, hi = int(max(half_window, centre - radius)), int(min(n - half_window, centre + radius + 1))
+        lo, hi = (
+            int(max(half_window, centre - radius)),
+            int(min(n - half_window, centre + radius + 1)),
+        )
         if hi - lo < 3:
             continue
         best = lo + int(np.nanargmax(symmetry[lo:hi]))
@@ -184,7 +191,9 @@ def periodic_trench_centres(
         slope, intercept = pitch, refined[0] - pitch * sites[0]
     else:
         return {**empty, "symmetry": symmetry, "pitch": pitch}
-    k = np.arange(np.ceil(-intercept / slope), np.floor((n - 1 - intercept) / slope) + 1)
+    k = np.arange(
+        np.ceil(-intercept / slope), np.floor((n - 1 - intercept) / slope) + 1
+    )
     centres = intercept + slope * k
 
     # Score each centre by the best symmetry within a couple of pixels (the
@@ -197,7 +206,9 @@ def periodic_trench_centres(
         if i - tolerance < half_window or i + tolerance >= n - half_window:
             keep.append(True)
         else:
-            keep.append(np.nanmax(symmetry[i - tolerance:i + tolerance + 1]) >= min_symmetry)
+            keep.append(
+                np.nanmax(symmetry[i - tolerance : i + tolerance + 1]) >= min_symmetry
+            )
     centres = centres[np.asarray(keep, dtype=bool)]
     return {"centres": centres, "symmetry": symmetry, "pitch": float(slope)}
 
@@ -263,8 +274,10 @@ class TrenchDetector:
         height when the lanes are its edge (:meth:`LaneDetector.use_image_edge`), else
         160 and 50 px."""
         if self.lane_detector.image_edge is not None:
-            return {"trench_length": int(self.experiment.data.sizes["Y"]),
-                    "trench_bottom_offset": 0}
+            return {
+                "trench_length": int(self.experiment.data.sizes["Y"]),
+                "trench_bottom_offset": 0,
+            }
         return {"trench_length": 160, "trench_bottom_offset": 50}
 
     @property
@@ -339,7 +352,7 @@ class TrenchDetector:
 
             # Profile over the trench bodies only: the rows that will be
             # cropped, not the feeding channel or the far side of the lane.
-            profile_rows = mean_img[max(0, y_top):min(img_height, y_bottom), :]
+            profile_rows = mean_img[max(0, y_top) : min(img_height, y_bottom), :]
             if profile_rows.shape[0] == 0:
                 continue
             x_profile = profile_rows.mean(axis=0)
@@ -361,7 +374,8 @@ class TrenchDetector:
             }
             if method == "periodic":
                 result = periodic_trench_centres(
-                    x_profile_smooth, trench_width,
+                    x_profile_smooth,
+                    trench_width,
                     expected_pitch=lane_override.get("expected_pitch", expected_pitch),
                     min_symmetry=lane_override.get("min_symmetry", min_symmetry),
                 )
@@ -510,10 +524,21 @@ class TrenchDetector:
         for fov in self.experiment.fov_names:
             mean_img = mean_images[fov]
             fov_trenches, _, trench_counter = self.detect_fov(
-                mean_img, fov, sigma, distance, prominence, height,
-                trench_width, trench_length, trench_bottom_offset,
-                conv_filter, start_id=trench_counter, lane_params=lane_params,
-                method=method, expected_pitch=expected_pitch, min_symmetry=min_symmetry,
+                mean_img,
+                fov,
+                sigma,
+                distance,
+                prominence,
+                height,
+                trench_width,
+                trench_length,
+                trench_bottom_offset,
+                conv_filter,
+                start_id=trench_counter,
+                lane_params=lane_params,
+                method=method,
+                expected_pitch=expected_pitch,
+                min_symmetry=min_symmetry,
             )
             trenches[fov] = fov_trenches
 
@@ -580,17 +605,21 @@ class TrenchDetector:
 
         diag_dir = get_diagnostics_dir(self.experiment.path, "trenches")
         mean_images = self.registrator.compute_registered_means(
-            list(self._trenches), self.channel,
+            list(self._trenches),
+            self.channel,
         )
-        save_figures(plot_fov_with_trenches, [
-            {
-                "image": mean_images[fov],
-                "trench_definitions": fov_trenches,
-                "title": f"Trenches – {fov}",
-                "save_path": str(diag_dir / f"trenches_{fov}.png"),
-            }
-            for fov, fov_trenches in self._trenches.items()
-        ])
+        save_figures(
+            plot_fov_with_trenches,
+            [
+                {
+                    "image": mean_images[fov],
+                    "trench_definitions": fov_trenches,
+                    "title": f"Trenches – {fov}",
+                    "save_path": str(diag_dir / f"trenches_{fov}.png"),
+                }
+                for fov, fov_trenches in self._trenches.items()
+            ],
+        )
         print(f"Trench diagnostics saved to {diag_dir}")
 
     def plot_fov(
@@ -608,8 +637,11 @@ class TrenchDetector:
         )
         fov_trenches = self._trenches.get(fov_name, [])
         plot_fov_with_trenches(
-            mean_img, fov_trenches, title=f"Trenches – {fov_name}",
-            save_path=save_path, show=show,
+            mean_img,
+            fov_trenches,
+            title=f"Trenches – {fov_name}",
+            save_path=save_path,
+            show=show,
         )
 
     # ------------------------------------------------------------------
@@ -634,12 +666,18 @@ class TrenchDetector:
             raise RuntimeError("Nothing to save — run detect_trenches() first.")
 
         trenches = pd.DataFrame(
-            [asdict(td) for fov_trenches in self._trenches.values() for td in fov_trenches],
+            [
+                asdict(td)
+                for fov_trenches in self._trenches.values()
+                for td in fov_trenches
+            ],
             columns=[f.name for f in fields(TrenchDefinition)],
         )
         params = {"channel": self.channel, **self._detection_params}
         self.store.save_trench_detection(
-            trenches, list(self._trenches), params,
+            trenches,
+            list(self._trenches),
+            params,
             source_subset_metadata=self.experiment.source_subset_metadata,
         )
         print(f"Trench detection saved to {self.store.path}")
@@ -675,15 +713,23 @@ class TrenchDetector:
                 for lane_idx, values in det._detection_params["lane_params"].items()
             }
 
-        trenches: Dict[str, List[TrenchDefinition]] = {fov: [] for fov in data["fov_names"]}
+        trenches: Dict[str, List[TrenchDefinition]] = {
+            fov: [] for fov in data["fov_names"]
+        }
         for row in data["trenches"].itertuples(index=False):
-            trenches[str(row.fov)].append(TrenchDefinition(
-                trench_id=int(row.trench_id), fov=str(row.fov),
-                lane_index=int(row.lane_index), x_left=int(row.x_left),
-                x_right=int(row.x_right), y_top=int(row.y_top),
-                y_bottom=int(row.y_bottom), orientation=int(row.orientation),
-                needs_flip=bool(row.needs_flip),
-            ))
+            trenches[str(row.fov)].append(
+                TrenchDefinition(
+                    trench_id=int(row.trench_id),
+                    fov=str(row.fov),
+                    lane_index=int(row.lane_index),
+                    x_left=int(row.x_left),
+                    x_right=int(row.x_right),
+                    y_top=int(row.y_top),
+                    y_bottom=int(row.y_bottom),
+                    orientation=int(row.orientation),
+                    needs_flip=bool(row.needs_flip),
+                )
+            )
         det._trenches = trenches
         return det
 

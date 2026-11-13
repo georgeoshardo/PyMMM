@@ -11,36 +11,57 @@ from test_golden_pipeline import lanes_summary, trenches_summary
 
 from pymmm import LaneDetector, TrenchDetector
 
-pytestmark = [pytest.mark.golden, pytest.mark.notebook,
-              pytest.mark.filterwarnings("ignore:FigureCanvasAgg is non-interactive")]
+pytestmark = [
+    pytest.mark.golden,
+    pytest.mark.notebook,
+    pytest.mark.filterwarnings("ignore:FigureCanvasAgg is non-interactive"),
+]
 
-LANE_CONTROLS = {"sigma": "sigma", "distance": "distance", "height": "height",
-                 "orientation_window_um": "orient. window (µm)", "orientation": "orientation"}
-TRENCH_CONTROLS = {"method": "method", "sigma": "sigma", "distance": "distance",
-                   "prominence": "prominence", "trench_width": "trench width",
-                   "trench_length": "trench length", "trench_bottom_offset": "bottom offset",
-                   "expected_pitch": "expected pitch (0 = auto)",
-                   "min_symmetry": "min symmetry"}
+LANE_CONTROLS = {
+    "sigma": "sigma",
+    "distance": "distance",
+    "height": "height",
+    "orientation_window_um": "orient. window (µm)",
+    "orientation": "orientation",
+}
+TRENCH_CONTROLS = {
+    "method": "method",
+    "sigma": "sigma",
+    "distance": "distance",
+    "prominence": "prominence",
+    "trench_width": "trench width",
+    "trench_length": "trench length",
+    "trench_bottom_offset": "bottom offset",
+    "expected_pitch": "expected pitch (0 = auto)",
+    "min_symmetry": "min symmetry",
+}
 
 
 def test_detection_widgets_reproduce_the_golden_detection(notebook, pipeline):
-    lanes = LaneDetector(pipeline.exp, pipeline.reg, pipeline.store, detection_channel="PC")
+    lanes = LaneDetector(
+        pipeline.exp, pipeline.reg, pipeline.store, detection_channel="PC"
+    )
     lanes.interactive_detect_lanes()
     for key, description in LANE_CONTROLS.items():
         notebook.control(description).value = LANES[key]
-    lane_preview = {"text": notebook.text("candidate"),
-                    "image": digest(notebook.viewers[0].data)}
+    lane_preview = {
+        "text": notebook.text("candidate"),
+        "image": digest(notebook.viewers[0].data),
+    }
     notebook.control("Apply to all FOVs").click()
     check("lanes", lanes_summary(lanes))
 
     notebook.shown.clear()
-    trenches = TrenchDetector(pipeline.exp, pipeline.reg, lanes, pipeline.store,
-                              detection_channel="PC")
+    trenches = TrenchDetector(
+        pipeline.exp, pipeline.reg, lanes, pipeline.store, detection_channel="PC"
+    )
     trenches.interactive_detect_trenches()
     for key, description in TRENCH_CONTROLS.items():
         notebook.control(description).value = TRENCHES[key]
-    trench_preview = {"text": notebook.text("candidate"),
-                      "image": digest(notebook.viewers[1].data)}
+    trench_preview = {
+        "text": notebook.text("candidate"),
+        "image": digest(notebook.viewers[1].data),
+    }
     notebook.control("Apply to all FOVs").click()
     check("trenches", trenches_summary(trenches))
 

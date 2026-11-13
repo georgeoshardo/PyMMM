@@ -60,16 +60,23 @@ def pipeline(scratch_folder):
     extractor = Extractor(exp, reg, trenches, output_path=folder / "experiment.zarr")
     extractor.extract(**EXTRACTION, resume=False, show_progress=False)
     return SimpleNamespace(
-        folder=folder, exp=exp, store=store, reg=reg, lanes=lanes, trenches=trenches,
-        extractor=extractor, group=folder / "experiment.zarr",
+        folder=folder,
+        exp=exp,
+        store=store,
+        reg=reg,
+        lanes=lanes,
+        trenches=trenches,
+        extractor=extractor,
+        group=folder / "experiment.zarr",
     )
 
 
 @pytest.fixture(scope="module")
 def dask_cluster():
     distributed = pytest.importorskip("dask.distributed")
-    with distributed.LocalCluster(n_workers=2, threads_per_worker=1, processes=True,
-                                  dashboard_address=None) as cluster:
+    with distributed.LocalCluster(
+        n_workers=2, threads_per_worker=1, processes=True, dashboard_address=None
+    ) as cluster:
         yield cluster
 
 

@@ -31,7 +31,12 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 
 import zarr
 
-from pymmm.store.experiment_group import has_segmentation, open_experiment, records, trench_ids
+from pymmm.store.experiment_group import (
+    has_segmentation,
+    open_experiment,
+    records,
+    trench_ids,
+)
 from pymmm.store.geff import has_tracks
 
 
@@ -93,8 +98,10 @@ class Tracker:
         self.python = str(python or sys.executable)
         root = self._open()
         if self.segmentation not in records(root, "segmentations"):
-            raise ValueError(f"{self.store_path.name} has no segmentation {self.segmentation!r} "
-                             f"(its segmentations: {sorted(records(root, 'segmentations')) or 'none'})")
+            raise ValueError(
+                f"{self.store_path.name} has no segmentation {self.segmentation!r} "
+                f"(its segmentations: {sorted(records(root, 'segmentations')) or 'none'})"
+            )
         if not self.chaintrack.is_file():
             raise FileNotFoundError(f"no chaintrack at {self.chaintrack}")
         self.trench_ids = trench_ids(root)
@@ -121,7 +128,9 @@ class Tracker:
     def segmented(self) -> List[int]:
         """The trenches whose segmentation is finished."""
         root = self._open()
-        return [t for t in self.trench_ids if has_segmentation(root, t, self.segmentation)]
+        return [
+            t for t in self.trench_ids if has_segmentation(root, t, self.segmentation)
+        ]
 
     def tracked(self) -> List[int]:
         """The trenches the run has tracked."""
@@ -137,9 +146,19 @@ class Tracker:
 
     def command(self, action: str, trenches: Sequence[int], *options: str) -> List[str]:
         """The chaintrack command line for ``action`` (``"fit"`` or ``"run"``)."""
-        command = [self.python, str(self.chaintrack), action, *trench_ranges(trenches),
-                   "--store", str(self.store_path), "--seg", self.segmentation, "--fit", self.fit_name,
-                   *options]
+        command = [
+            self.python,
+            str(self.chaintrack),
+            action,
+            *trench_ranges(trenches),
+            "--store",
+            str(self.store_path),
+            "--seg",
+            self.segmentation,
+            "--fit",
+            self.fit_name,
+            *options,
+        ]
         if self.workers is not None:
             command += ["--workers", str(self.workers)]
         return command
@@ -147,7 +166,9 @@ class Tracker:
     def _run(self, command: Sequence[str]) -> None:
         """Run chaintrack, printing its lines as they come. Interrupting the cell stops
         it: the interrupt reaches chaintrack too, and this waits for it to stop."""
-        process = subprocess.Popen(list(command), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        process = subprocess.Popen(
+            list(command), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
         assert process.stdout is not None
         try:
             for line in process.stdout:
@@ -156,9 +177,13 @@ class Tracker:
             process.stdout.close()
             code = process.wait()
         if code != 0:
-            raise RuntimeError(f"chaintrack stopped with an error (exit status {code}); its last lines are above")
+            raise RuntimeError(
+                f"chaintrack stopped with an error (exit status {code}); its last lines are above"
+            )
 
-    def fit(self, trenches: Sequence[int], recipe: Union[str, Path]) -> Dict[str, float]:
+    def fit(
+        self, trenches: Sequence[int], recipe: Union[str, Path]
+    ) -> Dict[str, float]:
         """Measure the experiment's fitted values on ``trenches`` (all their frames) and
         record them in the group with a frozen copy of ``recipe``; the values, in µm and
         minutes. chaintrack refuses to replace a fit that a run has used: give another
@@ -169,7 +194,9 @@ class Tracker:
         self._run(self.command("fit", trenches, "--recipe", str(recipe)))
         return dict(self.fit_record["values"])
 
-    def track(self, trenches: Optional[Sequence[int]] = None, resume: bool = True) -> List[int]:
+    def track(
+        self, trenches: Optional[Sequence[int]] = None, resume: bool = True
+    ) -> List[int]:
         """Track ``trenches`` (default: every segmented trench) and write their tracks
         into the group; the trenches the run holds afterwards.
 
@@ -178,7 +205,9 @@ class Tracker:
         again; that replaces the tracker's output only, never a curation.
         """
         if self.fit_record is None:
-            raise RuntimeError(f"{self.store_path.name} has no fit {self.fit_name!r}: run fit(trenches, recipe) first")
+            raise RuntimeError(
+                f"{self.store_path.name} has no fit {self.fit_name!r}: run fit(trenches, recipe) first"
+            )
         wanted = self.segmented() if trenches is None else [int(t) for t in trenches]
         done = set(self.tracked()) if resume else set()
         todo = [t for t in wanted if t not in done]
@@ -186,19 +215,37 @@ class Tracker:
             print(f"{self.run}: all {len(wanted)} trenches are tracked already")
             return self.tracked()
         if len(todo) < len(wanted):
-            print(f"{self.run}: {len(wanted) - len(todo)} of {len(wanted)} trenches are tracked already", flush=True)
+            print(
+                f"{self.run}: {len(wanted) - len(todo)} of {len(wanted)} trenches are tracked already",
+                flush=True,
+            )
         self._run(self.command("run", todo, "--out", self.run))
         return self.tracked()
 
-    def plot(self, trench_id: int, channel: str = "PC", minutes: Optional[float] = None,
-             save_path: Optional[str] = None, show: bool = True) -> None:
+    def plot(
+        self,
+        trench_id: int,
+        channel: str = "PC",
+        minutes: Optional[float] = None,
+        save_path: Optional[str] = None,
+        show: bool = True,
+    ) -> None:
         """A trench's kymograph with the run's tracks over it
         (:func:`pymmm.plotting.plot_track_kymograph`)."""
         from pymmm.plotting import plot_track_kymograph
 
-        plot_track_kymograph(self.store_path, trench_id, self.run, channel=channel, minutes=minutes,
-                             save_path=save_path, show=show)
+        plot_track_kymograph(
+            self.store_path,
+            trench_id,
+            self.run,
+            channel=channel,
+            minutes=minutes,
+            save_path=save_path,
+            show=show,
+        )
 
     def __repr__(self) -> str:
-        return (f"Tracker({self.store_path.name}, segmentation={self.segmentation!r}, run={self.run!r}, "
-                f"{len(self.tracked())}/{len(self.trench_ids)} trenches tracked)")
+        return (
+            f"Tracker({self.store_path.name}, segmentation={self.segmentation!r}, run={self.run!r}, "
+            f"{len(self.tracked())}/{len(self.trench_ids)} trenches tracked)"
+        )

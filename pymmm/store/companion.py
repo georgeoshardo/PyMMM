@@ -22,18 +22,33 @@ _SECTIONS = ("registration", "lane_detection", "trench_detection")
 _LANE_COLUMNS = {
     "fov": {"long_name": "field of view"},
     "lane_index": {"long_name": "lane index within its FOV"},
-    "y_center": {"units": "pixel", "long_name": "lane centre row in the registered FOV"},
-    "orientation": {"long_name": "trench opening direction (1 = opens downward, -1 = upward)"},
+    "y_center": {
+        "units": "pixel",
+        "long_name": "lane centre row in the registered FOV",
+    },
+    "orientation": {
+        "long_name": "trench opening direction (1 = opens downward, -1 = upward)"
+    },
 }
 _TRENCH_COLUMNS = {
     "fov": {"long_name": "field of view"},
     "lane_index": {"long_name": "lane the trench belongs to within its FOV"},
     "x_left": {"units": "pixel", "long_name": "trench left edge in the registered FOV"},
-    "x_right": {"units": "pixel", "long_name": "trench right edge in the registered FOV"},
+    "x_right": {
+        "units": "pixel",
+        "long_name": "trench right edge in the registered FOV",
+    },
     "y_top": {"units": "pixel", "long_name": "trench top edge in the registered FOV"},
-    "y_bottom": {"units": "pixel", "long_name": "trench bottom edge in the registered FOV"},
-    "orientation": {"long_name": "trench opening direction (1 = opens downward, -1 = upward)"},
-    "needs_flip": {"long_name": "crop is flipped vertically so trenches share one orientation"},
+    "y_bottom": {
+        "units": "pixel",
+        "long_name": "trench bottom edge in the registered FOV",
+    },
+    "orientation": {
+        "long_name": "trench opening direction (1 = opens downward, -1 = upward)"
+    },
+    "needs_flip": {
+        "long_name": "crop is flipped vertically so trenches share one orientation"
+    },
 }
 
 
@@ -60,7 +75,9 @@ class CompanionStore:
     def __init__(self, path: str | Path, mode: str = "a") -> None:
         self.path = Path(path)
         self._store = zarr.open_group(
-            str(self.path), mode=mode, zarr_format=3,
+            str(self.path),
+            mode=mode,
+            zarr_format=3,
         )
 
     # ------------------------------------------------------------------
@@ -81,15 +98,17 @@ class CompanionStore:
         attrs = store._store.attrs
         if "created" not in attrs:
             source_stat = nd2_path.stat()
-            attrs.update({
-                "schema_version": SCHEMA_VERSION,
-                "layout": "pymmm_companion",
-                "source_nd2": str(nd2_path),
-                "source_file_size_bytes": int(source_stat.st_size),
-                "source_mtime_ns": int(source_stat.st_mtime_ns),
-                "created": datetime.now().astimezone().isoformat(),
-                "provenance": provenance(),
-            })
+            attrs.update(
+                {
+                    "schema_version": SCHEMA_VERSION,
+                    "layout": "pymmm_companion",
+                    "source_nd2": str(nd2_path),
+                    "source_file_size_bytes": int(source_stat.st_size),
+                    "source_mtime_ns": int(source_stat.st_mtime_ns),
+                    "created": datetime.now().astimezone().isoformat(),
+                    "provenance": provenance(),
+                }
+            )
         return store
 
     # ------------------------------------------------------------------
@@ -107,16 +126,22 @@ class CompanionStore:
         if name in self._store:
             del self._store[name]
         dataset = dataset.copy()
-        dataset.attrs = plain_json({
-            "layout": name,
-            "params": params,
-            "source_subset_metadata": source_subset_metadata,
-            "provenance": provenance(),
-            **(extra_attrs or {}),
-            "complete": False,
-        })
+        dataset.attrs = plain_json(
+            {
+                "layout": name,
+                "params": params,
+                "source_subset_metadata": source_subset_metadata,
+                "provenance": provenance(),
+                **(extra_attrs or {}),
+                "complete": False,
+            }
+        )
         dataset.to_zarr(
-            str(self.path), group=name, mode="a", consolidated=False, zarr_format=3,
+            str(self.path),
+            group=name,
+            mode="a",
+            consolidated=False,
+            zarr_format=3,
         )
         self._store = zarr.open_group(str(self.path), mode="a", zarr_format=3)
         self._store[name].attrs["complete"] = True
@@ -210,10 +235,15 @@ class CompanionStore:
             if column == "fov":
                 values = np.asarray([str(v) for v in values], dtype=object)
             data_vars[column] = xr.DataArray(values, dims=(dim,), attrs=attrs)
-        coords = {dim: index if index is not None else np.arange(len(table), dtype=np.int32)}
+        coords = {
+            dim: index if index is not None else np.arange(len(table), dtype=np.int32)
+        }
         self._write_section(
-            name, xr.Dataset(data_vars, coords=coords), params,
-            source_subset_metadata, extra_attrs={"fov_names": fov_names},
+            name,
+            xr.Dataset(data_vars, coords=coords),
+            params,
+            source_subset_metadata,
+            extra_attrs={"fov_names": fov_names},
         )
 
     def _load_table(self, name: str, dim: str) -> tuple[pd.DataFrame, Dict[str, Any]]:
@@ -247,8 +277,13 @@ class CompanionStore:
             The experiment subset the lanes were detected on.
         """
         self._save_table(
-            "lane_detection", "Lane", lanes, _LANE_COLUMNS,
-            fov_names, params, source_subset_metadata,
+            "lane_detection",
+            "Lane",
+            lanes,
+            _LANE_COLUMNS,
+            fov_names,
+            params,
+            source_subset_metadata,
         )
 
     def load_lane_detection(self) -> Dict[str, Any]:
@@ -261,7 +296,11 @@ class CompanionStore:
             ``"params"`` (dict).
         """
         table, attrs = self._load_table("lane_detection", "Lane")
-        return {"lanes": table, "fov_names": attrs["fov_names"], "params": attrs["params"]}
+        return {
+            "lanes": table,
+            "fov_names": attrs["fov_names"],
+            "params": attrs["params"],
+        }
 
     def has_lane_detection(self) -> bool:
         """Check whether lane detection data is checkpointed."""
@@ -289,8 +328,13 @@ class CompanionStore:
             The experiment subset the trenches were detected on.
         """
         self._save_table(
-            "trench_detection", "Trench", trenches, _TRENCH_COLUMNS,
-            fov_names, params, source_subset_metadata,
+            "trench_detection",
+            "Trench",
+            trenches,
+            _TRENCH_COLUMNS,
+            fov_names,
+            params,
+            source_subset_metadata,
             index=trenches["trench_id"].to_numpy(dtype=np.int32),
         )
 
@@ -304,7 +348,11 @@ class CompanionStore:
             ``"params"`` (dict).
         """
         table, attrs = self._load_table("trench_detection", "Trench")
-        return {"trenches": table, "fov_names": attrs["fov_names"], "params": attrs["params"]}
+        return {
+            "trenches": table,
+            "fov_names": attrs["fov_names"],
+            "params": attrs["params"],
+        }
 
     def has_trench_detection(self) -> bool:
         """Check whether trench detection data is checkpointed."""
@@ -333,7 +381,9 @@ class CompanionStore:
         else:
             shutil.rmtree(self.path)
             self._store = zarr.open_group(
-                str(self.path), mode="a", zarr_format=3,
+                str(self.path),
+                mode="a",
+                zarr_format=3,
             )
             print(f"Store reset: {self.path}")
 

@@ -20,8 +20,12 @@ def _multiscale(name: str, axes: list[dict], scale: list[float]) -> dict[str, An
         "type": "none",
         "metadata": {"description": "one resolution level: nothing was downsampled"},
         "axes": axes,
-        "datasets": [{"path": "0", "coordinateTransformations": [
-            {"type": "scale", "scale": scale}]}],
+        "datasets": [
+            {
+                "path": "0",
+                "coordinateTransformations": [{"type": "scale", "scale": scale}],
+            }
+        ],
     }
 
 
@@ -54,15 +58,25 @@ def image(
         scale[2:] = [pixel_size_um, pixel_size_um]
     top = float(np.iinfo(dtype).max) if np.issubdtype(dtype, np.integer) else 1.0
     omero_channels = [
-        {"label": label, "color": color, "active": label == active,
-         "window": {"min": 0.0, "max": top, "start": 0.0, "end": top}}
+        {
+            "label": label,
+            "color": color,
+            "active": label == active,
+            "window": {"min": 0.0, "max": top, "start": 0.0, "end": top},
+        }
         for label, color in zip(channels, colors, strict=True)
     ]
     return {
         "version": OME_VERSION,
-        "multiscales": [_multiscale(
-            name, [time_axis, {"name": "c", "type": "channel"}, *space], scale)],
-        "omero": {"channels": omero_channels, "rdefs": {"model": "color", "defaultT": 0}},
+        "multiscales": [
+            _multiscale(
+                name, [time_axis, {"name": "c", "type": "channel"}, *space], scale
+            )
+        ],
+        "omero": {
+            "channels": omero_channels,
+            "rdefs": {"model": "color", "defaultT": 0},
+        },
     }
 
 
@@ -76,7 +90,9 @@ def display_windows(pixels: np.ndarray) -> list[tuple[float, float]]:
     ]
 
 
-def with_windows(ome: dict[str, Any], windows: Iterable[tuple[float, float]]) -> dict[str, Any]:
+def with_windows(
+    ome: dict[str, Any], windows: Iterable[tuple[float, float]]
+) -> dict[str, Any]:
     """A copy of a trench image's ``ome`` attributes with each channel's window
     ``start`` and ``end`` set from ``windows``."""
     ome = copy.deepcopy(ome)
@@ -85,15 +101,21 @@ def with_windows(ome: dict[str, Any], windows: Iterable[tuple[float, float]]) ->
     return ome
 
 
-def label_image(name: str, *, minutes_per_frame: float, um_per_pixel: float) -> dict[str, Any]:
+def label_image(
+    name: str, *, minutes_per_frame: float, um_per_pixel: float
+) -> dict[str, Any]:
     """The ``ome`` attributes of a label image, ``(t, y, x)``, in ``labels/`` of the
     trench image it labels."""
-    axes = [{"name": "t", "type": "time", "unit": "minute"},
-            {"name": "y", "type": "space", "unit": "micrometer"},
-            {"name": "x", "type": "space", "unit": "micrometer"}]
+    axes = [
+        {"name": "t", "type": "time", "unit": "minute"},
+        {"name": "y", "type": "space", "unit": "micrometer"},
+        {"name": "x", "type": "space", "unit": "micrometer"},
+    ]
     return {
         "version": OME_VERSION,
-        "multiscales": [_multiscale(name, axes, [minutes_per_frame, um_per_pixel, um_per_pixel])],
+        "multiscales": [
+            _multiscale(name, axes, [minutes_per_frame, um_per_pixel, um_per_pixel])
+        ],
         "image-label": {"source": {"image": "../../"}},
     }
 

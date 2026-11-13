@@ -28,7 +28,9 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
         if item.get_closest_marker(extra) is not None:
             missing = [m for m in modules if find_spec(m) is None]
             if missing:
-                pytest.skip(f"needs the {extra} extra ({', '.join(missing)} not installed)")
+                pytest.skip(
+                    f"needs the {extra} extra ({', '.join(missing)} not installed)"
+                )
 
 
 @pytest.fixture
@@ -64,7 +66,9 @@ class _Notebook:
 
     def control(self, description: str) -> Any:
         """The one control (slider, dropdown, button) with this description."""
-        found = [w for w in self.widgets() if getattr(w, "description", None) == description]
+        found = [
+            w for w in self.widgets() if getattr(w, "description", None) == description
+        ]
         assert len(found) == 1, f"{len(found)} controls named {description!r}"
         return found[0]
 
@@ -77,7 +81,9 @@ class _Notebook:
     def text(self, fragment: str) -> str:
         """The one HTML label containing ``fragment``."""
         found = [t for t in self.texts() if fragment in t]
-        assert len(found) == 1, f"{len(found)} labels contain {fragment!r}: {self.texts()}"
+        assert len(found) == 1, (
+            f"{len(found)} labels contain {fragment!r}: {self.texts()}"
+        )
         return found[0]
 
 
@@ -97,7 +103,9 @@ def notebook(monkeypatch):
     class ArrayViewer:
         def __init__(self, data: Any, **kwargs: Any) -> None:
             self.data, self.kwargs, self.renders = data, kwargs, 0
-            self.data_wrapper = SimpleNamespace(data_changed=SimpleNamespace(emit=self._emit))
+            self.data_wrapper = SimpleNamespace(
+                data_changed=SimpleNamespace(emit=self._emit)
+            )
             notebook.viewers.append(self)
 
         def _emit(self) -> None:
@@ -113,6 +121,8 @@ def notebook(monkeypatch):
 
     monkeypatch.setattr(ndv, "ArrayViewer", ArrayViewer)
     monkeypatch.setattr(ndv, "imshow", imshow)
-    monkeypatch.setattr(IPython.display, "display", lambda *objs, **kw: notebook.shown.extend(objs))
+    monkeypatch.setattr(
+        IPython.display, "display", lambda *objs, **kw: notebook.shown.extend(objs)
+    )
     yield notebook
     plt.close("all")

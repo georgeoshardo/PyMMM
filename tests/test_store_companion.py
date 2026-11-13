@@ -57,18 +57,33 @@ def test_companion_store_round_trips_checkpoints(tmp_path):
     registrator.experiment = experiment
     registrator.store = store
     for name, value in dict(
-        channel="PC", backend="stackreg", mode="first", rotation=0.0,
-        roi={"y": (250, 860)}, mean_n_frames=10, mean_from="end", downsample=2,
-        batch_size=4, fov_window=2, opencv_threads=1,
+        channel="PC",
+        backend="stackreg",
+        mode="first",
+        rotation=0.0,
+        roi={"y": (250, 860)},
+        mean_n_frames=10,
+        mean_from="end",
+        downsample=2,
+        batch_size=4,
+        fov_window=2,
+        opencv_threads=1,
     ).items():
         setattr(registrator, name, value)
     registrator._tmats = xr.DataArray(
-        tmats, dims=("P", "T", "row", "col"),
-        coords={"P": experiment.fov_names, "T": [0.0, 60000.0, 120000.0],
-                "row": [0, 1, 2], "col": [0, 1, 2]},
+        tmats,
+        dims=("P", "T", "row", "col"),
+        coords={
+            "P": experiment.fov_names,
+            "T": [0.0, 60000.0, 120000.0],
+            "row": [0, 1, 2],
+            "col": [0, 1, 2],
+        },
     )
     registrator._mean_images = xr.DataArray(
-        np.ones((2, 4, 5)), dims=("P", "Y", "X"), coords={"P": experiment.fov_names},
+        np.ones((2, 4, 5)),
+        dims=("P", "Y", "X"),
+        coords={"P": experiment.fov_names},
     )
     registrator.save()
 
@@ -80,7 +95,9 @@ def test_companion_store_round_trips_checkpoints(tmp_path):
     lanes._detection_params = {"sigma": 3.0}
     lanes.save()
 
-    trenches = TrenchDetector(experiment, registrator, lanes, store, detection_channel="PC")
+    trenches = TrenchDetector(
+        experiment, registrator, lanes, store, detection_channel="PC"
+    )
     trenches._trenches = {
         "XYPos:0": [TrenchDefinition(5, "XYPos:0", 0, 10, 42, 700, 860, 1, False)],
         "XYPos:1": [],

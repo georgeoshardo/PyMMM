@@ -39,7 +39,9 @@ def cell_image() -> np.ndarray:
     Trench 0 has a zero-filled column (outside the camera image).
     """
     rng = np.random.default_rng(0)
-    image = np.rint(rng.normal(BACKGROUND, NOISE, (N_TRENCH, N_T, H, W))).astype(np.uint16)
+    image = np.rint(rng.normal(BACKGROUND, NOISE, (N_TRENCH, N_T, H, W))).astype(
+        np.uint16
+    )
     image[:2, :, 1:4, 1:5] = CELL
     image[:2, :, 6:10, 1:5] = CELL
     image[1, 2] = np.rint(rng.normal(BACKGROUND, NOISE, (H, W)))
@@ -53,36 +55,62 @@ def make_experiment(tmp_path):
     path = tmp_path / "exp.zarr"
     root = zarr.open_group(str(path), mode="w", zarr_format=3)
     root.attrs["pymmm"] = {
-        "layout": "experiment", "pixel_size_um": PIXEL_SIZE, "frame_interval_ms": 60_000.0,
+        "layout": "experiment",
+        "pixel_size_um": PIXEL_SIZE,
+        "frame_interval_ms": 60_000.0,
         "provenance": {"created": "2026-01-01T00:00:00"},
     }
-    root.create_array("C", shape=(2,), dtype=str)[:] = np.asarray(["PC", "mCherry"], dtype=object)
+    root.create_array("C", shape=(2,), dtype=str)[:] = np.asarray(
+        ["PC", "mCherry"], dtype=object
+    )
     root.create_array("T", data=np.arange(5, 5 + N_T, dtype=np.int32))
     table = root.create_group("trenches")
     table.create_array("trench", data=np.asarray(TRENCHES, dtype=np.int32))
     table.create_array("fov_name", shape=(N_TRENCH,), dtype=str)[:] = np.asarray(
-        ["f0", "f0", "f1"], dtype=object)
+        ["f0", "f0", "f1"], dtype=object
+    )
     cells = cell_image()
     for k, trench in enumerate(TRENCHES):
         group = root.create_group(eg.trench_path(trench))
         group.attrs["ome"] = {
             "version": ome.OME_VERSION,
-            "multiscales": [{
-                "name": eg.trench_path(trench),
-                "axes": [{"name": "t", "type": "time", "unit": "minute"},
-                         {"name": "c", "type": "channel"},
-                         {"name": "y", "type": "space", "unit": "micrometer"},
-                         {"name": "x", "type": "space", "unit": "micrometer"}],
-                "datasets": [{"path": "0", "coordinateTransformations": [
-                    {"type": "scale", "scale": [1.0, 1.0, PIXEL_SIZE, PIXEL_SIZE]}]}],
-            }],
-            "omero": {"channels": [{"label": "PC", "color": "FFFFFF"},
-                                   {"label": "mCherry", "color": "FF0000"}]},
+            "multiscales": [
+                {
+                    "name": eg.trench_path(trench),
+                    "axes": [
+                        {"name": "t", "type": "time", "unit": "minute"},
+                        {"name": "c", "type": "channel"},
+                        {"name": "y", "type": "space", "unit": "micrometer"},
+                        {"name": "x", "type": "space", "unit": "micrometer"},
+                    ],
+                    "datasets": [
+                        {
+                            "path": "0",
+                            "coordinateTransformations": [
+                                {
+                                    "type": "scale",
+                                    "scale": [1.0, 1.0, PIXEL_SIZE, PIXEL_SIZE],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "omero": {
+                "channels": [
+                    {"label": "PC", "color": "FFFFFF"},
+                    {"label": "mCherry", "color": "FF0000"},
+                ]
+            },
         }
         pixels = np.zeros((N_T, 2, H, W), dtype=np.uint16)
         pixels[:, 1] = cells[k]
-        group.create_array("0", data=pixels, chunks=(N_T, 1, H, W),
-                           dimension_names=["t", "c", "y", "x"])
+        group.create_array(
+            "0",
+            data=pixels,
+            chunks=(N_T, 1, H, W),
+            dimension_names=["t", "c", "y", "x"],
+        )
     return path
 
 
@@ -91,13 +119,20 @@ def make_empty_experiment(tmp_path):
     5 frames of PC and mCherry, 6 × 4 pixels, left empty."""
     path = tmp_path / "exp.zarr"
     root = zarr.open_group(str(path), mode="w", zarr_format=3)
-    root.attrs["pymmm"] = {"layout": "experiment", "pixel_size_um": 0.1,
-                           "frame_interval_ms": 60_000.0}
-    root.create_array("C", shape=(2,), dtype=str)[:] = np.asarray(["PC", "mCherry"], dtype=object)
+    root.attrs["pymmm"] = {
+        "layout": "experiment",
+        "pixel_size_um": 0.1,
+        "frame_interval_ms": 60_000.0,
+    }
+    root.create_array("C", shape=(2,), dtype=str)[:] = np.asarray(
+        ["PC", "mCherry"], dtype=object
+    )
     table = root.create_group("trenches")
     table.create_array("trench", data=np.asarray([3, 4], dtype=np.int32))
     for t in (3, 4):
-        root.create_group(eg.trench_path(t)).create_array("0", shape=(5, 2, 6, 4), dtype=np.uint16)
+        root.create_group(eg.trench_path(t)).create_array(
+            "0", shape=(5, 2, 6, 4), dtype=np.uint16
+        )
     return path
 
 
@@ -182,14 +217,18 @@ class FakeND2File:
             channels=[
                 FakeChannelRecord(
                     channel=FakeChannelMeta(
-                        name="PC", index=0, color={"r": 255, "g": 255, "b": 255},
+                        name="PC",
+                        index=0,
+                        color={"r": 255, "g": 255, "b": 255},
                         emissionLambdaNm=595.0,
                     ),
                     microscope=microscope,
                 ),
                 FakeChannelRecord(
                     channel=FakeChannelMeta(
-                        name="mCherry", index=1, color={"r": 255, "g": 0, "b": 0},
+                        name="mCherry",
+                        index=1,
+                        color={"r": 255, "g": 0, "b": 0},
                         emissionLambdaNm=475.0,
                     ),
                     microscope=microscope,
@@ -240,7 +279,9 @@ class FakeND2File:
         }
 
     def frame_metadata(self, seq_index: int) -> FakeFrameMetadata:
-        time_idx, p_idx = np.unravel_index(seq_index, (self.sizes["T"], self.sizes["P"]))
+        time_idx, p_idx = np.unravel_index(
+            seq_index, (self.sizes["T"], self.sizes["P"])
+        )
         rel_time_ms = 30000.0 * time_idx + 123.0 + p_idx
         abs_jdn = 2460000.0 + 0.01 * time_idx + 0.001 * p_idx
         stage_x = 100.0 + p_idx
@@ -275,8 +316,14 @@ class FakeND2File:
         return FakeFrameMetadata(contents={"frameCount": 4}, channels=channels)
 
     def read_frame(self, seq_index: int) -> np.ndarray:
-        time_idx, p_idx = np.unravel_index(seq_index, (self.sizes["T"], self.sizes["P"]))
-        base = np.arange(12, dtype=np.uint16).reshape(3, 4) + (100 * time_idx) + (10 * p_idx)
+        time_idx, p_idx = np.unravel_index(
+            seq_index, (self.sizes["T"], self.sizes["P"])
+        )
+        base = (
+            np.arange(12, dtype=np.uint16).reshape(3, 4)
+            + (100 * time_idx)
+            + (10 * p_idx)
+        )
         return np.stack([base, base + 1000], axis=0)
 
     def events(self, orient: str = "records", null_value=np.nan) -> list[dict]:
@@ -284,18 +331,43 @@ class FakeND2File:
         return [
             {"Time [s]": 0.1, "Events": "Command Executed"},
             # Like real ND2 files: PFS lives in the frame rows, not frame metadata.
-            {"Index": 0, "T Index": 0, "P Index": 0, "PFS Offset": 17390, "PFS Status": 1},
+            {
+                "Index": 0,
+                "T Index": 0,
+                "P Index": 0,
+                "PFS Offset": 17390,
+                "PFS Status": 1,
+            },
             {"Time [s]": 0.2, "Events": "Command Executed"},
-            {"Index": 1, "T Index": 0, "P Index": 1, "PFS Offset": 17398, "PFS Status": 1},
+            {
+                "Index": 1,
+                "T Index": 0,
+                "P Index": 1,
+                "PFS Offset": 17398,
+                "PFS Status": 1,
+            },
             {"Time [s]": 30.1, "Events": "Command Executed"},
-            {"Index": 2, "T Index": 1, "P Index": 0, "PFS Offset": 17406, "PFS Status": 1},
+            {
+                "Index": 2,
+                "T Index": 1,
+                "P Index": 0,
+                "PFS Offset": 17406,
+                "PFS Status": 1,
+            },
             {"Time [s]": 30.2, "Events": "Command Executed"},
-            {"Index": 3, "T Index": 1, "P Index": 1, "PFS Offset": 17414, "PFS Status": 0},
+            {
+                "Index": 3,
+                "T Index": 1,
+                "P Index": 1,
+                "PFS Offset": 17414,
+                "PFS Status": 0,
+            },
         ]
 
 
-def fake_nd2(monkeypatch, path: Path, fov_names=("XYPos:0", "XYPos:1"),
-             shape_yx=(3, 4)) -> Path:
+def fake_nd2(
+    monkeypatch, path: Path, fov_names=("XYPos:0", "XYPos:1"), shape_yx=(3, 4)
+) -> Path:
     """An ND2 file at ``path``, read as :class:`FakeND2File`: 2 frames 30 s apart, the
     FOVs named ``fov_names`` and 2 channels, PC and mCherry. ``nd2.imread`` gives zeros
     of ``shape_yx``; ``read_frame`` gives the 3 × 4 frames of :class:`FakeND2File`."""
@@ -327,17 +399,20 @@ def lane_image(lane_y: int, shift: int = 0) -> np.ndarray:
     """A bright feeding lane at ``lane_y`` (above the widget's default height, 5000),
     bright trench columns above it."""
     image = np.full((FOV_H, FOV_W), 1000.0, dtype=np.float32)
-    image[lane_y - 20:lane_y + 20] = 20000.0
+    image[lane_y - 20 : lane_y + 20] = 20000.0
     for x in range(20 + shift, FOV_W - 10, 40):
-        image[lane_y - 90:lane_y - 25, x:x + 8] = 4000.0
+        image[lane_y - 90 : lane_y - 25, x : x + 8] = 4000.0
     return image
 
 
 def fov_experiment(tmp_path, fovs):
     """An ND2Experiment of these FOVs' names, one channel, PC, 1 µm pixels."""
     return SimpleNamespace(
-        fov_names=list(fovs), channel_names=["PC"], pixel_size_um=1.0,
-        data=SimpleNamespace(sizes={"Y": FOV_H, "X": FOV_W}), path=tmp_path / "exp.nd2",
+        fov_names=list(fovs),
+        channel_names=["PC"],
+        pixel_size_um=1.0,
+        data=SimpleNamespace(sizes={"Y": FOV_H, "X": FOV_W}),
+        path=tmp_path / "exp.nd2",
     )
 
 
@@ -346,7 +421,8 @@ def fov_registrator(images):
     return SimpleNamespace(
         get_registered_mean_of_timestack=lambda fov, channel: images[fov],
         compute_registered_means=lambda fovs=None, channel=None: {
-            f: images[f] for f in (fovs or list(images))},
+            f: images[f] for f in (fovs or list(images))
+        },
     )
 
 
@@ -379,8 +455,9 @@ class FakeModel:
         self.kwargs.append(kwargs)
         if kwargs.get("compute_masks") is False:  # masks="affinity": the network's maps
             self.stack_calls += 1
-            return SimpleNamespace(flows=[SimpleNamespace(dP=np.zeros((2,) + f.shape), dist=f)
-                                          for f in x])
+            return SimpleNamespace(
+                flows=[SimpleNamespace(dP=np.zeros((2,) + f.shape), dist=f) for f in x]
+            )
         if x.shape[0] > 1:
             self.stack_calls += 1
             if self.fail_stack:
@@ -390,10 +467,14 @@ class FakeModel:
             self.frame_calls += 1
             if t in self.fail_frames:
                 raise IndexError("index 1 is out of bounds")
-        return SimpleNamespace(masks=np.stack([bottom_first(f > self.THRESHOLD) for f in x]))
+        return SimpleNamespace(
+            masks=np.stack([bottom_first(f > self.THRESHOLD) for f in x])
+        )
 
 
-def fake_affinity_masks(dP, dist, device, *, mask_threshold, flow_threshold, angle, min_size):
+def fake_affinity_masks(
+    dP, dist, device, *, mask_threshold, flow_threshold, angle, min_size
+):
     """Stands in for ``omnipose.affinity_masks``: thresholds the distance map (here the
     normalised image) as :class:`FakeModel` does."""
     return bottom_first(dist > FakeModel.THRESHOLD)

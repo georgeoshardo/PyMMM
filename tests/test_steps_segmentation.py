@@ -100,11 +100,10 @@ def test_normalise_maps_zero_fill_to_zero_and_applies_gain():
 def test_drop_faint_removes_masks_on_background():
     stack = cell_image()[:1, :1]
     masks = np.zeros(stack.shape, np.int32)
-    masks[0, 0, 1:4, 1:5] = 1          # bright cell
-    masks[0, 0, 10:12, 3:5] = 2        # background patch
+    masks[0, 0, 1:4, 1:5] = 1  # bright cell
+    masks[0, 0, 10:12, 3:5] = 2  # background patch
     kept = drop_faint(masks, stack, min_contrast=5)
     assert set(np.unique(kept)) == {0, 1}
-
 
 
 def test_scale_labels_resizes_each_mask_and_keeps_its_number():
@@ -121,14 +120,25 @@ def test_scale_labels_resizes_each_mask_and_keeps_its_number():
     assert model_shape((944, 128), 0.065, None) == (944, 128)
 
 
-def test_a_model_at_another_pixel_size_sees_resampled_frames(experiment, fake_model, monkeypatch):
+def test_a_model_at_another_pixel_size_sees_resampled_frames(
+    experiment, fake_model, monkeypatch
+):
     """Omnipose sees frames at the model's pixel size; the labels come back at the
     trench's own, over the same cells, and the record keeps the model's pixel size."""
     shapes = []
     evaluate = fake_model.eval
-    monkeypatch.setattr(fake_model, "eval", lambda x, **kw: (shapes.append(x.shape), evaluate(x, **kw))[1])
-    seg = Segmenter(experiment, channel="mCherry", hypotheses=["S1"], model_pixel_size=2 * PIXEL_SIZE,
-                    gpu=False)
+    monkeypatch.setattr(
+        fake_model,
+        "eval",
+        lambda x, **kw: (shapes.append(x.shape), evaluate(x, **kw))[1],
+    )
+    seg = Segmenter(
+        experiment,
+        channel="mCherry",
+        hypotheses=["S1"],
+        model_pixel_size=2 * PIXEL_SIZE,
+        gpu=False,
+    )
     seg.segment(trenches=[10], show_progress=False)
     assert {shape[1:] for shape in shapes} == {(H // 2, W // 2)}
     assert fake_model.kwargs[-1]["min_size"] == round(1.75 / (2 * PIXEL_SIZE) ** 2)
@@ -179,7 +189,9 @@ def test_segment_writes_one_label_image_per_hypothesis_beside_each_trench(segmen
         assert attrs["upper"] >= segmenter.params["floor"]
         assert attrs["failed_frames"] == {}
         assert attrs["made_on"] == {"host": socket.gethostname(), "device": "cpu"}
-    assert root["trench_0010/labels/mcherry.S1"].attrs["pymmm"]["lower"] > 0  # zero fill ignored
+    assert (
+        root["trench_0010/labels/mcherry.S1"].attrs["pymmm"]["lower"] > 0
+    )  # zero fill ignored
     np.testing.assert_array_equal(eg.image(root, 10)[:, 1], cell_image()[0])
 
 
@@ -190,7 +202,7 @@ def test_hypothesis_settings_reach_omnipose(experiment, fake_model):
     assert kwargs["rescale_factor"] == 0.8
     assert kwargs["mask_threshold"] == -1.0
     assert kwargs["flow_threshold"] == 0.0
-    assert kwargs["min_size"] == round(1.75 / PIXEL_SIZE ** 2)
+    assert kwargs["min_size"] == round(1.75 / PIXEL_SIZE**2)
     assert eg.listed_labels(eg.open_experiment(experiment), 10) == ["mcherry.S3"]
 
 
@@ -214,7 +226,10 @@ def test_changed_settings_never_clear_results(segmenter):
     assert s1.any()
     segmenter._params["min_area"] = 0.5
 
-    with pytest.raises(RuntimeError, match=r"params, settings differ.*1 trenches have results.*resume=False"):
+    with pytest.raises(
+        RuntimeError,
+        match=r"params, settings differ.*1 trenches have results.*resume=False",
+    ):
         segmenter.segment(show_progress=False)
     with pytest.raises(RuntimeError, match="1 trenches have results"):
         segmenter.segment(trenches=[11, 12], resume=False, show_progress=False)
@@ -226,7 +241,9 @@ def test_changed_settings_never_clear_results(segmenter):
     assert segmenter.is_complete()
 
 
-def test_other_hypotheses_replace_the_segmentation_only_when_asked(segmenter, experiment):
+def test_other_hypotheses_replace_the_segmentation_only_when_asked(
+    segmenter, experiment
+):
     segmenter.segment(show_progress=False)
     fewer = Segmenter(experiment, channel="mCherry", hypotheses=["S1", "S3"], gpu=False)
     with pytest.raises(RuntimeError, match="hypotheses, specs, settings differ"):
@@ -238,8 +255,9 @@ def test_other_hypotheses_replace_the_segmentation_only_when_asked(segmenter, ex
     assert eg.hypotheses(root, "mcherry") == ["S1", "S3"]
     for trench in TRENCHES:
         assert eg.listed_labels(root, trench) == ["mcherry.S1", "mcherry.S3"]
-        assert sorted(name for name, _ in root[f"{eg.trench_path(trench)}/labels"].groups()) == [
-            "mcherry.S1", "mcherry.S3"]
+        assert sorted(
+            name for name, _ in root[f"{eg.trench_path(trench)}/labels"].groups()
+        ) == ["mcherry.S1", "mcherry.S3"]
 
 
 def test_resume_false_with_same_settings_resegments_only_those_trenches(segmenter):
@@ -272,8 +290,6 @@ def test_segment_refuses_unknown_trenches(segmenter):
         segmenter.segment(trenches=[10, 99], show_progress=False)
 
 
-
-
 def test_omnipose_index_error_retries_frame_by_frame(segmenter):
     segmenter.fake_model.fail_stack = True
     segmenter.fake_model.fail_frames = {2}
@@ -301,14 +317,25 @@ def _models(tmp_path):
 
 
 def _ensemble(experiment, models, params=PC_PARAMS):
-    return Segmenter(experiment, channel="mCherry", name="ens", models=models, params=params,
-                     hypotheses=checkpoint_hypotheses(CHECKPOINTS), gpu=False)
+    return Segmenter(
+        experiment,
+        channel="mCherry",
+        name="ens",
+        models=models,
+        params=params,
+        hypotheses=checkpoint_hypotheses(CHECKPOINTS),
+        gpu=False,
+    )
 
 
-def test_checkpoint_hypotheses_record_their_files(experiment, fake_model, tmp_path, monkeypatch):
+def test_checkpoint_hypotheses_record_their_files(
+    experiment, fake_model, tmp_path, monkeypatch
+):
     from pymmm.steps import segmentation as module
 
-    monkeypatch.setattr(module, "drop_faint", lambda *a: pytest.fail("min_contrast is off"))
+    monkeypatch.setattr(
+        module, "drop_faint", lambda *a: pytest.fail("min_contrast is off")
+    )
     models = _models(tmp_path)
     seg = _ensemble(experiment, models)
     assert seg.params["min_contrast"] is None and seg.params["floor"] == 0.0
@@ -316,8 +343,10 @@ def test_checkpoint_hypotheses_record_their_files(experiment, fake_model, tmp_pa
 
     record = _record(seg)
     assert record["hypotheses"] == ["e250", "e050"]
-    assert record["specs"] == {"e250": {"checkpoint": "omni_epoch_250"},
-                               "e050": {"checkpoint": "omni_epoch_50"}}
+    assert record["specs"] == {
+        "e250": {"checkpoint": "omni_epoch_250"},
+        "e050": {"checkpoint": "omni_epoch_50"},
+    }
     assert record["checkpoint_sha256"] == {
         "e250": hashlib.sha256(bytes([0]) * 1000).hexdigest(),
         "e050": hashlib.sha256(bytes([1]) * 1000).hexdigest(),
@@ -328,13 +357,20 @@ def test_checkpoint_hypotheses_record_their_files(experiment, fake_model, tmp_pa
     labels = _labels(seg, 10, "e050")
     assert labels[0, 2, 2] == 1 and labels[0, 8, 2] == 2
 
-    reopened = Segmenter(experiment, channel="mCherry", name="ens", models=models, gpu=False)
+    reopened = Segmenter(
+        experiment, channel="mCherry", name="ens", models=models, gpu=False
+    )
     assert reopened.hypotheses == ["e250", "e050"] and reopened.params == seg.params
     assert reopened.is_complete()
 
     (models / "omni_epoch_50").write_bytes(b"retrained")
-    changed = Segmenter(experiment, channel="mCherry", name="ens", models=models, gpu=False)
-    with pytest.raises(RuntimeError, match="checkpoint_sha256, settings differ|checkpoint_sha256 differ"):
+    changed = Segmenter(
+        experiment, channel="mCherry", name="ens", models=models, gpu=False
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="checkpoint_sha256, settings differ|checkpoint_sha256 differ",
+    ):
         changed.segment(show_progress=False)
 
 
@@ -344,20 +380,32 @@ def test_checkpoint_hypotheses_need_their_files(experiment, fake_model, tmp_path
     with pytest.raises(FileNotFoundError, match="omni_epoch_250"):
         _ensemble(experiment, tmp_path)
     with pytest.raises(ValueError, match="unknown settings"):
-        Segmenter(experiment, channel="mCherry", gpu=False,
-                  hypotheses={"x": {"model": "bact_fluor_omni", "gian": 2}})
+        Segmenter(
+            experiment,
+            channel="mCherry",
+            gpu=False,
+            hypotheses={"x": {"model": "bact_fluor_omni", "gian": 2}},
+        )
     with pytest.raises(ValueError, match="one of 'model' or 'checkpoint'"):
-        Segmenter(experiment, channel="mCherry", gpu=False, hypotheses={"x": {"gain": 2}})
+        Segmenter(
+            experiment, channel="mCherry", gpu=False, hypotheses={"x": {"gain": 2}}
+        )
 
 
 @pytest.mark.parametrize("where", ["pool", "dask"])
-def test_workers_elsewhere_write_the_same_labels(experiment, fake_model, tmp_path, monkeypatch, where):
+def test_workers_elsewhere_write_the_same_labels(
+    experiment, fake_model, tmp_path, monkeypatch, where
+):
     """Pool and Dask workers (other processes, their own fake model) write what this
     process writes; Dask workers get the checkpoints as bytes."""
-    seg = _ensemble(experiment, _models(tmp_path), params={"masks": "eval", "min_contrast": "off"})
+    seg = _ensemble(
+        experiment, _models(tmp_path), params={"masks": "eval", "min_contrast": "off"}
+    )
     seg.segment(show_progress=False)
     root = eg.open_experiment(experiment, mode="r+")
-    expected = {t: [a[...] for a in eg.segmentation(root, t, "ens")[1]] for t in TRENCHES}
+    expected = {
+        t: [a[...] for a in eg.segmentation(root, t, "ens")[1]] for t in TRENCHES
+    }
     for trench in TRENCHES:
         eg.remove_segmentation(root, trench, "ens")
 
@@ -436,8 +484,13 @@ def test_a_worker_with_other_code_refuses_the_task(segmenter):
 
     recipe, weights = segmenter._recipe(Runner(workers=1), None)
     with pytest.raises(RuntimeError, match="other segmentation code"):
-        module._segment_task(dataclasses.replace(recipe, digest="0" * 16), weights,
-                             segmenter.read(10), (0.0, 1.0), 64)
+        module._segment_task(
+            dataclasses.replace(recipe, digest="0" * 16),
+            weights,
+            segmenter.read(10),
+            (0.0, 1.0),
+            64,
+        )
 
 
 def test_packed_labels_come_back_the_same():

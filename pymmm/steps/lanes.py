@@ -196,14 +196,21 @@ class LaneDetector:
             folder (see :meth:`save_diagnostics`).
         """
         if orientation not in ("auto", *_FORCED_ORIENTATION):
-            raise ValueError(f"orientation must be 'auto', 'down' or 'up', not {orientation!r}")
+            raise ValueError(
+                f"orientation must be 'auto', 'down' or 'up', not {orientation!r}"
+            )
         lanes: Dict[str, List[LaneInfo]] = {}
 
         mean_images = self.registrator.compute_registered_means(channel=self.channel)
         for fov in self.experiment.fov_names:
             mean_img = mean_images[fov]
             _, _, _, fov_lanes = self.detect_fov(
-                mean_img, sigma, distance, height, orientation_window_um, fov,
+                mean_img,
+                sigma,
+                distance,
+                height,
+                orientation_window_um,
+                fov,
                 orientation=orientation,
             )
             lanes[fov] = fov_lanes
@@ -227,7 +234,9 @@ class LaneDetector:
         if plot:
             self.plot_fov(self.experiment.fov_names[0])
 
-    def use_image_edge(self, opening: str = "down", save_diagnostics: bool = True) -> None:
+    def use_image_edge(
+        self, opening: str = "down", save_diagnostics: bool = True
+    ) -> None:
         """No lane detection: one lane per FOV, on the image's edge where its trenches
         open. For an image cropped to its trenches (``ND2Experiment.select_roi``, the
         notebook's ``EXPERIMENT_Y_ROI``), so that they fill its height.
@@ -246,14 +255,22 @@ class LaneDetector:
             raise ValueError(f"opening must be 'down' or 'up', not {opening!r}")
         y = self.experiment.data.sizes["Y"] if opening == "down" else 0
         self._lanes = {
-            fov: [LaneInfo(y_center=y, orientation=_FORCED_ORIENTATION[opening], fov=fov,
-                           lane_index=0)]
+            fov: [
+                LaneInfo(
+                    y_center=y,
+                    orientation=_FORCED_ORIENTATION[opening],
+                    fov=fov,
+                    lane_index=0,
+                )
+            ]
             for fov in self.experiment.fov_names
         }
         self._detection_params = {"image_edge": opening}
         edge = "bottom" if opening == "down" else "top"
-        print(f"Lanes: the image's {edge} edge (y = {y}) in every FOV; the trenches open "
-              f"{opening} into it")
+        print(
+            f"Lanes: the image's {edge} edge (y = {y}) in every FOV; the trenches open "
+            f"{opening} into it"
+        )
         if save_diagnostics:
             self.save_diagnostics()
 
@@ -263,17 +280,22 @@ class LaneDetector:
         from pymmm.plotting import plot_fov_with_lanes, save_figures
 
         diag_dir = get_diagnostics_dir(self.experiment.path, "lanes")
-        mean_images = self.registrator.compute_registered_means(list(self.lanes), self.channel)
-        save_figures(plot_fov_with_lanes, [
-            {
-                "image": mean_images[fov],
-                "lane_y_positions": [l.y_center for l in fov_lanes],
-                "orientations": [l.orientation for l in fov_lanes],
-                "title": f"Lanes – {fov}",
-                "save_path": str(diag_dir / f"lanes_{fov}.png"),
-            }
-            for fov, fov_lanes in self.lanes.items()
-        ])
+        mean_images = self.registrator.compute_registered_means(
+            list(self.lanes), self.channel
+        )
+        save_figures(
+            plot_fov_with_lanes,
+            [
+                {
+                    "image": mean_images[fov],
+                    "lane_y_positions": [l.y_center for l in fov_lanes],
+                    "orientations": [l.orientation for l in fov_lanes],
+                    "title": f"Lanes – {fov}",
+                    "save_path": str(diag_dir / f"lanes_{fov}.png"),
+                }
+                for fov, fov_lanes in self.lanes.items()
+            ],
+        )
         print(f"Lane diagnostics saved to {diag_dir}")
 
     def plot_fov(
@@ -325,7 +347,9 @@ class LaneDetector:
         )
         params = {"channel": self.channel, **self._detection_params}
         self.store.save_lane_detection(
-            lanes, list(self._lanes), params,
+            lanes,
+            list(self._lanes),
+            params,
             source_subset_metadata=self.experiment.source_subset_metadata,
         )
         print(f"Lane detection saved to {self.store.path}")
@@ -356,10 +380,14 @@ class LaneDetector:
 
         lanes: Dict[str, List[LaneInfo]] = {fov: [] for fov in data["fov_names"]}
         for row in data["lanes"].itertuples(index=False):
-            lanes[str(row.fov)].append(LaneInfo(
-                y_center=int(row.y_center), orientation=int(row.orientation),
-                fov=str(row.fov), lane_index=int(row.lane_index),
-            ))
+            lanes[str(row.fov)].append(
+                LaneInfo(
+                    y_center=int(row.y_center),
+                    orientation=int(row.orientation),
+                    fov=str(row.fov),
+                    lane_index=int(row.lane_index),
+                )
+            )
         det._lanes = lanes
         return det
 
@@ -367,7 +395,9 @@ class LaneDetector:
         if self._lanes is None:
             return "LaneDetector(not detected)"
         if self.image_edge is not None:
-            return (f"LaneDetector(the image's edge, trenches open {self.image_edge}: "
-                    f"{len(self._lanes)} FOVs)")
+            return (
+                f"LaneDetector(the image's edge, trenches open {self.image_edge}: "
+                f"{len(self._lanes)} FOVs)"
+            )
         total = sum(len(v) for v in self._lanes.values())
         return f"LaneDetector({total} lanes across {len(self._lanes)} FOVs)"

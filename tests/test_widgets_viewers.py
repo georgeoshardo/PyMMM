@@ -20,7 +20,7 @@ pytest.importorskip("ipykernel")
 
 TESTS = Path(__file__).resolve().parent
 
-VIEWERS = '''
+VIEWERS = """
 import json, sys
 from pathlib import Path
 sys.path.insert(0, {tests!r})
@@ -45,20 +45,24 @@ detector.interactive_detect_lanes()
 report["lane widget"] = [exercise(w) for k, w in list(_instances.items())
                          if k not in known and isinstance(w, RemoteFrameBuffer)]
 print(json.dumps(report))
-'''
+"""
 
 
 def run_in_kernel(source: str) -> str:
     """Run ``source`` in a fresh kernel; its stdout (a failure fails the test)."""
     nb = nbformat.v4.new_notebook(cells=[nbformat.v4.new_code_cell(source)])
     nbclient.NotebookClient(nb, timeout=300, kernel_name="python3").execute()
-    return "".join(o.text for o in nb.cells[0].outputs
-                   if o.output_type == "stream" and o.name == "stdout")
+    return "".join(
+        o.text
+        for o in nb.cells[0].outputs
+        if o.output_type == "stream" and o.name == "stdout"
+    )
 
 
 def test_viewers_handle_browser_events_and_draw(tmp_path):
-    stdout = run_in_kernel(VIEWERS.format(tests=str(TESTS), prefix=sys.prefix,
-                                          tmp=str(tmp_path)))
+    stdout = run_in_kernel(
+        VIEWERS.format(tests=str(TESTS), prefix=sys.prefix, tmp=str(tmp_path))
+    )
     report = json.loads(stdout.strip().splitlines()[-1])
     for viewer, drawn in report.items():
         assert drawn, f"{viewer}: no canvas"
@@ -67,4 +71,7 @@ def test_viewers_handle_browser_events_and_draw(tmp_path):
             assert canvas["canvas"].endswith("JupyterRenderCanvas"), (viewer, canvas)
             assert canvas["errors"] == [], (viewer, canvas)
             assert canvas["frame"] == [300, 400, 4], (viewer, canvas)
-            assert canvas["spread"] > 0, (viewer, canvas)  # the image, not a blank frame
+            assert canvas["spread"] > 0, (
+                viewer,
+                canvas,
+            )  # the image, not a blank frame

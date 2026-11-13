@@ -52,9 +52,9 @@ def save_figures(plot_func, jobs: List[dict]) -> None:
     # Scatter the jobs first: they carry full-size images, which are too large
     # to embed in the task graph.
     job_futures = client.scatter(jobs, hash=False)
-    client.gather([
-        client.submit(_save_figure, plot_func, job, pure=False) for job in job_futures
-    ])
+    client.gather(
+        [client.submit(_save_figure, plot_func, job, pure=False) for job in job_futures]
+    )
 
 
 def _finish(fig, save_path: Optional[str], show: bool) -> None:
@@ -379,28 +379,44 @@ def plot_track_kymograph(
     from matplotlib.colors import hsv_to_rgb
     from scipy import ndimage
 
-    from pymmm.store.experiment_group import calibration, channel_index, image, open_experiment, trench_path
+    from pymmm.store.experiment_group import (
+        calibration,
+        channel_index,
+        image,
+        open_experiment,
+        trench_path,
+    )
 
     root = open_experiment(store_path)
     px, dt = calibration(root)
     base = f"{root.store.root}/{trench_path(trench_id)}"
-    pixels = np.asarray(image(root, trench_id)[:, channel_index(root, channel)]).astype(float)
+    pixels = np.asarray(image(root, trench_id)[:, channel_index(root, channel)]).astype(
+        float
+    )
     masks = np.asarray(zarr.open_array(f"{base}/labels/tracks.{run}/0", mode="r")[:])
     graph = zarr.open_group(f"{base}/tracks/{run}.geff", mode="r")
-    t, seg, track, y = (np.asarray(graph[f"nodes/props/{k}/values"][:]) for k in ("t", "seg_id", "track_id", "y"))
+    t, seg, track, y = (
+        np.asarray(graph[f"nodes/props/{k}/values"][:])
+        for k in ("t", "seg_id", "track_id", "y")
+    )
     position = {int(i): k for k, i in enumerate(np.asarray(graph["nodes/ids"][:]))}
-    edges = [(position[int(a)], position[int(b)]) for a, b in np.asarray(graph["edges/ids"][:]).reshape(-1, 2)]
+    edges = [
+        (position[int(a)], position[int(b)])
+        for a, b in np.asarray(graph["edges/ids"][:]).reshape(-1, 2)
+    ]
     T, H, W = masks.shape
 
     centre = int(np.median(np.nonzero(masks)[2])) if masks.any() else W // 2
-    kymo = pixels[:, :, max(centre - 3, 0):centre + 4].mean(2).T          # (y, t)
+    kymo = pixels[:, :, max(centre - 3, 0) : centre + 4].mean(2).T  # (y, t)
     lo, hi = np.percentile(kymo, [1, 99.5])
     kymo = np.clip((kymo - lo) / max(hi - lo, 1e-9), 0, 1)
 
     # a hue per tracklet, stepped by the golden ratio so that neighbouring numbers differ
     hues = (np.arange(64) * 0.61803398875) % 1
     colours = hsv_to_rgb(np.c_[hues, np.full(64, 0.78), np.full(64, 0.95)])
-    line = masks[:, :, max(centre - 3, 0):centre + 4].max(2)              # (t, y): the mask on the centre line
+    line = masks[:, :, max(centre - 3, 0) : centre + 4].max(
+        2
+    )  # (t, y): the mask on the centre line
     tracklet = {(int(a), int(b)): int(c) for a, b, c in zip(t, seg, track)}
     bands = np.zeros((H, T, 4))
     rows = {}
@@ -420,33 +436,62 @@ def plot_track_kymograph(
     lowest = np.zeros(T, int)
     for (frame, _), (_, bottom) in rows.items():
         lowest[frame] = max(lowest[frame], bottom)
-    end = int(np.median(lowest[lowest > 0])) if (lowest > 0).any() else H    # where the masks stop
+    end = (
+        int(np.median(lowest[lowest > 0])) if (lowest > 0).any() else H
+    )  # where the masks stop
     cell = float(np.median([b - a + 1 for a, b in rows.values()])) if rows else 0.0
     nodes = range(len(t))
     divisions = [k for k in nodes if children[k] == 2]
-    ends = [k for k in nodes if children[k] == 0 and t[k] < T - 1
-            and rows[(int(t[k]), int(seg[k]))][1] < end - 1.5 * cell]
+    ends = [
+        k
+        for k in nodes
+        if children[k] == 0
+        and t[k] < T - 1
+        and rows[(int(t[k]), int(seg[k]))][1] < end - 1.5 * cell
+    ]
     starts = [k for k in nodes if parents[k] == 0 and t[k] > t.min()]
 
     extent = (0, T * dt, H * px, 0)
-    fig, axes = plt.subplots(1, 2, figsize=(13, 8), constrained_layout=True, sharey=True)
+    fig, axes = plt.subplots(
+        1, 2, figsize=(13, 8), constrained_layout=True, sharey=True
+    )
     for ax in axes:
-        ax.imshow(kymo, cmap="gray", aspect="auto", extent=extent, interpolation="nearest")
+        ax.imshow(
+            kymo, cmap="gray", aspect="auto", extent=extent, interpolation="nearest"
+        )
         ax.set_xlabel("time (min)")
         if minutes is not None:
             ax.set_xlim(0, minutes)
     axes[0].set_ylabel("distance from the closed end (µm)")
     axes[0].set_title(channel, loc="left")
     axes[1].imshow(bands, aspect="auto", extent=extent, interpolation="nearest")
-    for which, marker, colour, size in ((divisions, "_", "white", 26), (ends, "X", "#e5202a", 70),
-                                        (starts, "^", "#f2c500", 60)):
+    for which, marker, colour, size in (
+        (divisions, "_", "white", 26),
+        (ends, "X", "#e5202a", 70),
+        (starts, "^", "#f2c500", 60),
+    ):
         if which:
             tick = marker == "_"
-            axes[1].scatter((t[which] + 0.5) * dt, y[which] * px, marker=marker, s=size, c=colour,
-                            edgecolors=None if tick else "black", linewidths=1.2 if tick else 0.6, zorder=5)
-    axes[1].set_title(f"{run}: {len(divisions)} divisions, {len(ends)} tracks end above the bottom, "
-                      f"{len(starts)} start with no parent", loc="left")
-    fig.suptitle(f"trench {trench_id}: a band of one colour is one cell from birth to division.  White tick: division.  "
-                 "Red cross: ends above the bottom.  Yellow triangle: starts with no parent.",
-                 x=0.01, ha="left", fontsize=9)
+            axes[1].scatter(
+                (t[which] + 0.5) * dt,
+                y[which] * px,
+                marker=marker,
+                s=size,
+                c=colour,
+                edgecolors=None if tick else "black",
+                linewidths=1.2 if tick else 0.6,
+                zorder=5,
+            )
+    axes[1].set_title(
+        f"{run}: {len(divisions)} divisions, {len(ends)} tracks end above the bottom, "
+        f"{len(starts)} start with no parent",
+        loc="left",
+    )
+    fig.suptitle(
+        f"trench {trench_id}: a band of one colour is one cell from birth to division.  White tick: division.  "
+        "Red cross: ends above the bottom.  Yellow triangle: starts with no parent.",
+        x=0.01,
+        ha="left",
+        fontsize=9,
+    )
     _finish(fig, save_path, show)

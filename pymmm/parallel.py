@@ -57,8 +57,13 @@ def local_cluster(workers: int, **kwargs: Any) -> Tuple[Any, Any]:
     ``kwargs`` go to ``LocalCluster`` (``dashboard_address=None``, say)."""
     from dask.distributed import Client, LocalCluster
 
-    cluster = LocalCluster(n_workers=workers, threads_per_worker=1, processes=True,
-                           preload=[IGNORE_INTERRUPT], **kwargs)
+    cluster = LocalCluster(
+        n_workers=workers,
+        threads_per_worker=1,
+        processes=True,
+        preload=[IGNORE_INTERRUPT],
+        **kwargs,
+    )
     return cluster, Client(cluster)
 
 
@@ -66,6 +71,7 @@ def dask_client():
     """The active ``dask.distributed`` client, or None (also without distributed)."""
     try:
         from dask.distributed import get_client
+
         return get_client()
     except (ImportError, ValueError):
         return None
@@ -137,8 +143,11 @@ class Runner:
                 future.set_exception(error)
             return future
         if self._pool is None:
-            self._pool = ProcessPoolExecutor(max_workers=self.workers, mp_context=SPAWN,
-                                             initializer=_ignore_interrupt)
+            self._pool = ProcessPoolExecutor(
+                max_workers=self.workers,
+                mp_context=SPAWN,
+                initializer=_ignore_interrupt,
+            )
         future = self._pool.submit(fn, *args)
         self._futures.add(future)
         return future

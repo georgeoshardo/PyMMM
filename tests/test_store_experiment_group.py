@@ -24,13 +24,20 @@ def test_open_experiment_refuses_other_groups(tmp_path):
         eg.open_experiment(tmp_path / "other.zarr")
 
 
-def test_is_experiment_tells_an_experiment_group_from_anything_else(experiment, tmp_path):
+def test_is_experiment_tells_an_experiment_group_from_anything_else(
+    experiment, tmp_path
+):
     zarr.open_group(str(tmp_path / "other.zarr"), mode="w", zarr_format=3)
     (tmp_path / "broken.zarr").mkdir()
     (tmp_path / "broken.zarr" / "zarr.json").write_text("{not json")
     assert eg.is_experiment(experiment) and eg.is_experiment(str(experiment))
-    for other in (experiment / eg.trench_path(3), tmp_path / "other.zarr", tmp_path / "broken.zarr",
-                  tmp_path, tmp_path / "missing.zarr"):
+    for other in (
+        experiment / eg.trench_path(3),
+        tmp_path / "other.zarr",
+        tmp_path / "broken.zarr",
+        tmp_path,
+        tmp_path / "missing.zarr",
+    ):
         assert not eg.is_experiment(other), other
 
 
@@ -44,11 +51,18 @@ def test_segmentation_is_one_label_image_per_hypothesis_listed_together(experime
     assert eg.listed_labels(root, 3) == []
     assert not eg.has_segmentation(root, 3, "seg")
     stack = np.arange(5 * 3 * 6 * 4, dtype=np.uint16).reshape(3, 5, 6, 4)
-    eg.write_segmentation(root, 3, "seg", {"b": stack[0], "a": stack[1], "c": stack[2]},
-                          attrs={"channel": "PC"})
+    eg.write_segmentation(
+        root,
+        3,
+        "seg",
+        {"b": stack[0], "a": stack[1], "c": stack[2]},
+        attrs={"channel": "PC"},
+    )
 
     assert eg.listed_labels(root, 3) == ["seg.b", "seg.a", "seg.c"]
-    assert eg.has_segmentation(root, 3, "seg") and not eg.has_segmentation(root, 4, "seg")
+    assert eg.has_segmentation(root, 3, "seg") and not eg.has_segmentation(
+        root, 4, "seg"
+    )
     names, arrays = eg.segmentation(root, 3, "seg")
     assert names == ["b", "a", "c"]
     for k, array in enumerate(arrays):
@@ -59,10 +73,18 @@ def test_segmentation_is_one_label_image_per_hypothesis_listed_together(experime
     attrs = json.loads((group / "zarr.json").read_text())["attributes"]
     (multiscale,) = attrs["ome"]["multiscales"]
     assert [a["name"] for a in multiscale["axes"]] == ["t", "y", "x"]
-    assert multiscale["datasets"][0]["coordinateTransformations"][0]["scale"] == [1.0, 0.1, 0.1]
+    assert multiscale["datasets"][0]["coordinateTransformations"][0]["scale"] == [
+        1.0,
+        0.1,
+        0.1,
+    ]
     assert attrs["ome"]["image-label"] == {"source": {"image": "../../"}}
-    assert attrs["pymmm"] == {"channel": "PC", "segmentation": "seg", "hypothesis": "a",
-                              "hypothesis_index": 1}
+    assert attrs["pymmm"] == {
+        "channel": "PC",
+        "segmentation": "seg",
+        "hypothesis": "a",
+        "hypothesis_index": 1,
+    }
     with pytest.raises(KeyError):
         eg.segmentation(root, 4, "seg")
     with pytest.raises(ValueError, match="hypotheses"):
@@ -77,9 +99,15 @@ def test_update_experiment_keeps_other_records(experiment):
     eg.update_experiment(root, "segmentations", "a", {"channel": "PC"})
     eg.update_experiment(root, "segmentations", "b", {"channel": "mCherry"})
     attrs = dict(eg.open_experiment(experiment).attrs)["pymmm"]
-    assert attrs["segmentations"] == {"a": {"channel": "PC"}, "b": {"channel": "mCherry"}}
+    assert attrs["segmentations"] == {
+        "a": {"channel": "PC"},
+        "b": {"channel": "mCherry"},
+    }
     assert attrs["pixel_size_um"] == 0.1
-    assert eg.records(eg.open_experiment(experiment), "segmentations") == attrs["segmentations"]
+    assert (
+        eg.records(eg.open_experiment(experiment), "segmentations")
+        == attrs["segmentations"]
+    )
     assert eg.records(root, "tracks") == {}
 
 

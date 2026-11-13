@@ -67,7 +67,9 @@ def test_extractor_writes_one_ome_zarr_image_per_trench(monkeypatch, tmp_path):
         ]
     )
     trench_detector = SimpleNamespace(get_trench_table=lambda: trench_table.copy())
-    extractor = Extractor(experiment, registrator, trench_detector, output_path=output_path)
+    extractor = Extractor(
+        experiment, registrator, trench_detector, output_path=output_path
+    )
 
     extractor.extract(compressor="zstd", clevel=1, show_progress=False)
 
@@ -104,7 +106,12 @@ def test_extractor_writes_one_ome_zarr_image_per_trench(monkeypatch, tmp_path):
 
     tree = xr.open_datatree(output_path, engine="zarr", consolidated=False)
     assert set(tree.children) >= {
-        "acquisition", "detection", "events", "registration", "source_frames", "trenches",
+        "acquisition",
+        "detection",
+        "events",
+        "registration",
+        "source_frames",
+        "trenches",
     }
     assert tree.ds.coords["T"].values.tolist() == [1]
     assert tree.ds.coords["C"].values.tolist() == ["PC", "mCherry"]
@@ -118,14 +125,20 @@ def test_extractor_writes_one_ome_zarr_image_per_trench(monkeypatch, tmp_path):
 
     # one OME-Zarr image per trench, and nothing else at the top
     assert sorted(k for k in zarr_root.group_keys() if k.startswith("trench_")) == [
-        "trench_0007", "trench_0009",
+        "trench_0007",
+        "trench_0009",
     ]
     image = zarr_root["trench_0007"]
     ome = image.attrs["ome"]
     assert ome["version"] == "0.5"
     (multiscale,) = ome["multiscales"]
     assert [a["name"] for a in multiscale["axes"]] == ["t", "c", "y", "x"]
-    assert [a["type"] for a in multiscale["axes"]] == ["time", "channel", "space", "space"]
+    assert [a["type"] for a in multiscale["axes"]] == [
+        "time",
+        "channel",
+        "space",
+        "space",
+    ]
     (dataset,) = multiscale["datasets"]
     assert dataset["path"] == "0"
     scale = dataset["coordinateTransformations"][0]["scale"]
@@ -134,7 +147,9 @@ def test_extractor_writes_one_ome_zarr_image_per_trench(monkeypatch, tmp_path):
     assert [c["label"] for c in channels] == ["PC", "mCherry"]
     assert [c["color"] for c in channels] == ["FFFFFF", "FF0000"]
     assert [c["active"] for c in channels] == [True, False]
-    assert channels[1]["window"]["start"] >= 1111 and channels[1]["window"]["end"] <= 1116
+    assert (
+        channels[1]["window"]["start"] >= 1111 and channels[1]["window"]["end"] <= 1116
+    )
     row = image.attrs["pymmm"]
     assert row["trench"] == 7 and row["fov_name"] == "XYPos:1" and row["x_left"] == 1
     assert zarr_root["trench_0009"].attrs["pymmm"]["needs_flip"] is True
@@ -151,17 +166,21 @@ def test_extractor_writes_one_ome_zarr_image_per_trench(monkeypatch, tmp_path):
     assert getattr(blosc.shuffle, "value", blosc.shuffle) == "shuffle"
     # one shard file, its key flat
     assert sorted(p.name for p in (output_path / "trench_0007" / "0").iterdir()) == [
-        "c.0.0.0.0", "zarr.json",
+        "c.0.0.0.0",
+        "zarr.json",
     ]
 
     np.testing.assert_array_equal(
-        array[0, 0], np.asarray([[111, 112], [115, 116]], dtype=np.uint16),
+        array[0, 0],
+        np.asarray([[111, 112], [115, 116]], dtype=np.uint16),
     )
     np.testing.assert_array_equal(
-        array[0, 1], np.asarray([[1111, 1112], [1115, 1116]], dtype=np.uint16),
+        array[0, 1],
+        np.asarray([[1111, 1112], [1115, 1116]], dtype=np.uint16),
     )
     np.testing.assert_array_equal(
-        zarr_root["trench_0009/0"][0, 0], np.asarray([[118, 119], [114, 115]], dtype=np.uint16),
+        zarr_root["trench_0009/0"][0, 0],
+        np.asarray([[118, 119], [114, 115]], dtype=np.uint16),
     )
 
     registration = tree["registration"].ds
@@ -169,17 +188,15 @@ def test_extractor_writes_one_ome_zarr_image_per_trench(monkeypatch, tmp_path):
     assert registration.coords["FOV"].values.tolist() == ["XYPos:1"]
     assert registration.coords["T"].values.tolist() == [1]
     np.testing.assert_array_equal(
-        registration["tmats"].sel(FOV="XYPos:1", T=1).values, np.eye(3),
+        registration["tmats"].sel(FOV="XYPos:1", T=1).values,
+        np.eye(3),
     )
     assert registration["shift"].sel(FOV="XYPos:1", T=1).values.tolist() == [0.0, 0.0]
     assert registration.attrs["mode"] == "first"
 
     source_frames = tree["source_frames"].ds
     assert (
-        source_frames["relative_time"]
-        .sel(FOV="XYPos:1", T=1)
-        .compute()
-        .item()
+        source_frames["relative_time"].sel(FOV="XYPos:1", T=1).compute().item()
         == 30124.0
     )
     assert source_frames["pfs_offset"].sel(FOV="XYPos:1", T=1).item() == 17414.0
@@ -209,7 +226,10 @@ def test_extractor_writes_one_ome_zarr_image_per_trench(monkeypatch, tmp_path):
     assert "text_info" not in acquisition.attrs
     raw = json.loads(acquisition["raw_json"].compute().item())
     assert raw["text_info"]["optics"] == "Plan Apo 40x"
-    assert type(zarr_root["acquisition"]["raw_json"].metadata.codecs[-1]).__name__ == "BloscCodec"
+    assert (
+        type(zarr_root["acquisition"]["raw_json"].metadata.codecs[-1]).__name__
+        == "BloscCodec"
+    )
 
     # Resuming with the same transforms is a no-op; different transforms are refused.
     extractor.extract(compressor="zstd", clevel=1, show_progress=False)
@@ -229,12 +249,19 @@ def test_extractor_writes_one_ome_zarr_image_per_trench(monkeypatch, tmp_path):
     # starting over replaces an experiment group, but nothing else
     registrator.tmats = registrator.tmats.copy(data=np.eye(3)[np.newaxis, np.newaxis])
     extractor.extract(compressor="zstd", clevel=1, show_progress=False, resume=False)
-    assert zarr.open_group(output_path, mode="r").attrs["pymmm"]["extraction_complete"] is True
+    assert (
+        zarr.open_group(output_path, mode="r").attrs["pymmm"]["extraction_complete"]
+        is True
+    )
     other = tmp_path / "other.trenches.zarr"
-    zarr.open_group(str(other), mode="w", zarr_format=3).attrs["layout"] = "trench_store"
+    zarr.open_group(str(other), mode="w", zarr_format=3).attrs["layout"] = (
+        "trench_store"
+    )
     elsewhere = Extractor(experiment, registrator, trench_detector, output_path=other)
     with pytest.raises(RuntimeError, match="never overwritten"):
-        elsewhere.extract(compressor="zstd", clevel=1, show_progress=False, resume=False)
+        elsewhere.extract(
+            compressor="zstd", clevel=1, show_progress=False, resume=False
+        )
     with pytest.raises(RuntimeError, match="layout"):
         elsewhere.extract(compressor="zstd", clevel=1, show_progress=False)
     assert zarr.open_group(str(other), mode="r").attrs["layout"] == "trench_store"
@@ -242,7 +269,7 @@ def test_extractor_writes_one_ome_zarr_image_per_trench(monkeypatch, tmp_path):
 
 def test_registration_dataset_stores_per_fov_shifts():
     tmats = np.tile(np.eye(3), (2, 3, 1, 1))
-    tmats[1, 2, 0, 2] = 4.5   # x shift, XYPos:1, third timepoint
+    tmats[1, 2, 0, 2] = 4.5  # x shift, XYPos:1, third timepoint
     tmats[1, 2, 1, 2] = -2.0  # y shift
     registrator = SimpleNamespace(
         channel="PC",

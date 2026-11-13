@@ -72,7 +72,11 @@ class Experiment:
         if missing:
             raise ValueError(f"{path}: missing {', '.join(missing)}")
         paths = {
-            key: (Path(raw[key]) if Path(raw[key]).is_absolute() else path.parent / raw[key])
+            key: (
+                Path(raw[key])
+                if Path(raw[key]).is_absolute()
+                else path.parent / raw[key]
+            )
             for key in _PATH_KEYS
             if key in raw
         }
@@ -97,13 +101,18 @@ class Experiment:
         from pymmm.steps.segmentation import checkpoint_hypotheses
 
         seg = self.segmentation
-        kwargs: Dict[str, Any] = {"channel": seg.get("channel", "mCherry"), "name": self.segmentation_name}
+        kwargs: Dict[str, Any] = {
+            "channel": seg.get("channel", "mCherry"),
+            "name": self.segmentation_name,
+        }
         for key in ("model", "hypotheses", "params", "model_pixel_size"):
             if key in seg:
                 kwargs[key] = seg[key]
         if "checkpoints" in seg:
             if "hypotheses" in seg:
-                raise ValueError(f"{self.source}: [segmentation] gives both hypotheses and checkpoints")
+                raise ValueError(
+                    f"{self.source}: [segmentation] gives both hypotheses and checkpoints"
+                )
             kwargs["hypotheses"] = checkpoint_hypotheses(seg["checkpoints"])
         if "models" in seg:
             models = Path(seg["models"]).expanduser()

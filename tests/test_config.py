@@ -39,7 +39,11 @@ def test_experiment_builds_the_segmenter_from_its_settings(tmp_path, monkeypatch
     segmenter = Experiment.load(tmp_path / "exp.toml").segmenter(gpu=False)
     assert isinstance(segmenter, Segmenter)
     assert segmenter.store_path == tmp_path / "exp.zarr"
-    assert (segmenter.channel, segmenter.name, segmenter.hypotheses) == ("mCherry", "mc", ["S1", "S3"])
+    assert (segmenter.channel, segmenter.name, segmenter.hypotheses) == (
+        "mCherry",
+        "mc",
+        ["S1", "S3"],
+    )
     assert segmenter.model_name == "bact_fluor_omni"
 
 
@@ -53,11 +57,14 @@ def test_experiment_builds_a_checkpoint_segmenter(tmp_path, fake_model):
         '[segmentation]\nchannel = "mCherry"\nname = "ens"\nmodels = "models"\n'
         'checkpoints = {e250 = "omni_epoch_250"}\n'
         'params = {masks = "affinity", floor = 0.0, min_contrast = "off"}\n'
-        'model_pixel_size = 0.2\n'
+        "model_pixel_size = 0.2\n"
     )
     segmenter = Experiment.load(tmp_path / "exp.toml").segmenter(gpu=False)
     assert segmenter.hypotheses == ["e250"]
     assert segmenter.model_pixel_size == 0.2
     assert segmenter.checkpoint_path("e250") == (models / "omni_epoch_250").resolve()
-    assert segmenter.params["masks"] == "affinity" and segmenter.params["min_contrast"] is None
+    assert (
+        segmenter.params["masks"] == "affinity"
+        and segmenter.params["min_contrast"] is None
+    )
     assert segmenter.params["floor"] == 0.0

@@ -7,12 +7,20 @@ import pytest
 from fake_experiment import CELL, N_T, N_TRENCH, H, W, cell_image, make_experiment
 
 from pymmm.store import experiment_group as eg
-from pymmm.view import AXES, label_images, napari_get_reader, read_experiment, view_experiment
+from pymmm.view import (
+    AXES,
+    label_images,
+    napari_get_reader,
+    read_experiment,
+    view_experiment,
+)
 
 pytestmark = pytest.mark.view
 
 
-def test_napari_offers_pymmm_for_an_experiment_group_and_opens_it(tmp_path, monkeypatch):
+def test_napari_offers_pymmm_for_an_experiment_group_and_opens_it(
+    tmp_path, monkeypatch
+):
     """The plugin napari found from PyMMM's entry point (pymmm/napari.yaml), through
     napari's own reader machinery: what a drop onto napari does after the choice of reader."""
     from napari.components import ViewerModel, viewer_model
@@ -60,18 +68,32 @@ def test_view_stacks_every_trench_with_its_label_images(tmp_path):
     assert label_images(root) == ["seg.b", "seg.a", "unwritten.x", "tracks.run"]
 
     viewer = view_experiment(path, ViewerModel())
-    assert [layer.name for layer in viewer.layers] == ["PC", "mCherry", "seg.b", "seg.a", "tracks.run"]
+    assert [layer.name for layer in viewer.layers] == [
+        "PC",
+        "mCherry",
+        "seg.b",
+        "seg.a",
+        "tracks.run",
+    ]
     assert [layer.visible for layer in viewer.layers][2:] == [True, False, False]
     assert viewer.layers["mCherry"].colormap.colors[-1].tolist() == [1, 0, 0, 1]
     labels = viewer.layers["seg.a"]
     assert type(labels).__name__ == "Labels"
-    assert labels.data.shape == viewer.layers["mCherry"].data.shape == (N_TRENCH, N_T, H, W)
+    assert (
+        labels.data.shape
+        == viewer.layers["mCherry"].data.shape
+        == (N_TRENCH, N_T, H, W)
+    )
     assert viewer.dims.axis_labels == ("trench", "t", "y", "x")
 
     np.testing.assert_array_equal(np.asarray(labels.data[1]), 2 * cells[1])
     assert not np.asarray(labels.data[0]).any() and not np.asarray(labels.data[2]).any()
-    np.testing.assert_array_equal(np.asarray(viewer.layers["tracks.run"].data[0]), cells[0])
-    np.testing.assert_array_equal(np.asarray(viewer.layers["mCherry"].data[2]), cell_image()[2])
+    np.testing.assert_array_equal(
+        np.asarray(viewer.layers["tracks.run"].data[0]), cells[0]
+    )
+    np.testing.assert_array_equal(
+        np.asarray(viewer.layers["mCherry"].data[2]), cell_image()[2]
+    )
 
     viewer.dims.current_step = (1, 3, 0, 0)
     assert viewer.canvas.overlays.text.text == "trench 11 (f0), frame 8"

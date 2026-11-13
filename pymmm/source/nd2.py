@@ -47,7 +47,8 @@ class ND2Experiment:
         )
         self._raw_fov_names = (
             [str(v) for v in self._raw_data.coords["P"].values]
-            if "P" in self._raw_data.coords else ["single"]
+            if "P" in self._raw_data.coords
+            else ["single"]
         )
 
         # Handle duplicate position names (common in ND2 files)
@@ -165,7 +166,8 @@ class ND2Experiment:
             raw_fov_names = [str(v) for v in self._raw_data.coords["P"].values]
             fov_names = list(self.fov_names)
             original_p_index = np.asarray(
-                [raw_fov_names.index(name) for name in fov_names], dtype=np.int32,
+                [raw_fov_names.index(name) for name in fov_names],
+                dtype=np.int32,
             )
         else:
             fov_names = ["single"]
@@ -174,7 +176,9 @@ class ND2Experiment:
         if "T" in self._raw_data.dims:
             n_raw_times = int(self._raw_data.sizes["T"])
             time_slice = self._time_slice or slice(None)
-            original_t_index = np.arange(*time_slice.indices(n_raw_times), dtype=np.int32)
+            original_t_index = np.arange(
+                *time_slice.indices(n_raw_times), dtype=np.int32
+            )
         else:
             original_t_index = np.asarray([0], dtype=np.int32)
 
@@ -286,15 +290,21 @@ class ND2Experiment:
                 if not 0 <= fov < len(all_fovs):
                     raise ValueError(
                         f"FOV index {fov} is out of range: the ND2 has {len(all_fovs)} FOVs "
-                        f"(P 0-{len(all_fovs) - 1})")
+                        f"(P 0-{len(all_fovs) - 1})"
+                    )
                 names.append(all_fovs[fov])
             elif str(fov) in all_fovs:
                 names.append(str(fov))
             else:
-                shown = ", ".join(all_fovs if len(all_fovs) <= 6
-                                  else all_fovs[:3] + ["...", all_fovs[-1]])
-                raise ValueError(f"no FOV named {fov!r} in the ND2 ({shown}); give a name, "
-                                 f"or a P index from 0 to {len(all_fovs) - 1}")
+                shown = ", ".join(
+                    all_fovs
+                    if len(all_fovs) <= 6
+                    else all_fovs[:3] + ["...", all_fovs[-1]]
+                )
+                raise ValueError(
+                    f"no FOV named {fov!r} in the ND2 ({shown}); give a name, "
+                    f"or a P index from 0 to {len(all_fovs) - 1}"
+                )
         return names
 
     def _all_fov_names(self) -> List[str]:

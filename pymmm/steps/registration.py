@@ -88,9 +88,7 @@ def _rotation_matrix(angle: float, image_shape: tuple[int, int]) -> np.ndarray:
     to_origin = np.array(
         [[1.0, 0.0, -center_x], [0.0, 1.0, -center_y], [0.0, 0.0, 1.0]]
     )
-    rotation = np.array(
-        [[cosine, -sine, 0.0], [sine, cosine, 0.0], [0.0, 0.0, 1.0]]
-    )
+    rotation = np.array([[cosine, -sine, 0.0], [sine, cosine, 0.0], [0.0, 0.0, 1.0]])
     from_origin = np.array(
         [[1.0, 0.0, center_x], [0.0, 1.0, center_y], [0.0, 0.0, 1.0]]
     )
@@ -126,9 +124,11 @@ def _downsample_mean(img: np.ndarray, factor: int) -> np.ndarray:
         return img
     height = (img.shape[0] // factor) * factor
     width = (img.shape[1] // factor) * factor
-    return img[:height, :width].reshape(
-        height // factor, factor, width // factor, factor
-    ).mean(axis=(1, 3))
+    return (
+        img[:height, :width]
+        .reshape(height // factor, factor, width // factor, factor)
+        .mean(axis=(1, 3))
+    )
 
 
 def _register_opencv(ref: np.ndarray, mov: np.ndarray) -> np.ndarray:
@@ -232,13 +232,22 @@ def _register_fixed_batch(
     frames are registered at once."""
     ref = shared(reference)
     frames = _load_registration_frames(
-        nd2_path, fov_idx, time_indices, channel_idx,
-        y_roi, x_roi, roi, downsample, backend,
+        nd2_path,
+        fov_idx,
+        time_indices,
+        channel_idx,
+        y_roi,
+        x_roi,
+        roi,
+        downsample,
+        backend,
     )
     if backend == "opencv":
         if threads > 1:
             with ThreadPoolExecutor(max_workers=threads) as pool:
-                matrices = list(pool.map(lambda image: _register_opencv(ref, image), frames))
+                matrices = list(
+                    pool.map(lambda image: _register_opencv(ref, image), frames)
+                )
         else:
             matrices = [_register_opencv(ref, image) for image in frames]
     else:
@@ -258,8 +267,14 @@ def _register_previous_batch(
 ) -> list[np.ndarray]:
     """Load a consecutive frame batch and register adjacent pairs."""
     frames = _load_registration_frames(
-        nd2_path, fov_idx, time_indices, channel_idx,
-        y_roi, x_roi, roi, downsample,
+        nd2_path,
+        fov_idx,
+        time_indices,
+        channel_idx,
+        y_roi,
+        x_roi,
+        roi,
+        downsample,
     )
     return [
         _scale_translation(_register_stackreg(ref, mov), downsample)
@@ -329,7 +344,6 @@ class Registrator:
         Concurrent OpenCV calls used when ``backend="opencv"`` and
         ``compute_tmats(n_jobs=1)``. Limited by ``batch_size``.
     """
-    
 
     def __init__(
         self,
@@ -381,7 +395,9 @@ class Registrator:
         # Computed state
         self._mean_images: Optional[xr.DataArray] = None  # (P, Y, X)
         self._tmats: Optional[xr.DataArray] = None  # (T, P, 3, 3)
-        self._registered_mean_cache: Dict[tuple, np.ndarray] = {}  # (fov, channel) → 2D array
+        self._registered_mean_cache: Dict[
+            tuple, np.ndarray
+        ] = {}  # (fov, channel) → 2D array
 
     # ------------------------------------------------------------------
     # Properties
@@ -468,7 +484,8 @@ class Registrator:
             else:
                 img = self._mean_images.values
             plot_mean_image(
-                img, title=f"Mean image – {fov}",
+                img,
+                title=f"Mean image – {fov}",
                 save_path=str(diag_dir / f"mean_image_{fov}.png"),
             )
 
@@ -497,14 +514,20 @@ class Registrator:
         - ``"previous"``: the frame before it; the transforms are then chained
         """
         previous = self.mode == "previous"
-        print("Computing relative transformation matrices..." if previous
-              else "Computing transformation matrices...")
+        print(
+            "Computing relative transformation matrices..."
+            if previous
+            else "Computing transformation matrices..."
+        )
         exp = self.experiment
         reg_data = self._get_registration_data()
-        fov_names = list(reg_data.coords["P"].values) if "P" in reg_data.dims else [None]
+        fov_names = (
+            list(reg_data.coords["P"].values) if "P" in reg_data.dims else [None]
+        )
         serial = n_jobs == 1
-        runner = Runner(workers=1 if serial else (None if n_jobs == -1 else n_jobs),
-                        dask=not serial)
+        runner = Runner(
+            workers=1 if serial else (None if n_jobs == -1 else n_jobs), dask=not serial
+        )
         window = 1 if serial else self.fov_window
         plan = self._previous_plan if previous else self._fixed_plan
 
@@ -515,9 +538,14 @@ class Registrator:
         def launch() -> None:
             if waiting:
                 fov = waiting.pop(0)
-                job = plan(runner, exp.raw_fov_index(str(fov)) if fov is not None else 0,
-                           threads=self.opencv_threads if serial else 1)
-                futures = {runner.submit(job.task, *args): start for start, args in job.batches}
+                job = plan(
+                    runner,
+                    exp.raw_fov_index(str(fov)) if fov is not None else 0,
+                    threads=self.opencv_threads if serial else 1,
+                )
+                futures = {
+                    runner.submit(job.task, *args): start for start, args in job.batches
+                }
                 in_flight.append((fov, job, futures))
 
         with runner:
@@ -527,11 +555,15 @@ class Registrator:
             while in_flight:
                 fov, job, futures = in_flight.pop(0)
                 results: List[Any] = [None] * job.n_results
-                for future in tqdm(runner.as_completed(futures), total=len(futures),
-                                   desc=f"  batches ({fov})", leave=False):
+                for future in tqdm(
+                    runner.as_completed(futures),
+                    total=len(futures),
+                    desc=f"  batches ({fov})",
+                    leave=False,
+                ):
                     start = futures[future]
                     batch = future.result()
-                    results[start:start + len(batch)] = batch
+                    results[start : start + len(batch)] = batch
                 for handle in job.shared:
                     runner.release(handle)
                 fov_da = self._fov_tmats(reg_data, fov, job.finish(results))
@@ -549,8 +581,13 @@ class Registrator:
         y_roi, x_roi = exp.source_roi
         return dict(
             nd2_path=str(exp.path),
-            channel_idx=exp.channel_names.index(self.channel) if exp.has_channels else None,
-            y_roi=y_roi, x_roi=x_roi, roi=_resolve_roi(self.roi), downsample=self.downsample,
+            channel_idx=exp.channel_names.index(self.channel)
+            if exp.has_channels
+            else None,
+            y_roi=y_roi,
+            x_roi=x_roi,
+            roi=_resolve_roi(self.roi),
+            downsample=self.downsample,
         )
 
     def _reference(self, fov_idx: int) -> np.ndarray:
@@ -560,7 +597,9 @@ class Registrator:
         n_times = len(times)
         if self.mode == "mean":
             n_ref = min(self.mean_n_frames, n_times)
-            ref_times = times[n_times - n_ref:] if self.mean_from == "end" else times[:n_ref]
+            ref_times = (
+                times[n_times - n_ref :] if self.mean_from == "end" else times[:n_ref]
+            )
         elif self.mode == "first":
             ref_times = [times[0]]
         elif self.mode == "last":
@@ -570,45 +609,87 @@ class Registrator:
         else:
             raise ValueError(f"Unknown mode: {self.mode!r}")
         frames = _load_registration_frames(
-            f["nd2_path"], fov_idx, ref_times, f["channel_idx"], f["y_roi"], f["x_roi"],
-            f["roi"], f["downsample"], self.backend,
+            f["nd2_path"],
+            fov_idx,
+            ref_times,
+            f["channel_idx"],
+            f["y_roi"],
+            f["x_roi"],
+            f["roi"],
+            f["downsample"],
+            self.backend,
         )
         return np.mean(frames, axis=0) if self.mode == "mean" else frames[0]
 
-    def _fixed_plan(self, runner: Runner, fov_idx: int, threads: int) -> _FovRegistration:
+    def _fixed_plan(
+        self, runner: Runner, fov_idx: int, threads: int
+    ) -> _FovRegistration:
         """Every frame of a FOV registered to its reference, in batches."""
         f = self._frames()
         times = self.experiment.source_axes["original_t_index"].tolist()
         reference = runner.share(self._reference(fov_idx))
         batches = [
-            (start, (f["nd2_path"], fov_idx, times[start:start + self.batch_size],
-                     f["channel_idx"], f["y_roi"], f["x_roi"], f["roi"], f["downsample"],
-                     reference, self.backend, threads))
+            (
+                start,
+                (
+                    f["nd2_path"],
+                    fov_idx,
+                    times[start : start + self.batch_size],
+                    f["channel_idx"],
+                    f["y_roi"],
+                    f["x_roi"],
+                    f["roi"],
+                    f["downsample"],
+                    reference,
+                    self.backend,
+                    threads,
+                ),
+            )
             for start in range(0, len(times), self.batch_size)
         ]
-        return _FovRegistration(_register_fixed_batch, batches, len(times), np.stack,
-                                [reference])
+        return _FovRegistration(
+            _register_fixed_batch, batches, len(times), np.stack, [reference]
+        )
 
-    def _previous_plan(self, runner: Runner, fov_idx: int, threads: int) -> _FovRegistration:
+    def _previous_plan(
+        self, runner: Runner, fov_idx: int, threads: int
+    ) -> _FovRegistration:
         """Each frame of a FOV registered to the frame before it, in overlapping
         batches (each shares its first frame with the batch before)."""
         f = self._frames()
         times = self.experiment.source_axes["original_t_index"].tolist()
         n_times = len(times)
         batches = [
-            (start, (f["nd2_path"], fov_idx,
-                     times[start:min(start + self.batch_size, n_times - 1) + 1],
-                     f["channel_idx"], f["y_roi"], f["x_roi"], f["roi"], f["downsample"]))
+            (
+                start,
+                (
+                    f["nd2_path"],
+                    fov_idx,
+                    times[start : min(start + self.batch_size, n_times - 1) + 1],
+                    f["channel_idx"],
+                    f["y_roi"],
+                    f["x_roi"],
+                    f["roi"],
+                    f["downsample"],
+                ),
+            )
             for start in range(0, n_times - 1, self.batch_size)
         ]
-        return _FovRegistration(_register_previous_batch, batches, n_times - 1, _cumulative)
+        return _FovRegistration(
+            _register_previous_batch, batches, n_times - 1, _cumulative
+        )
 
     @staticmethod
-    def _fov_tmats(reg_data: xr.DataArray, fov: Any, matrices: np.ndarray) -> xr.DataArray:
+    def _fov_tmats(
+        reg_data: xr.DataArray, fov: Any, matrices: np.ndarray
+    ) -> xr.DataArray:
         """A FOV's ``(T, 3, 3)`` transforms, labelled as :attr:`tmats` (with ``P``)."""
-        t_coords = (reg_data.sel(P=fov) if fov is not None else reg_data).coords["T"].values
+        t_coords = (
+            (reg_data.sel(P=fov) if fov is not None else reg_data).coords["T"].values
+        )
         fov_da = xr.DataArray(
-            matrices, dims=["T", "row", "col"],
+            matrices,
+            dims=["T", "row", "col"],
             coords={"T": t_coords, "row": [0, 1, 2], "col": [0, 1, 2]},
         )
         return fov_da.expand_dims(P=[str(fov)]) if fov is not None else fov_da
@@ -726,9 +807,7 @@ class Registrator:
             tmat = self._tmats.isel(T=time).values
 
         rotation_matrix = _rotation_matrix(self.rotation, img.shape)
-        return warp(
-            img, tmat @ rotation_matrix, preserve_range=True, order=1
-        )
+        return warp(img, tmat @ rotation_matrix, preserve_range=True, order=1)
 
     def get_registered_mean_of_timestack(
         self,
@@ -777,19 +856,36 @@ class Registrator:
             )
             tasks = []
             for fov_name in missing:
-                tmats = self._tmats.sel(P=fov_name) if "P" in self._tmats.dims else self._tmats
+                tmats = (
+                    self._tmats.sel(P=fov_name)
+                    if "P" in self._tmats.dims
+                    else self._tmats
+                )
                 matrices = np.matmul(tmats.isel(T=time_slice).values, rotation_matrix)
-                tasks.append((
-                    str(exp.path), exp.raw_fov_index(fov_name), time_indices,
-                    channel_idx, y_roi, x_roi, matrices,
-                ))
+                tasks.append(
+                    (
+                        str(exp.path),
+                        exp.raw_fov_index(fov_name),
+                        time_indices,
+                        channel_idx,
+                        y_roi,
+                        x_roi,
+                        matrices,
+                    )
+                )
             client = dask_client()
             if client is not None:
-                futures = [client.submit(_registered_mean, *task, pure=False) for task in tasks]
+                futures = [
+                    client.submit(_registered_mean, *task, pure=False) for task in tasks
+                ]
                 results = client.gather(futures)
             else:
-                with ThreadPoolExecutor(max_workers=min(len(tasks), os.cpu_count() or 1)) as pool:
-                    results = list(pool.map(lambda task: _registered_mean(*task), tasks))
+                with ThreadPoolExecutor(
+                    max_workers=min(len(tasks), os.cpu_count() or 1)
+                ) as pool:
+                    results = list(
+                        pool.map(lambda task: _registered_mean(*task), tasks)
+                    )
             for fov_name, result in zip(missing, results):
                 self._registered_mean_cache[(fov_name, ch)] = result
         return {f: self._registered_mean_cache[(f, ch)] for f in fov_names}
@@ -835,7 +931,9 @@ class Registrator:
             "source_subset_metadata": self.experiment.source_subset_metadata,
         }
         self.store.save_registration(
-            self._tmats, self._mean_images, params,
+            self._tmats,
+            self._mean_images,
+            params,
             source_subset_metadata=self.experiment.source_subset_metadata,
         )
         print(f"Registration saved to {self.store.path}")
@@ -877,7 +975,9 @@ class Registrator:
 
         def _str_fovs(array: xr.DataArray) -> xr.DataArray:
             if "P" in array.coords:
-                array = array.assign_coords(P=[str(p) for p in array.coords["P"].values])
+                array = array.assign_coords(
+                    P=[str(p) for p in array.coords["P"].values]
+                )
             return array
 
         reg._tmats = _str_fovs(data["tmats"])

@@ -39,7 +39,9 @@ import zarr
 from pymmm.store import ome
 
 CHUNK_KEYS = {"name": "default", "separator": "."}
-LABEL_COMPRESSORS = (zarr.codecs.BloscCodec(cname="zstd", clevel=3, shuffle="bitshuffle"),)
+LABEL_COMPRESSORS = (
+    zarr.codecs.BloscCodec(cname="zstd", clevel=3, shuffle="bitshuffle"),
+)
 
 PathLike = Union[str, Path]
 
@@ -64,7 +66,9 @@ def open_experiment(path: PathLike, mode: str = "r") -> zarr.Group:
     """An experiment group written by the Extractor (``mode="r+"`` to add results)."""
     root = zarr.open_group(str(path), mode=mode, zarr_format=3)
     if (dict(root.attrs).get("pymmm") or {}).get("layout") != "experiment":
-        raise ValueError(f"{path} is not a PyMMM experiment group (one OME-Zarr image per trench)")
+        raise ValueError(
+            f"{path} is not a PyMMM experiment group (one OME-Zarr image per trench)"
+        )
     return root
 
 
@@ -88,7 +92,9 @@ def image(root: zarr.Group, trench_id: int) -> zarr.Array:
     return root[f"{trench_path(trench_id)}/0"]
 
 
-def update_experiment(root: zarr.Group, section: str, name: str, record: Mapping[str, Any]) -> None:
+def update_experiment(
+    root: zarr.Group, section: str, name: str, record: Mapping[str, Any]
+) -> None:
     """Record ``record`` as ``attrs.pymmm[section][name]`` of the experiment group."""
     attrs = dict(dict(root.attrs)["pymmm"])
     attrs[section] = {**(attrs.get(section) or {}), name: dict(record)}
@@ -124,7 +130,8 @@ def _unlist_labels(root: zarr.Group, trench_id: int, names: Sequence[str]) -> No
     listed = listed_labels(root, trench_id)
     if any(n in listed for n in names):
         root[f"{trench_path(trench_id)}/labels"].attrs["ome"] = ome.labels(
-            [n for n in listed if n not in names])
+            [n for n in listed if n not in names]
+        )
 
 
 def write_label_image(
@@ -149,14 +156,24 @@ def write_label_image(
         raise ValueError(f"{name}: labels {labels.shape} are not (t, y, x)")
     group = root.require_group(f"{trench_path(trench_id)}/labels/{name}")
     pixel_um, frame_min = calibration(root)
-    group.attrs.put({
-        "ome": ome.label_image(name, minutes_per_frame=frame_min, um_per_pixel=pixel_um),
-        "pymmm": dict(attrs or {}),
-    })
+    group.attrs.put(
+        {
+            "ome": ome.label_image(
+                name, minutes_per_frame=frame_min, um_per_pixel=pixel_um
+            ),
+            "pymmm": dict(attrs or {}),
+        }
+    )
     array = group.create_array(
-        "0", shape=labels.shape, dtype=labels.dtype, chunks=labels.shape,
-        compressors=LABEL_COMPRESSORS, chunk_key_encoding=CHUNK_KEYS,
-        dimension_names=["t", "y", "x"], fill_value=0, overwrite=True,
+        "0",
+        shape=labels.shape,
+        dtype=labels.dtype,
+        chunks=labels.shape,
+        compressors=LABEL_COMPRESSORS,
+        chunk_key_encoding=CHUNK_KEYS,
+        dimension_names=["t", "y", "x"],
+        fill_value=0,
+        overwrite=True,
     )
     array[...] = labels
     if listed:
@@ -198,10 +215,19 @@ def write_segmentation(
     if sorted(labels) != sorted(names):
         raise ValueError(f"{name} has the hypotheses {names}, not {sorted(labels)}")
     for index, hypothesis in enumerate(names):
-        write_label_image(root, trench_id, label_name(name, hypothesis), labels[hypothesis],
-                          attrs={**dict(attrs or {}), "segmentation": name,
-                                 "hypothesis": hypothesis, "hypothesis_index": index},
-                          listed=False)
+        write_label_image(
+            root,
+            trench_id,
+            label_name(name, hypothesis),
+            labels[hypothesis],
+            attrs={
+                **dict(attrs or {}),
+                "segmentation": name,
+                "hypothesis": hypothesis,
+                "hypothesis_index": index,
+            },
+            listed=False,
+        )
     _list_labels(root, trench_id, [label_name(name, h) for h in names])
 
 
@@ -211,11 +237,15 @@ def has_segmentation(root: zarr.Group, trench_id: int, name: str) -> bool:
     return all(label_name(name, h) in listed for h in hypotheses(root, name))
 
 
-def segmentation(root: zarr.Group, trench_id: int, name: str) -> tuple[list[str], list[zarr.Array]]:
+def segmentation(
+    root: zarr.Group, trench_id: int, name: str
+) -> tuple[list[str], list[zarr.Array]]:
     """A finished segmentation of a trench: its hypotheses (the base first) and each
     one's ``(t, y, x)`` labels."""
     if not has_segmentation(root, trench_id, name):
-        raise KeyError(f"{trench_path(trench_id)} has no finished segmentation {name!r}")
+        raise KeyError(
+            f"{trench_path(trench_id)} has no finished segmentation {name!r}"
+        )
     names = hypotheses(root, name)
     labels = root[f"{trench_path(trench_id)}/labels"]
     return names, [labels[f"{label_name(name, h)}/0"] for h in names]

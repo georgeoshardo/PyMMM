@@ -18,23 +18,55 @@ from typing import Any, Dict, List
 import numpy as np
 
 
-def _pointer(kind: str, x: int, y: int, button: int, buttons: List[int],
-             timestamp: int) -> Dict[str, Any]:
-    return {"type": kind, "x": x, "y": y, "button": button, "buttons": buttons,
-            "modifiers": [], "ntouches": 0, "touches": {}, "timestamp": timestamp}
+def _pointer(
+    kind: str, x: int, y: int, button: int, buttons: List[int], timestamp: int
+) -> Dict[str, Any]:
+    return {
+        "type": kind,
+        "x": x,
+        "y": y,
+        "button": button,
+        "buttons": buttons,
+        "modifiers": [],
+        "ntouches": 0,
+        "touches": {},
+        "timestamp": timestamp,
+    }
 
 
 EVENTS: List[Dict[str, Any]] = [
-    {"type": "resize", "width": 400, "height": 300, "pwidth": 400, "pheight": 300,
-     "ratio": 1.0, "timestamp": 0},
+    {
+        "type": "resize",
+        "width": 400,
+        "height": 300,
+        "pwidth": 400,
+        "pheight": 300,
+        "ratio": 1.0,
+        "timestamp": 0,
+    },
     _pointer("pointer_move", 50, 40, 0, [], 1),
     _pointer("pointer_down", 50, 40, 1, [1], 2),
     _pointer("pointer_move", 60, 45, 1, [1], 3),
     _pointer("pointer_up", 60, 45, 1, [], 4),
-    {"type": "double_click", "x": 60, "y": 45, "button": 1, "buttons": [], "modifiers": [],
-     "timestamp": 5},
-    {"type": "wheel", "x": 60, "y": 45, "dx": 0, "dy": 100, "buttons": [], "modifiers": [],
-     "timestamp": 6},
+    {
+        "type": "double_click",
+        "x": 60,
+        "y": 45,
+        "button": 1,
+        "buttons": [],
+        "modifiers": [],
+        "timestamp": 5,
+    },
+    {
+        "type": "wheel",
+        "x": 60,
+        "y": 45,
+        "dx": 0,
+        "dy": 100,
+        "buttons": [],
+        "modifiers": [],
+        "timestamp": 6,
+    },
     {"type": "key_down", "key": "ArrowRight", "modifiers": [], "timestamp": 7},
     {"type": "key_up", "key": "ArrowRight", "modifiers": [], "timestamp": 8},
 ]
@@ -64,8 +96,11 @@ def exercise(canvas: Any) -> Dict[str, Any]:
     frame = canvas.get_frame()
     if frame is None:  # rendercanvas draws and sends the frame itself
         frame = canvas._rfb_last_frame
-    errors = [output["text"].strip().splitlines()[-1]
-              for output in canvas._output_context.outputs if output.get("name") == "stderr"]
+    errors = [
+        output["text"].strip().splitlines()[-1]
+        for output in canvas._output_context.outputs
+        if output.get("name") == "stderr"
+    ]
     frame = None if frame is None else np.asarray(frame)
     return {
         "canvas": f"{type(canvas).__module__}.{type(canvas).__name__}",

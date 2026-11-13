@@ -30,8 +30,17 @@ import numpy as np
 PARLAY_THREADS = {"PARLAY_NUM_THREADS": "1"}
 
 # compute_masks' settings that OmniModel.eval passes in 2D (besides the thresholds)
-EVAL_KW = dict(rescale_factor=1.0, flow_factor=5.0, max_size=None, interp=True, cluster=False,
-               suppress=None, despur=False, dim=2, bd=None)
+EVAL_KW = dict(
+    rescale_factor=1.0,
+    flow_factor=5.0,
+    max_size=None,
+    interp=True,
+    cluster=False,
+    suppress=None,
+    despur=False,
+    dim=2,
+    bd=None,
+)
 
 
 def load_model(
@@ -41,13 +50,17 @@ def load_model(
 ) -> Any:
     """An ``OmniModel``: the stock ``model`` by name, or a fine-tuned ``checkpoint`` file."""
     if (model is None) == (checkpoint is None):
-        raise ValueError("give one of model (a stock Omnipose model) or checkpoint (a file)")
+        raise ValueError(
+            "give one of model (a stock Omnipose model) or checkpoint (a file)"
+        )
     for var, value in PARLAY_THREADS.items():
         os.environ.setdefault(var, value)
     from omnipose.models import OmniModel
 
     if checkpoint is not None:
-        return OmniModel(gpu=gpu, pretrained_model=str(checkpoint), nchan=1, nclasses=2, dim=2)
+        return OmniModel(
+            gpu=gpu, pretrained_model=str(checkpoint), nchan=1, nclasses=2, dim=2
+        )
     return OmniModel(gpu=gpu, model_type=model)
 
 
@@ -56,7 +69,9 @@ def _affinity_angle(angle: float) -> Iterator[None]:
     import omnipose.core.masks as masks
 
     original = masks._get_affinity_torch
-    masks._get_affinity_torch = functools.partial(original, angle_cutoff=np.deg2rad(angle))
+    masks._get_affinity_torch = functools.partial(
+        original, angle_cutoff=np.deg2rad(angle)
+    )
     try:
         yield
     finally:
@@ -81,14 +96,24 @@ def affinity_masks(
     from omnipose.transforms.imports import hysteresis_threshold
 
     dt = torch.as_tensor(dist, device=device)
-    iscell_t = hysteresis_threshold(dt[None, None], mask_threshold - 1, mask_threshold)[0, 0]
+    iscell_t = hysteresis_threshold(dt[None, None], mask_threshold - 1, mask_threshold)[
+        0, 0
+    ]
     iscell = iscell_t.cpu().numpy()
     if not iscell.any():
         return np.zeros(dist.shape, np.int32)
-    kw = dict(EVAL_KW, mask_threshold=mask_threshold, flow_threshold=flow_threshold,
-              min_size=min_size, use_gpu=torch.device(device).type != "cpu", device=device,
-              nclasses=3)
+    kw = dict(
+        EVAL_KW,
+        mask_threshold=mask_threshold,
+        flow_threshold=flow_threshold,
+        min_size=min_size,
+        use_gpu=torch.device(device).type != "cpu",
+        device=device,
+        nclasses=3,
+    )
     niter = max(1, int(diameters(iscell, dist) / 2))
     with _affinity_angle(angle):
-        out = compute_masks(dP, dist, iscell=iscell, niter=niter, affinity_seg=True, **kw)
+        out = compute_masks(
+            dP, dist, iscell=iscell, niter=niter, affinity_seg=True, **kw
+        )
     return np.asarray(out[0], np.int32)

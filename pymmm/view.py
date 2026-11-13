@@ -58,12 +58,19 @@ def label_images(root: zarr.Group) -> List[str]:
 
 
 def _read(array_path: str, index: Tuple, dtype: np.dtype) -> np.ndarray:
-    return np.asarray(zarr.open_array(array_path, mode="r")[index]).astype(dtype, copy=False)
+    return np.asarray(zarr.open_array(array_path, mode="r")[index]).astype(
+        dtype, copy=False
+    )
 
 
 def _stack(
-    path: Path, ids: Sequence[int], key: str, index: Tuple, shape: Tuple[int, ...],
-    dtype: np.dtype, present: Optional[Set[int]] = None,
+    path: Path,
+    ids: Sequence[int],
+    key: str,
+    index: Tuple,
+    shape: Tuple[int, ...],
+    dtype: np.dtype,
+    present: Optional[Set[int]] = None,
 ):
     """Lazy ``(trench, *shape)``: ``trench_NNNN/<key>[index]`` of each trench, read only
     when napari shows it; zeros for trenches not in ``present`` (``None``: all)."""
@@ -73,9 +80,11 @@ def _stack(
     parts = [
         da.from_delayed(
             dask.delayed(_read)(str(path / trench_path(t) / key), index, dtype),
-            shape=shape, dtype=dtype,
+            shape=shape,
+            dtype=dtype,
         )
-        if present is None or t in present else da.zeros(shape, dtype=dtype)
+        if present is None or t in present
+        else da.zeros(shape, dtype=dtype)
         for t in ids
     ]
     return da.stack(parts)
@@ -84,7 +93,7 @@ def _stack(
 def _colormap(name: str, hex_color: str):
     from napari.utils.colormaps import Colormap
 
-    rgb = [int(hex_color[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    rgb = [int(hex_color[i : i + 2], 16) / 255 for i in (0, 2, 4)]
     return Colormap([[0, 0, 0, 1], rgb + [1]], name=name)
 
 
@@ -105,52 +114,71 @@ def experiment_layers(path: Union[str, Path]) -> List[LayerData]:
     n_t, _, n_y, n_x = first.shape
     common = {
         "axis_labels": AXES,
-        "metadata": {"pymmm": {
-            "experiment": str(path),
-            "trenches": ids,
-            "fovs": [str(f) for f in root["trenches/fov_name"][:]],
-            "frames": [int(t) for t in root["T"][:]],
-        }},
+        "metadata": {
+            "pymmm": {
+                "experiment": str(path),
+                "trenches": ids,
+                "fovs": [str(f) for f in root["trenches/fov_name"][:]],
+                "frames": [int(t) for t in root["T"][:]],
+            }
+        },
     }
 
     # Channel colours, visibility and contrast from the first trench (its OME metadata,
     # and its middle frame), so napari doesn't scan the experiment.
-    omero = {str(c.get("label")): c for c in
-             (dict(root[trench_path(ids[0])].attrs).get("ome") or {}).get("omero", {}).get("channels", [])}
+    omero = {
+        str(c.get("label")): c
+        for c in (dict(root[trench_path(ids[0])].attrs).get("ome") or {})
+        .get("omero", {})
+        .get("channels", [])
+    }
     sample = np.asarray(first[n_t // 2])
     layers: List[LayerData] = []
     for c, channel in enumerate(channels):
         lo, hi = contrast_limits(sample[c])
         shown = omero.get(channel, {})
-        layers.append((
-            _stack(path, ids, "0", (slice(None), c), (n_t, n_y, n_x), first.dtype),
-            {"name": channel,
-             "colormap": _colormap(channel, str(shown.get("color") or "FFFFFF")),
-             "contrast_limits": (lo, hi if hi > lo else lo + 1),
-             "visible": bool(shown.get("active", True)),
-             "blending": "additive",
-             **common},
-            "image",
-        ))
+        layers.append(
+            (
+                _stack(path, ids, "0", (slice(None), c), (n_t, n_y, n_x), first.dtype),
+                {
+                    "name": channel,
+                    "colormap": _colormap(channel, str(shown.get("color") or "FFFFFF")),
+                    "contrast_limits": (lo, hi if hi > lo else lo + 1),
+                    "visible": bool(shown.get("active", True)),
+                    "blending": "additive",
+                    **common,
+                },
+                "image",
+            )
+        )
 
     listed: Dict[int, Set[str]] = {t: set(listed_labels(root, t)) for t in ids}
-    bases = {label_name(s, str(r["hypotheses"][0]))
-             for s, r in records(root, "segmentations").items() if r.get("hypotheses")}
+    bases = {
+        label_name(s, str(r["hypotheses"][0]))
+        for s, r in records(root, "segmentations").items()
+        if r.get("hypotheses")
+    }
     for name in label_images(root):
         present = {t for t in ids if name in listed[t]}
         if not present:
             continue
         dtype = root[f"{trench_path(min(present))}/labels/{name}/0"].dtype
-        layers.append((
-            _stack(path, ids, f"labels/{name}/0", (), (n_t, n_y, n_x), dtype, present),
-            {"name": name, "opacity": 0.5, "visible": name in bases, **common},
-            "labels",
-        ))
+        layers.append(
+            (
+                _stack(
+                    path, ids, f"labels/{name}/0", (), (n_t, n_y, n_x), dtype, present
+                ),
+                {"name": name, "opacity": 0.5, "visible": name in bases, **common},
+                "labels",
+            )
+        )
     return layers
 
 
 def _text_overlay(viewer):
-    canvas = getattr(viewer, "canvas", None)  # napari >= 0.8; before, viewer.text_overlay
+    canvas = getattr(
+        viewer, "canvas", None
+    )  # napari >= 0.8; before, viewer.text_overlay
     return canvas.overlays.text if canvas is not None else viewer.text_overlay
 
 
@@ -161,17 +189,25 @@ def show_position(viewer) -> None:
     overlay = _text_overlay(viewer)
 
     def update(_event=None) -> None:
-        where = next((layer.metadata["pymmm"] for layer in reversed(viewer.layers)
-                      if "pymmm" in layer.metadata), None)
+        where = next(
+            (
+                layer.metadata["pymmm"]
+                for layer in reversed(viewer.layers)
+                if "pymmm" in layer.metadata
+            ),
+            None,
+        )
         if where is None or viewer.dims.ndim < len(AXES):
             return
         labels = list(viewer.dims.axis_labels)
-        if all(label.lstrip("-").isdigit() for label in labels[-len(AXES):]):
-            viewer.dims.axis_labels = tuple(labels[:-len(AXES)] + list(AXES))
-        trench, t = viewer.dims.current_step[-len(AXES):][:2]
+        if all(label.lstrip("-").isdigit() for label in labels[-len(AXES) :]):
+            viewer.dims.axis_labels = tuple(labels[: -len(AXES)] + list(AXES))
+        trench, t = viewer.dims.current_step[-len(AXES) :][:2]
         if trench < len(where["trenches"]) and t < len(where["frames"]):
-            overlay.text = (f"trench {where['trenches'][trench]} ({where['fovs'][trench]}), "
-                            f"frame {where['frames'][t]}")
+            overlay.text = (
+                f"trench {where['trenches'][trench]} ({where['fovs'][trench]}), "
+                f"frame {where['frames'][t]}"
+            )
             overlay.visible = True
 
     viewer.dims.events.current_step.connect(update)

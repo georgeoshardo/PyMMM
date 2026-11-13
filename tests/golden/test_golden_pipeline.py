@@ -42,14 +42,20 @@ def registration_summary(reg: Registrator) -> dict:
 
 
 def lanes_summary(lanes: LaneDetector) -> dict:
-    return {"lanes": {fov: [asdict(lane) for lane in fov_lanes]
-                      for fov, fov_lanes in lanes.lanes.items()},
-            "params": lanes.detection_params}
+    return {
+        "lanes": {
+            fov: [asdict(lane) for lane in fov_lanes]
+            for fov, fov_lanes in lanes.lanes.items()
+        },
+        "params": lanes.detection_params,
+    }
 
 
 def trenches_summary(trenches: TrenchDetector) -> dict:
-    return {"trenches": trenches.get_trench_table().to_dict(orient="records"),
-            "params": trenches.detection_params}
+    return {
+        "trenches": trenches.get_trench_table().to_dict(orient="records"),
+        "params": trenches.detection_params,
+    }
 
 
 def extraction_detail(node: str) -> bool:
@@ -74,20 +80,27 @@ def test_registration(pipeline):
     check("registration_first", registration_summary(pipeline.reg))
 
 
-@pytest.mark.parametrize("reference, overrides, path", [
-    ("registration_first", {}, "pool"),
-    ("registration_first", {}, "dask"),
-    ("registration_first_opencv", {"backend": "opencv"}, "serial"),
-    ("registration_first_opencv", {"backend": "opencv", "opencv_threads": 2}, "serial"),
-    ("registration_first_opencv", {"backend": "opencv"}, "pool"),
-    ("registration_first_opencv", {"backend": "opencv"}, "dask"),
-    ("registration_mean", {"mode": "mean"}, "serial"),
-    ("registration_mean", {"mode": "mean"}, "dask"),
-    ("registration_frame3", {"mode": 3}, "serial"),
-    ("registration_previous", {"mode": "previous"}, "serial"),
-    ("registration_previous", {"mode": "previous"}, "pool"),
-    ("registration_previous", {"mode": "previous"}, "dask"),
-])
+@pytest.mark.parametrize(
+    "reference, overrides, path",
+    [
+        ("registration_first", {}, "pool"),
+        ("registration_first", {}, "dask"),
+        ("registration_first_opencv", {"backend": "opencv"}, "serial"),
+        (
+            "registration_first_opencv",
+            {"backend": "opencv", "opencv_threads": 2},
+            "serial",
+        ),
+        ("registration_first_opencv", {"backend": "opencv"}, "pool"),
+        ("registration_first_opencv", {"backend": "opencv"}, "dask"),
+        ("registration_mean", {"mode": "mean"}, "serial"),
+        ("registration_mean", {"mode": "mean"}, "dask"),
+        ("registration_frame3", {"mode": 3}, "serial"),
+        ("registration_previous", {"mode": "previous"}, "serial"),
+        ("registration_previous", {"mode": "previous"}, "pool"),
+        ("registration_previous", {"mode": "previous"}, "dask"),
+    ],
+)
 def test_registration_variants(pipeline, request, reference, overrides, path):
     reg = Registrator(pipeline.exp, pipeline.store, **{**REGISTRATION, **overrides})
     reg.compute_tmats(n_jobs=run_on(path, request))
@@ -101,16 +114,26 @@ def test_registered_images(pipeline, request, path):
     reg = Registrator.load(pipeline.exp, pipeline.store)  # nothing cached
     means = reg.compute_registered_means(channel="PC")
     reg.compute_mean_images()
-    stabilised = reg.get_stabilized_data(channel="mCherry", fov="XYPos:5",
-                                         time_slice=slice(3, 5))
-    check("registered_images", {
-        "registered_means_PC": {fov: digest(image) for fov, image in means.items()},
-        "registered_mean_mVenus": digest(reg.get_registered_mean_of_timestack(1, "mVenus")),
-        "mean_images": digest(reg.mean_images.values),
-        "stabilized_mCherry_XYPos5_t3_5": {
-            "dims": list(stabilised.dims), "data": digest(stabilised.values)},
-        "warp_frame_fov1_t7_PC": digest(reg.warp_frame(fov=1, time=7, channel="PC")),
-    })
+    stabilised = reg.get_stabilized_data(
+        channel="mCherry", fov="XYPos:5", time_slice=slice(3, 5)
+    )
+    check(
+        "registered_images",
+        {
+            "registered_means_PC": {fov: digest(image) for fov, image in means.items()},
+            "registered_mean_mVenus": digest(
+                reg.get_registered_mean_of_timestack(1, "mVenus")
+            ),
+            "mean_images": digest(reg.mean_images.values),
+            "stabilized_mCherry_XYPos5_t3_5": {
+                "dims": list(stabilised.dims),
+                "data": digest(stabilised.values),
+            },
+            "warp_frame_fov1_t7_PC": digest(
+                reg.warp_frame(fov=1, time=7, channel="PC")
+            ),
+        },
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -125,8 +148,13 @@ def test_trenches(pipeline):
 
 
 def test_trenches_peaks_method(pipeline):
-    trenches = TrenchDetector(pipeline.exp, pipeline.reg, pipeline.lanes, pipeline.store,
-                              detection_channel="PC")
+    trenches = TrenchDetector(
+        pipeline.exp,
+        pipeline.reg,
+        pipeline.lanes,
+        pipeline.store,
+        detection_channel="PC",
+    )
     trenches.detect_trenches(**{**TRENCHES, "method": "peaks"}, save_diagnostics=False)
     check("trenches_peaks", trenches_summary(trenches))
 
@@ -142,9 +170,22 @@ def test_checkpoints(pipeline):
     check("registration_first", registration_summary(reg))
     check("lanes", lanes_summary(lanes))
     check("trenches", trenches_summary(trenches))
-    for key in ("channel", "mode", "rotation", "roi", "mean_n_frames", "mean_from",
-                "downsample", "batch_size", "fov_window", "backend", "opencv_threads"):
-        assert canonical(getattr(reg, key)) == canonical(getattr(pipeline.reg, key)), key
+    for key in (
+        "channel",
+        "mode",
+        "rotation",
+        "roi",
+        "mean_n_frames",
+        "mean_from",
+        "downsample",
+        "batch_size",
+        "fov_window",
+        "backend",
+        "opencv_threads",
+    ):
+        assert canonical(getattr(reg, key)) == canonical(getattr(pipeline.reg, key)), (
+            key
+        )
 
 
 # ----------------------------------------------------------------------------
@@ -158,15 +199,20 @@ def test_extraction(pipeline):
 def test_extraction_paths(pipeline, request, tmp_path, path, batch_size):
     run_on(path, request)
     output = tmp_path / "experiment.zarr"
-    Extractor(pipeline.exp, pipeline.reg, pipeline.trenches, output_path=output).extract(
-        **{**EXTRACTION, "batch_size": batch_size}, resume=False, show_progress=False)
+    Extractor(
+        pipeline.exp, pipeline.reg, pipeline.trenches, output_path=output
+    ).extract(
+        **{**EXTRACTION, "batch_size": batch_size}, resume=False, show_progress=False
+    )
     check("extraction", manifest(output, extraction_detail))
 
 
 def test_extraction_resumes_an_interrupted_run(pipeline, tmp_path):
     output = tmp_path / "experiment.zarr"
     shutil.copytree(pipeline.group, output)
-    extractor = Extractor(pipeline.exp, pipeline.reg, pipeline.trenches, output_path=output)
+    extractor = Extractor(
+        pipeline.exp, pipeline.reg, pipeline.trenches, output_path=output
+    )
 
     extractor.extract(**EXTRACTION, resume=True, show_progress=False)  # complete: no-op
     check("extraction", manifest(output, extraction_detail))
@@ -174,8 +220,11 @@ def test_extraction_resumes_an_interrupted_run(pipeline, tmp_path):
     # interrupted after the first FOV: the second FOV's trenches are empty
     root = zarr.open_group(str(output), mode="r+")
     attrs = dict(root.attrs)["pymmm"]
-    root.attrs["pymmm"] = {**attrs, "completed_fovs": attrs["completed_fovs"][:1],
-                           "extraction_complete": False}
+    root.attrs["pymmm"] = {
+        **attrs,
+        "completed_fovs": attrs["completed_fovs"][:1],
+        "extraction_complete": False,
+    }
     table = pipeline.trenches.get_trench_table()
     second = table.loc[table["fov"] == attrs["completed_fovs"][1], "trench_id"]
     for trench in second:
@@ -184,15 +233,20 @@ def test_extraction_resumes_an_interrupted_run(pipeline, tmp_path):
     check("extraction", manifest(output, extraction_detail))
 
     with pytest.raises(RuntimeError, match="not compatible"):
-        extractor.extract(**{**EXTRACTION, "clevel": 5}, resume=True, show_progress=False)
+        extractor.extract(
+            **{**EXTRACTION, "clevel": 5}, resume=True, show_progress=False
+        )
 
 
 def test_extraction_time_chunks(pipeline, tmp_path):
     output = tmp_path / "experiment.zarr"
-    Extractor(pipeline.exp, pipeline.reg, pipeline.trenches, output_path=output).extract(
-        **{**EXTRACTION, "time_chunk": 4}, resume=False, show_progress=False)
-    check("extraction_time_chunk4",
-          manifest(output, lambda node: node == "trench_0000/0", list_files=False))
+    Extractor(
+        pipeline.exp, pipeline.reg, pipeline.trenches, output_path=output
+    ).extract(**{**EXTRACTION, "time_chunk": 4}, resume=False, show_progress=False)
+    check(
+        "extraction_time_chunk4",
+        manifest(output, lambda node: node == "trench_0000/0", list_files=False),
+    )
 
 
 def test_preview_matches_extraction(pipeline):
@@ -212,11 +266,17 @@ def test_preview_matches_extraction(pipeline):
 
 def test_extract_single_trench(pipeline):
     """A separate warp: the whole stabilised frame, then the crop."""
-    check("extract_single_trench", {
-        "trench_7_PC": digest(pipeline.extractor.extract_single_trench(7, channel="PC")),
-        "trench_20_mCherry": digest(
-            pipeline.extractor.extract_single_trench(20, channel="mCherry")),
-    })
+    check(
+        "extract_single_trench",
+        {
+            "trench_7_PC": digest(
+                pipeline.extractor.extract_single_trench(7, channel="PC")
+            ),
+            "trench_20_mCherry": digest(
+                pipeline.extractor.extract_single_trench(20, channel="mCherry")
+            ),
+        },
+    )
 
 
 def test_segmenter_normalisation(pipeline):
@@ -224,11 +284,14 @@ def test_segmenter_normalisation(pipeline):
     root = zarr.open_group(str(pipeline.group), mode="r")
     stack = root["trench_0007/0"][:, 0]
     lower, upper = trench_bounds(stack, floor=3000.0)
-    check("segmenter_normalisation", {
-        "background_noise": background_noise(stack),
-        "bounds": [lower, upper],
-        "normalised_gain_1.5": digest(normalise(stack, lower, upper, gain=1.5)),
-    })
+    check(
+        "segmenter_normalisation",
+        {
+            "background_noise": background_noise(stack),
+            "bounds": [lower, upper],
+            "normalised_gain_1.5": digest(normalise(stack, lower, upper, gain=1.5)),
+        },
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -248,11 +311,18 @@ def test_rotated_pipeline(scratch_folder):
     trenches.detect_trenches(**TRENCHES, save_diagnostics=False)
     output = folder / "experiment.zarr"
     Extractor(exp, reg, trenches, output_path=output).extract(
-        **{**EXTRACTION, "batch_size": 10}, resume=False, show_progress=False)
-    check("rotated", {
-        "registration": registration_summary(reg),
-        "lanes": lanes_summary(lanes),
-        "trenches": trenches_summary(trenches),
-        "extraction": manifest(output, lambda node: node in (".", "trench_0000", "trench_0000/0"),
-                               list_files=False),
-    })
+        **{**EXTRACTION, "batch_size": 10}, resume=False, show_progress=False
+    )
+    check(
+        "rotated",
+        {
+            "registration": registration_summary(reg),
+            "lanes": lanes_summary(lanes),
+            "trenches": trenches_summary(trenches),
+            "extraction": manifest(
+                output,
+                lambda node: node in (".", "trench_0000", "trench_0000/0"),
+                list_files=False,
+            ),
+        },
+    )

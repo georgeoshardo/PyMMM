@@ -46,7 +46,10 @@ def _git(*args: str) -> str | None:
     try:
         result = subprocess.run(
             ["git", "-C", str(Path(__file__).resolve().parent), *args],
-            capture_output=True, text=True, timeout=10, check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -64,7 +67,9 @@ def _code_version() -> dict[str, Any]:
         "pymmm_version": _distribution_version("pymmm"),
         "pymmm_commit": commit,
         "pymmm_dirty": dirty,
-        "libraries": {key: _distribution_version(dist) for key, dist in _LIBRARIES.items()},
+        "libraries": {
+            key: _distribution_version(dist) for key, dist in _LIBRARIES.items()
+        },
     }
 
 

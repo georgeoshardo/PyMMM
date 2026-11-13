@@ -22,7 +22,13 @@ def test_lane_orientation_can_be_forced():
 
     def orientations(orientation):
         *_, lanes = detector.detect_fov(
-            image, 0, 50, 5, 20, "XYPos:0", orientation=orientation,
+            image,
+            0,
+            50,
+            5,
+            20,
+            "XYPos:0",
+            orientation=orientation,
         )
         return [lane.orientation for lane in lanes]
 
@@ -33,7 +39,8 @@ def test_lane_orientation_can_be_forced():
 
 @pytest.mark.parametrize("opening, y, orientation", [("down", FOV_H, 1), ("up", 0, -1)])
 def test_without_lane_detection_the_lane_is_the_image_edge_where_trenches_open(
-        tmp_path, opening, y, orientation):
+    tmp_path, opening, y, orientation
+):
     # An image cropped to its trenches (EXPERIMENT_Y_ROI): "down", they open into a lane
     # below the image, so the lane is its bottom edge; "up", its top edge.
     experiment = fov_experiment(tmp_path, ["f0", "f1"])
@@ -42,7 +49,10 @@ def test_without_lane_detection_the_lane_is_the_image_edge_where_trenches_open(
     detector.use_image_edge(opening, save_diagnostics=False)
     assert detector.image_edge == opening
     assert detector.lanes == {f: [LaneInfo(y, orientation, f, 0)] for f in ("f0", "f1")}
-    assert repr(detector) == f"LaneDetector(the image's edge, trenches open {opening}: 2 FOVs)"
+    assert (
+        repr(detector)
+        == f"LaneDetector(the image's edge, trenches open {opening}: 2 FOVs)"
+    )
 
 
 def test_image_edge_lanes_are_saved_and_loaded_as_such(tmp_path):
