@@ -32,7 +32,7 @@ dependencies = [
 # interactive_segment) and the ndv viewers, in Jupyter.
 notebook = ["ipython", "ipywidgets", "ndv[jup]>=0.5,<0.6"]
 # The Segmenter. Omnipose 2.0 is not on PyPI (1.1.4 needs zarr < 2.16): install it
-# from git, as the phage-signatures seg environment does.
+# from git.
 segment = ["omnipose", "torch"]
 # pymmm.view, and one trench image opened in napari as an OME-Zarr image.
 view = ["napari", "napari-ome-zarr"]

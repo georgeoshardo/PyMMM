@@ -3,9 +3,9 @@
 Every notebook of the pipeline (extract, segment, curate) reads the same file, so
 a new dataset means writing one file::
 
-    name = "20261005_pbs_psc_yfp_ty013"
-    nd2 = "raw_data/20261005_pbs_psc_yfp_ty013.nd2"
-    store = "20261005_pbs_psc_yfp_ty013.zarr"
+    name = "experiment"
+    nd2 = "raw_data/experiment.nd2"
+    store = "experiment.zarr"
 
     [segmentation]
     channel = "mCherry"

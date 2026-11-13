@@ -5,8 +5,8 @@ of a segmentation's hypotheses (no image). It is a program of its own, ``chain.p
 kept outside PyMMM; :class:`Tracker` runs it on an experiment group, so tracking is
 driven from a notebook like the steps before it::
 
-    tracker = Tracker("experiment.zarr", "pc_affinity_ensemble", chaintrack="external/chaintrack/chain.py")
-    tracker.fit([2, 3, 4, 5, 6, 7, 8, 9], recipe="recipes/tracking/chain.toml")
+    tracker = Tracker("experiment.zarr", "pc", chaintrack="chaintrack/chain.py")
+    tracker.fit([0, 1, 2, 3, 4, 5, 6, 7], recipe="chaintrack/tests/data/recipe.toml")
     tracker.track()                                   # every trench not tracked yet
 
 Two steps, as in chaintrack:

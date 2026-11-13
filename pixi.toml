@@ -8,8 +8,8 @@ version = "0.1.0"
 # A development environment: PyMMM itself, editable, with the notebook, view and
 # tracks extras, so its dependencies are those of pyproject.toml. The conda
 # packages below only take the heavy ones from conda-forge rather than PyPI. The
-# segment extra (omnipose, torch) is left out: phage-signatures' seg environment
-# has omnipose 2.0 from git and PyTorch for the GPU.
+# segment extra (omnipose, torch) is left out: it needs omnipose 2.0 from git and
+# PyTorch for the GPU, which this environment does not install.
 [dependencies]
 python = ">=3.11"
 nd2 = "*"
