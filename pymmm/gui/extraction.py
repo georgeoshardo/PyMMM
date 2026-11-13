@@ -1023,6 +1023,7 @@ class ExtractionDock(QWidget):
             name="trenches", edge_color="red", visible=False, **shapes
         )
         self.viewer.dims.axis_labels = RAW_AXES
+        _first_step(self.viewer)  # napari opens on the middle frame and FOV
         set_units(self._layers.values(), self.units.currentData(), exp.pixel_size_um)
         self.viewer.layers.selection.active = self._layers[f"registered {detection}"]
         self._refresh_registered()
@@ -1639,6 +1640,7 @@ class ExtractionDock(QWidget):
             )
         viewer.layers.selection.active = viewer.layers[detection]
         set_units(viewer.layers, self.units.currentData(), exp.pixel_size_um)
+        _first_step(viewer)  # the first trench, at the first frame
         show_position(viewer)
         show_coordinate_grid(viewer)
         self.preview_viewer = viewer
@@ -1649,6 +1651,12 @@ class ExtractionDock(QWidget):
             "writes them."
         )
         return viewer
+
+
+def _first_step(viewer) -> None:
+    """Put the viewer's sliders (every axis but the two shown) at their start."""
+    for axis in range(viewer.dims.ndim - 2):
+        viewer.dims.set_current_step(axis, 0)
 
 
 def _set_shapes(layer, shapes: list[np.ndarray], kind: str, colours: list[str]) -> None:
