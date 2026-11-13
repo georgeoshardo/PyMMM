@@ -802,6 +802,8 @@ class ExtractionDock(QWidget):
             )
             if y_roi or x_roi:
                 experiment.select_roi(y=y_roi, x=x_roi)
+            if not experiment.fov_names:
+                raise ValueError("no FOVs left after keep and discard")
         except Exception as error:  # a bad field or file: say so, keep what was open
             self._say(f"Could not open: {error}")
             return

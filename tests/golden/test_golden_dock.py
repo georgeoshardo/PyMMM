@@ -262,6 +262,13 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     assert dock3.lineage["lane_detection"] == "stale"
     assert not dock3.tabs.isTabEnabled(3)
 
+    # Keep and discard that leave no FOV: the dock says so and keeps what was open
+    dock3.keep_edit.setText(FOVS[0])
+    dock3.discard_edit.setText(FOVS[0])
+    dock3.open_experiment()
+    assert "no FOVs left" in dock3.status.text()
+    assert dock3.experiment.fov_names == FOVS
+
 
 def test_preview_array_is_the_extraction_and_cuts_a_frame_once(pipeline, monkeypatch):
     from pymmm.steps import extraction
