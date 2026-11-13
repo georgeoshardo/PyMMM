@@ -123,3 +123,13 @@ def test_companion_store_round_trips_checkpoints(tmp_path):
     loaded_trenches = TrenchDetector.load(experiment, loaded, loaded_lanes, store)
     assert loaded_trenches._trenches == trenches._trenches
     assert loaded_trenches._detection_params["lane_params"] == {0: {"sigma": 2}}
+
+
+def test_clear_drops_the_sections_present_and_leaves_the_rest(tmp_path, capsys):
+    store = CompanionStore(tmp_path / "exp.pymmm.zarr")
+    for name in ("registration", "lane_detection"):
+        store._store.create_group(name).attrs["complete"] = True
+    store.clear("lane_detection", "trench_detection")
+    assert store.has_registration()
+    assert not store.has_lane_detection()
+    assert capsys.readouterr().out == ""

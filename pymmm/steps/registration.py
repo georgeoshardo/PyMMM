@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import json
 import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +17,7 @@ from skimage.transform import warp
 from tqdm.auto import tqdm
 
 from pymmm._utils import normalize_channel_arg, normalize_fov_arg
-from pymmm.parallel import Runner, dask_client, shared
+from pymmm.parallel import Cancelled, Runner, dask_client, shared
 from pymmm.source.nd2 import ND2Experiment
 from pymmm.store.companion import CompanionStore
 
@@ -77,6 +78,28 @@ def _registered_mean(
             warped = _warp_frame(frame, matrix).astype(frame.dtype)
             total = warped.astype(np.float64) if total is None else total + warped
     return total / len(time_indices)
+
+
+def _json_value(value: Any) -> Any:
+    """``value`` as it reads back from the store's JSON attributes (tuples as lists)."""
+    return json.loads(json.dumps(value, default=str))
+
+
+def _identity_tmats(data: xr.DataArray) -> xr.DataArray:
+    """No-drift transforms for every FOV and frame of ``data``, labelled as
+    :attr:`Registrator.tmats`.
+    """
+    dims = [d for d in ("P", "T") if d in data.dims]
+    shape = tuple(data.sizes[d] for d in dims)
+    return xr.DataArray(
+        np.broadcast_to(np.eye(3), (*shape, 3, 3)),
+        dims=[*dims, "row", "col"],
+        coords={
+            **{d: data.coords[d].values for d in dims},
+            "row": [0, 1, 2],
+            "col": [0, 1, 2],
+        },
+    )
 
 
 def _rotation_matrix(angle: float, image_shape: tuple[int, int]) -> np.ndarray:
@@ -498,7 +521,13 @@ class Registrator:
     # Transformation matrices
     # ------------------------------------------------------------------
 
-    def compute_tmats(self, plot: bool = False, n_jobs: int = -1) -> None:
+    def compute_tmats(
+        self,
+        plot: bool = False,
+        n_jobs: int = -1,
+        progress: Callable[[int, int], None] | None = None,
+        cancel: Any = None,
+    ) -> None:
         """Compute transformation matrices for all FOVs.
 
         Parameters
@@ -511,6 +540,13 @@ class Registrator:
             frames run on the active Dask cluster if there is one, else in a process
             pool of ``n_jobs`` workers (``-1``: one per core), with ``fov_window``
             FOVs in flight.
+        progress : callable | None
+            Called as ``progress(fovs_done, n_fovs)`` as each FOV finishes, for a
+            front end without tqdm (the napari dock).
+        cancel : threading.Event | None
+            Checked after each batch: once set, the queued batches are dropped and
+            :class:`~pymmm.parallel.Cancelled` is raised, leaving no transforms. A
+            notebook stops a run with the Interrupt button instead.
 
         The ``mode`` decides what each frame is registered to (by translation):
 
@@ -556,7 +592,7 @@ class Registrator:
         with runner:
             for _ in range(window):
                 launch()
-            progress = tqdm(total=len(fov_names), desc="Registering FOVs")
+            bar = tqdm(total=len(fov_names), desc="Registering FOVs")
             while in_flight:
                 fov, job, futures = in_flight.pop(0)
                 results: list[Any] = [None] * job.n_results
@@ -566,6 +602,8 @@ class Registrator:
                     desc=f"  batches ({fov})",
                     leave=False,
                 ):
+                    if cancel is not None and cancel.is_set():
+                        raise Cancelled("registration cancelled")
                     start = futures[future]
                     batch = future.result()
                     results[start : start + len(batch)] = batch
@@ -574,9 +612,11 @@ class Registrator:
                 fov_da = self._fov_tmats(reg_data, fov, job.finish(results))
                 parts.append(fov_da)
                 self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
-                progress.update()
+                bar.update()
+                if progress is not None:
+                    progress(len(parts), len(fov_names))
                 launch()
-            progress.close()
+            bar.close()
 
         self._tmats = xr.concat(parts, dim="P") if "P" in reg_data.dims else parts[0]
 
@@ -725,6 +765,7 @@ class Registrator:
         channel: str | int | None = None,
         fov: str | int | None = None,
         time_slice: slice | None = None,
+        drift: bool = True,
     ) -> xr.DataArray:
         """Return lazy dask-backed DataArray of all warped frames.
 
@@ -736,12 +777,17 @@ class Registrator:
             Restrict to a single FOV. Keeps the dask graph small.
         time_slice : slice | None
             Restrict timepoints before constructing the warp graph.
+        drift : bool
+            ``False``: the rotation alone, no drift correction, so the frames can be
+            levelled before registering (the transforms are not needed).
         """
-        if self._tmats is None:
-            raise RuntimeError("Tmats not computed yet.")
-
         data = self.experiment.data
-        tmats = self._tmats
+        if drift:
+            if self._tmats is None:
+                raise RuntimeError("Tmats not computed yet.")
+            tmats = self._tmats
+        else:
+            tmats = _identity_tmats(data)
 
         # Select FOV early to keep the dask graph small
         if fov is not None:
@@ -914,6 +960,39 @@ class Registrator:
     # ------------------------------------------------------------------
     # Checkpoint save / load
     # ------------------------------------------------------------------
+
+    def settings(self) -> dict[str, Any]:
+        """The settings that decide the transforms, as :meth:`save` records them: a
+        saved registration made with the same settings on the same part of the ND2
+        can be loaded instead of computed again (:meth:`matches_saved`).
+        """
+        return {
+            "channel": self.channel,
+            "backend": self.backend,
+            "mode": self.mode,
+            "rotation": self.rotation,
+            "roi": _json_value(self.roi),
+            "mean_n_frames": self.mean_n_frames,
+            "mean_from": self.mean_from,
+            "downsample": self.downsample,
+            "transform_convention": TRANSFORM_CONVENTION,
+            "fov_names": self.experiment.fov_names,
+            "source_subset_metadata": self.experiment.source_subset_metadata,
+        }
+
+    def matches_saved(self) -> bool:
+        """Whether the store's registration was made with :meth:`settings`. Checkpoints
+        from before ``backend`` and ``transform_convention`` were recorded count as
+        stackreg and the current convention (the latter only without rotation).
+        """
+        if not self.store.has_registration():
+            return False
+        saved = self.store.load_registration_params()
+        if saved.get("backend") is None:
+            saved["backend"] = "stackreg"
+        if saved.get("transform_convention") is None and saved.get("rotation", 0) == 0:
+            saved["transform_convention"] = TRANSFORM_CONVENTION
+        return all(saved.get(key) == value for key, value in self.settings().items())
 
     def save(self) -> None:
         """Write tmats, mean_images, and params to the companion zarr store."""

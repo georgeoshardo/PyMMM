@@ -362,6 +362,14 @@ class CompanionStore:
     # Reset
     # ------------------------------------------------------------------
 
+    def clear(self, *sections: str) -> None:
+        """Delete these sections, quietly, the ones present (partly written ones too):
+        a step about to be redone, and the steps after it.
+        """
+        for section in sections:
+            if section in self._store:
+                del self._store[section]
+
     def reset(self, section: str | None = None) -> None:
         """Delete checkpointed data and re-open the store.
 

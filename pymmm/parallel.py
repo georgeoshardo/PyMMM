@@ -46,6 +46,10 @@ notebook's cluster (it signals the kernel's process group) and the nanny does no
 them again."""
 
 
+class Cancelled(Exception):
+    """A run stopped by its front end (a cancel event set) before it finished."""
+
+
 def _ignore_interrupt() -> None:
     """A pool worker's initializer: ignore SIGINT (see :data:`IGNORE_INTERRUPT`)."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
