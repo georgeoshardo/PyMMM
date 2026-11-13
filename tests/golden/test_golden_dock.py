@@ -201,6 +201,26 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     plan.fov_clicked.emit(FOVS[0])
     assert dock.current_fov() == FOVS[0]
     plan.fov_clicked.emit(FOVS[1])
+    # the stitched view: every FOV at its stage position in place of the dock's
+    # layers; a map click goes there; another tab brings the dock's layers back
+    viewer.dims.current_step = (4, 1, 0, 0)
+    dock.mosaic_button.click()
+    mosaic = dock._mosaic
+    assert sorted(mosaic.layers) == sorted(FOVS)
+    assert (
+        viewer.dims.axis_labels == ("T", "y", "x") and viewer.dims.current_step[0] == 4
+    )
+    assert "trenches (stitched)" in [layer.name for layer in viewer.layers]
+    target = mosaic.outlines[FOVS[0]].mean(axis=0)
+    plan.point_clicked.emit(*target)
+    np.testing.assert_allclose(viewer.scene.camera.center[-2:], target[::-1], atol=1e-6)
+    assert plan._fov == FOVS[0]
+    dock.tabs.setCurrentIndex(dock.TAB_NAMES.index("Lanes"))
+    assert dock._mosaic is None and not dock.mosaic_button.isChecked()
+    assert viewer.dims.axis_labels == ("T", "P", "y", "x")
+    assert dock.current_fov() == FOVS[0] and dock.current_frame() == 4
+    assert all(f"({FOVS[0]})" not in layer.name for layer in viewer.layers)
+    dock.tabs.setCurrentIndex(dock.TAB_NAMES.index("Trenches"))
     tabs = [dock.tabs.tabText(i) for i in range(dock.tabs.count())]
     assert tabs == ["Experiment", "Register ✓", "Lanes ✓", "Trenches ✓", "Preview"]
     assert dock.lineage["trench_detection"] == "current"

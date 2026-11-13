@@ -28,6 +28,7 @@ FLAG_COLOUR = (220, 60, 60, 110)
 CURRENT_COLOUR = "#e8c547"
 LANE_COLOURS = {1: "#ff4040", -1: "#40e0e0"}  # opening down (red), up (cyan)
 TRENCH_COLOUR = (255, 90, 90, 220)
+VIEWPORT_COLOUR = "#ffffff"
 DETAIL_MIN_WIDTH = 46  # screen px a FOV needs before its lanes, trenches and name show
 
 
@@ -46,9 +47,12 @@ def _path(shapes: list[np.ndarray], closed: bool) -> tuple[np.ndarray, np.ndarra
 
 
 class ExperimentMap(QWidget):
-    """Every FOV at its stage position; :attr:`fov_clicked` carries a clicked FOV."""
+    """Every FOV at its stage position; :attr:`fov_clicked` carries a clicked FOV,
+    :attr:`point_clicked` the point clicked (x, y µm).
+    """
 
     fov_clicked = Signal(str)
+    point_clicked = Signal(float, float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -78,6 +82,7 @@ class ExperimentMap(QWidget):
         }
         self._trenches = self.plot.plot(pen=pg.mkPen(TRENCH_COLOUR, width=1))
         self._current = self.plot.plot(pen=pg.mkPen(CURRENT_COLOUR, width=2.5))
+        self._viewport = self.plot.plot(pen=pg.mkPen(VIEWPORT_COLOUR, width=1.5))
         self._fills: list[QGraphicsPolygonItem] = []
         self._texts: dict[str, pg.TextItem] = {}
 
@@ -143,6 +148,14 @@ class ExperimentMap(QWidget):
         """What each FOV's label says (its name by default)."""
         self._labels = {name: labels.get(name, name) for name in self._active}
         self._make_labels()
+
+    def set_viewport(self, rect: tuple[float, float, float, float] | None) -> None:
+        """Outline what the stitched view shows: (x0, y0, x1, y1) µm, or nothing."""
+        if rect is None:
+            self._viewport.setData([], [])
+            return
+        x0, y0, x1, y1 = rect
+        self._viewport.setData([x0, x1, x1, x0, x0], [y0, y0, y1, y1, y0])
 
     def show_fov(self, fov: str | None) -> None:
         """Outline this FOV in colour."""
@@ -230,6 +243,7 @@ class ExperimentMap(QWidget):
         if not box.sceneBoundingRect().contains(event.scenePos()):
             return
         point = box.mapSceneToView(event.scenePos())
+        self.point_clicked.emit(point.x(), point.y())
         fov = self.fov_at(point.x(), point.y())
         if fov is not None:
             self.fov_clicked.emit(fov)

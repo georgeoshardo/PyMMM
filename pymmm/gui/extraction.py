@@ -302,6 +302,8 @@ class ExtractionDock(QWidget):
         self._opened_fields: tuple[str, ...] | None = None
         self._legacy_mean = dict(DETECTION_MEAN)
         self._live_drift: _Registered | None = None  # the registration being drawn
+        self._mosaic = None  # the stitched view, while it is shown
+        self._before_mosaic: dict[str, Any] = {}
         self._drift_from = None  # the Registrator the drift plot was filled from
         self.experiment_group: Path | None = None  # where extract() writes
         self.lineage: dict[str, str] = {}
@@ -408,8 +410,18 @@ class ExtractionDock(QWidget):
         form.addRow(self.experiment_info)
         from pymmm.gui.experiment_map import ExperimentMap
 
+        self.mosaic_button = QPushButton("Stitched view")
+        self.mosaic_button.setCheckable(True)
+        self.mosaic_button.toggled.connect(self._set_mosaic)
+        self.mosaic_channel = QComboBox()
+        self.mosaic_channel.currentIndexChanged.connect(self._on_mosaic_channel)
+        row = QHBoxLayout()
+        row.addWidget(self.mosaic_button, 1)
+        row.addWidget(self.mosaic_channel)
+        form.addRow(row)
         self.experiment_map = ExperimentMap()
         self.experiment_map.fov_clicked.connect(self._go_to_fov)
+        self.experiment_map.point_clicked.connect(self._on_map_point)
         form.addRow(self.experiment_map)
         return tab
 
@@ -796,6 +808,7 @@ class ExtractionDock(QWidget):
         """Open the ND2 the experiment file names, with the tab's subset, and load the
         saved registration, lanes and trenches that match it.
         """
+        self.mosaic_button.setChecked(False)
         from pymmm import CompanionStore, ND2Experiment
         from pymmm.config import Experiment
 
@@ -841,7 +854,7 @@ class ExtractionDock(QWidget):
         self.store = CompanionStore.for_experiment(experiment)
         self.registrator = self.lane_detector = self.trench_detector = None
         channels = list(experiment.channel_names)
-        for box in (self.reg_channel, self.det_channel):
+        for box in (self.reg_channel, self.det_channel, self.mosaic_channel):
             current = box.currentData()
             box.blockSignals(True)
             box.clear()
@@ -1103,6 +1116,8 @@ class ExtractionDock(QWidget):
         """The registered layers: drift-corrected when the registration in use matches
         the Register tab, else the frames rotated by the tab's rotation only.
         """
+        if self._mosaic is not None:  # the dock's layers are put away
+            return
         if self.experiment is None:
             return
         drift = self._settings_match()
@@ -1153,6 +1168,8 @@ class ExtractionDock(QWidget):
     def _on_tab(self, index: int) -> None:
         """Show the overlays of the tab's step."""
         name = self.TAB_NAMES[index]
+        if name != "Experiment" and self._mosaic is not None:
+            self.mosaic_button.setChecked(False)  # the steps work on single FOVs
         shown = {
             "Register": {"roi"},
             "Lanes": {"mean", "lanes"},
@@ -1184,14 +1201,16 @@ class ExtractionDock(QWidget):
 
     def _go_to_fov(self, fov: str) -> None:
         """Move the P slider to a FOV (a click on the experiment map)."""
+        if self._mosaic is not None:
+            return  # the stitched view goes to the point (_on_map_point)
         labels = list(self.viewer.dims.axis_labels)
         if self.experiment is not None and "P" in labels:
             index = self.experiment.fov_names.index(fov)
             self.viewer.dims.set_current_step(labels.index("P"), index)
 
     def _map_degrees(self) -> float:
-        """The rotation the map is drawn with: the registration's, else the
-        Register tab's.
+        """The rotation the map and the stitched view are drawn with: the
+        registration's, else the Register tab's.
         """
         registrator = self.registrator
         return (
@@ -1226,6 +1245,109 @@ class ExtractionDock(QWidget):
                 boxes.append(frames[row.fov][0] + size * corners)
         return segments, orientations, boxes
 
+    def _set_mosaic(self, on: bool) -> None:
+        """Swap the dock's layers for the stitched view, or back."""
+        if on and self._mosaic is None:
+            self._enter_mosaic()
+        elif not on and self._mosaic is not None:
+            self._leave_mosaic()
+
+    def _enter_mosaic(self) -> None:
+        from pymmm.gui.mosaic import MosaicView
+        from pymmm.source.stage import fov_frames
+
+        exp = self.experiment
+        degrees = self._map_degrees()
+        frames = fov_frames(exp, degrees) if exp is not None else None
+        if frames is None:
+            self._say("No stage positions in this ND2, so no stitched view.")
+            self.mosaic_button.setChecked(False)
+            return
+        channel = self.mosaic_channel.currentData()
+        shown = self._layers.get(f"registered {channel}")
+        self._before_mosaic = {
+            "limits": {
+                layer.name: tuple(layer.contrast_limits)
+                for layer in self._layers.values()
+                if hasattr(layer, "contrast_limits")
+            },
+            "t": self.current_frame(),
+        }
+        from pymmm.gui.mosaic import _batched
+
+        with _batched(self.viewer):
+            for layer in list(self._layers.values()):
+                if layer in self.viewer.layers:
+                    self.viewer.layers.remove(layer)
+        self._layers.clear()
+        try:
+            mosaic = MosaicView(
+                self.viewer,
+                exp,
+                channel,
+                degrees,
+                colormap=shown.colormap.name if shown is not None else "gray",
+                start_t=self._before_mosaic["t"],
+                on_view=self._on_mosaic_view,
+            )
+        except Exception as error:  # put the dock's layers back, say why
+            for layer in [
+                layer
+                for layer in self.viewer.layers
+                if layer.name.endswith(f"({channel})")
+            ]:
+                self.viewer.layers.remove(layer)
+            self._add_image_layers()
+            self.mosaic_button.blockSignals(True)
+            self.mosaic_button.setChecked(False)
+            self.mosaic_button.blockSignals(False)
+            self._say(f"Stitched view failed: {error}")
+            return
+        self._mosaic = mosaic
+        mosaic.set_marks(*self._marks(frames))
+        self.viewer.dims.set_current_step(0, self._before_mosaic["t"])
+        self._mosaic.show_all()
+        self._say("Stitched view: pan and zoom, or click the map to go there.")
+
+    def _leave_mosaic(self) -> None:
+        mosaic, self._mosaic = self._mosaic, None
+        x0, y0, x1, y1 = mosaic.view_rect()
+        here = mosaic.fov_at((x0 + x1) / 2, (y0 + y1) / 2)
+        t = int(self.viewer.dims.current_step[0])
+        mosaic.close()
+        self.experiment_map.set_viewport(None)
+        self._add_image_layers()
+        for layer in self._layers.values():
+            limits = self._before_mosaic.get("limits", {}).get(layer.name)
+            if limits is not None:
+                layer.contrast_limits = limits
+        labels = list(self.viewer.dims.axis_labels)
+        self.viewer.dims.set_current_step(labels.index("T"), t)
+        if here is not None:  # back on the FOV the stitched view was showing
+            self.viewer.dims.set_current_step(
+                labels.index("P"), self.experiment.fov_names.index(here)
+            )
+        self.viewer.reset_view()
+        self._last_fov = None
+        self._on_step()
+
+    def _on_mosaic_channel(self) -> None:
+        if self._mosaic is not None:  # show the other channel
+            self._leave_mosaic()
+            self._enter_mosaic()
+
+    def _on_mosaic_view(self, rect: tuple[float, float, float, float]) -> None:
+        """Keep the map on what the stitched view shows."""
+        plot = self.experiment_map
+        plot.set_viewport(rect)
+        if self._mosaic is not None:
+            x0, y0, x1, y1 = rect
+            plot.show_fov(self._mosaic.fov_at((x0 + x1) / 2, (y0 + y1) / 2))
+
+    def _on_map_point(self, x: float, y: float) -> None:
+        if self._mosaic is not None:
+            self._mosaic.go_to(x, y)
+
     def _draw_map(self) -> None:
         """Every FOV at its stage position, with the lanes and trenches found so far."""
         from pymmm.source.stage import fov_frames
@@ -1236,6 +1358,7 @@ class ExtractionDock(QWidget):
             plot.clear()
             return
         frames = fov_frames(exp, self._map_degrees())
+        self.mosaic_button.setEnabled(frames is not None)
         if frames is None:
             plot.clear()
             _note(plot, "No stage positions")
@@ -1286,6 +1409,8 @@ class ExtractionDock(QWidget):
             self.viewer.dims.set_current_step(labels.index("T"), frame)
 
     def _on_step(self, _event=None) -> None:
+        if self._mosaic is not None:
+            return
         self.drift_plot.show_frame(self.current_frame())
         fov = self.current_fov()
         if fov == self._last_fov:
@@ -1496,6 +1621,8 @@ class ExtractionDock(QWidget):
 
     def update_lanes(self) -> None:
         """The candidate lanes of the FOV on the P slider, with the tab's settings."""
+        if self._mosaic is not None:  # the dock's layers are put away
+            return
         self._mark_tabs()
         fov = self.current_fov()
         if self.registrator is None or fov is None or not self._showing("Lanes"):
@@ -1512,6 +1639,8 @@ class ExtractionDock(QWidget):
         self._with_mean(fov, self._draw_lanes, self._lane_mean())
 
     def _draw_lanes(self, fov: str, image: np.ndarray) -> None:
+        if self._mosaic is not None:  # the dock's layers are put away
+            return
         from pymmm import LaneDetector
 
         self._show_mean(image)
@@ -1659,6 +1788,8 @@ class ExtractionDock(QWidget):
 
     def update_trenches(self) -> None:
         """The candidate trenches of the FOV on the P slider, with the tab's settings."""
+        if self._mosaic is not None:  # the dock's layers are put away
+            return
         self._mark_tabs()
         fov = self.current_fov()
         if self.lane_detector is None or fov is None or not self._showing("Trenches"):
@@ -1671,6 +1802,8 @@ class ExtractionDock(QWidget):
         self._with_mean(fov, self._draw_trenches, self._trench_mean())
 
     def _draw_trenches(self, fov: str, image: np.ndarray) -> None:
+        if self._mosaic is not None:  # the dock's layers are put away
+            return
         from pymmm.widgets.trenches import _plot_lane_profile
 
         self._show_mean(image)
@@ -1822,6 +1955,8 @@ class ExtractionDock(QWidget):
         return get_diagnostics_dir(self.experiment.path, kind)
 
     def _show_mean(self, image: np.ndarray) -> None:
+        if self._mosaic is not None:  # the dock's layers are put away
+            return
         layer = self._layers["mean"]
         layer.data = image
         lo, hi = contrast_limits(image)
