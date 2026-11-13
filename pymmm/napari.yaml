@@ -1,4 +1,5 @@
-# PyMMM as a napari plugin: a reader for experiment groups (pymmm.view).
+# PyMMM as a napari plugin: a reader for experiment groups (pymmm.view), and the
+# extraction dock (pymmm.gui.extraction) in the Plugins menu.
 # An experiment group is a folder, and napari offers every reader that accepts folders
 # for any folder dropped (filename_patterns only match files), so PyMMM is among the
 # choices for any folder; it opens experiment groups only.
@@ -9,7 +10,13 @@ contributions:
     - id: pymmm.read_experiment
       title: Open a PyMMM experiment group, every trench on one slider
       python_name: pymmm.view:napari_get_reader
+    - id: pymmm.extraction_dock
+      title: Register an ND2, detect its lanes and trenches, preview the trenches
+      python_name: pymmm.gui.extraction:ExtractionDock
   readers:
     - command: pymmm.read_experiment
       filename_patterns: []
       accepts_directories: true
+  widgets:
+    - command: pymmm.extraction_dock
+      display_name: Extraction
