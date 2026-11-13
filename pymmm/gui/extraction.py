@@ -1001,7 +1001,8 @@ class ExtractionDock(QWidget):
             self.store,
             registration_channel=self.reg_channel.currentData() or 0,
             mode=self.mode.currentData(),
-            rotation=float(self.rotation.value()),
+            # as the box shows it: stepping leaves residue (-1.9000000000000006)
+            rotation=round(self.rotation.value(), self.rotation.decimals()),
             roi=roi,
             mean_n_frames=self.mean_n_frames.value(),
             mean_from=self.mean_from.currentData(),

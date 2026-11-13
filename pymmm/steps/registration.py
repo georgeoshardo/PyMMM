@@ -86,6 +86,20 @@ def _json_value(value: Any) -> Any:
     return json.loads(json.dumps(value, default=str))
 
 
+def _comparable(value: Any) -> Any:
+    """``value`` with its floats to 9 decimal places, so that settings compare equal
+    when one went through a spin box: stepping by 0.1 gives -1.9000000000000006, and
+    the box shows and gives back -1.9.
+    """
+    if isinstance(value, dict):
+        return {k: _comparable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_comparable(v) for v in value]
+    if isinstance(value, float):
+        return round(value, 9)
+    return value
+
+
 def _identity_tmats(data: xr.DataArray) -> xr.DataArray:
     """No-drift transforms for every FOV and frame of ``data``, labelled as
     :attr:`Registrator.tmats`.
@@ -976,19 +990,21 @@ class Registrator:
         saved registration made with the same settings on the same part of the ND2
         can be loaded instead of computed again (:meth:`matches_saved`).
         """
-        return {
-            "channel": self.channel,
-            "backend": self.backend,
-            "mode": self.mode,
-            "rotation": self.rotation,
-            "roi": _json_value(self.roi),
-            "mean_n_frames": self.mean_n_frames,
-            "mean_from": self.mean_from,
-            "downsample": self.downsample,
-            "transform_convention": TRANSFORM_CONVENTION,
-            "fov_names": self.experiment.fov_names,
-            "source_subset_metadata": self.experiment.source_subset_metadata,
-        }
+        return _comparable(
+            {
+                "channel": self.channel,
+                "backend": self.backend,
+                "mode": self.mode,
+                "rotation": self.rotation,
+                "roi": _json_value(self.roi),
+                "mean_n_frames": self.mean_n_frames,
+                "mean_from": self.mean_from,
+                "downsample": self.downsample,
+                "transform_convention": TRANSFORM_CONVENTION,
+                "fov_names": self.experiment.fov_names,
+                "source_subset_metadata": self.experiment.source_subset_metadata,
+            }
+        )
 
     def matches_saved(self) -> bool:
         """Whether the store's registration was made with :meth:`settings`. Checkpoints
@@ -1002,6 +1018,7 @@ class Registrator:
             saved["backend"] = "stackreg"
         if saved.get("transform_convention") is None and saved.get("rotation", 0) == 0:
             saved["transform_convention"] = TRANSFORM_CONVENTION
+        saved = _comparable(saved)
         return all(saved.get(key) == value for key, value in self.settings().items())
 
     def fingerprint(self) -> str:

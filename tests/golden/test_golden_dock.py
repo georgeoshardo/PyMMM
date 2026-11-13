@@ -324,3 +324,27 @@ def test_rotation_only_needs_no_transforms(pipeline):
     )
     frame = tilted.get_stabilized_data(channel="PC", fov=FOVS[0], drift=False).isel(T=2)
     assert not np.array_equal(frame.values, raw.isel(T=2).values)
+
+
+def test_a_rotation_stepped_in_the_box_reloads(qapp, scratch_folder, pipeline):
+    """Stepping the rotation box by 0.1 gives -1.9000000000000006, saved as it is; the
+    box shows -1.9, and the dock must still take that for the saved registration."""
+    from pymmm import LaneDetector
+
+    nd2 = scratch_folder("stepped") / ND2.name
+    exp = open_nd2(nd2.parent)
+    store = CompanionStore.for_experiment(exp)
+    stepped = -0.1 * 19
+    assert stepped != -1.9
+    reg = Registrator(exp, store, **{**REGISTRATION, "rotation": stepped})
+    reg._tmats = pipeline.reg.tmats  # the transforms don't matter here
+    reg.save()
+    lanes = LaneDetector(exp, reg, store, detection_channel="PC")
+    lanes.use_image_edge("down", save_diagnostics=False)
+    lanes.save()
+    assert Registrator(exp, store, **{**REGISTRATION, "rotation": -1.9}).matches_saved()
+
+    _, dock = _dock(qapp, nd2)
+    assert dock.rotation.value() == -1.9
+    assert dock.registrator is not None and dock.lane_detector is not None
+    assert dock.tabs.tabText(1) == "Register ✓" and dock.tabs.isTabEnabled(2)
