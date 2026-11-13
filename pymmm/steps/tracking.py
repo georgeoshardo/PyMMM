@@ -26,8 +26,9 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any
 
 import zarr
 
@@ -40,10 +41,10 @@ from pymmm.store.experiment_group import (
 from pymmm.store.geff import has_tracks
 
 
-def trench_ranges(trenches: Sequence[int]) -> List[str]:
+def trench_ranges(trenches: Sequence[int]) -> list[str]:
     """Trench ids as chaintrack takes them, runs of neighbours joined: ``["0", "2-5", "7"]``."""
     ids = sorted({int(t) for t in trenches})
-    out: List[str] = []
+    out: list[str] = []
     k = 0
     while k < len(ids):
         end = k
@@ -80,14 +81,14 @@ class Tracker:
 
     def __init__(
         self,
-        store_path: Union[str, Path],
+        store_path: str | Path,
         segmentation: str,
-        chaintrack: Union[str, Path],
+        chaintrack: str | Path,
         *,
         run: str = "chain",
-        fit: Optional[str] = None,
-        workers: Optional[int] = None,
-        python: Union[str, Path, None] = None,
+        fit: str | None = None,
+        workers: int | None = None,
+        python: str | Path | None = None,
     ) -> None:
         self.store_path = Path(store_path).resolve()
         self.segmentation = str(segmentation)
@@ -115,24 +116,25 @@ class Tracker:
     # ------------------------------------------------------------------
 
     @property
-    def fit_record(self) -> Optional[Dict[str, Any]]:
+    def fit_record(self) -> dict[str, Any] | None:
         """The group's record of the fit (values in µm and minutes, the trenches, the
-        frozen recipe), or None before :meth:`fit`."""
+        frozen recipe), or None before :meth:`fit`.
+        """
         return records(self._open(), "fits").get(self.fit_name)
 
     @property
-    def record(self) -> Optional[Dict[str, Any]]:
+    def record(self) -> dict[str, Any] | None:
         """The group's record of the run, or None before :meth:`track`."""
         return records(self._open(), "tracks").get(self.run)
 
-    def segmented(self) -> List[int]:
+    def segmented(self) -> list[int]:
         """The trenches whose segmentation is finished."""
         root = self._open()
         return [
             t for t in self.trench_ids if has_segmentation(root, t, self.segmentation)
         ]
 
-    def tracked(self) -> List[int]:
+    def tracked(self) -> list[int]:
         """The trenches the run has tracked."""
         root = self._open()
         return [t for t in self.trench_ids if has_tracks(root, t, self.run)]
@@ -144,7 +146,7 @@ class Tracker:
     # Running chaintrack
     # ------------------------------------------------------------------
 
-    def command(self, action: str, trenches: Sequence[int], *options: str) -> List[str]:
+    def command(self, action: str, trenches: Sequence[int], *options: str) -> list[str]:
         """The chaintrack command line for ``action`` (``"fit"`` or ``"run"``)."""
         command = [
             self.python,
@@ -165,11 +167,13 @@ class Tracker:
 
     def _run(self, command: Sequence[str]) -> None:
         """Run chaintrack, printing its lines as they come. Interrupting the cell stops
-        it: the interrupt reaches chaintrack too, and this waits for it to stop."""
-        process = subprocess.Popen(
+        it: the interrupt reaches chaintrack too, and this waits for it to stop.
+        """
+        process = subprocess.Popen(  # noqa: S603 - runs chain.py, a path the caller gives
             list(command), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
         )
-        assert process.stdout is not None
+        if process.stdout is None:  # never with stdout=PIPE; narrows the type
+            raise RuntimeError("chaintrack's output could not be read")
         try:
             for line in process.stdout:
                 print(line, end="", flush=True)
@@ -181,13 +185,12 @@ class Tracker:
                 f"chaintrack stopped with an error (exit status {code}); its last lines are above"
             )
 
-    def fit(
-        self, trenches: Sequence[int], recipe: Union[str, Path]
-    ) -> Dict[str, float]:
+    def fit(self, trenches: Sequence[int], recipe: str | Path) -> dict[str, float]:
         """Measure the experiment's fitted values on ``trenches`` (all their frames) and
         record them in the group with a frozen copy of ``recipe``; the values, in µm and
         minutes. chaintrack refuses to replace a fit that a run has used: give another
-        ``fit`` name, and another ``run``, to track with other constants."""
+        ``fit`` name, and another ``run``, to track with other constants.
+        """
         recipe = Path(recipe).expanduser().resolve()
         if not recipe.is_file():
             raise FileNotFoundError(f"no recipe at {recipe}")
@@ -195,8 +198,8 @@ class Tracker:
         return dict(self.fit_record["values"])
 
     def track(
-        self, trenches: Optional[Sequence[int]] = None, resume: bool = True
-    ) -> List[int]:
+        self, trenches: Sequence[int] | None = None, resume: bool = True
+    ) -> list[int]:
         """Track ``trenches`` (default: every segmented trench) and write their tracks
         into the group; the trenches the run holds afterwards.
 
@@ -226,12 +229,13 @@ class Tracker:
         self,
         trench_id: int,
         channel: str = "PC",
-        minutes: Optional[float] = None,
-        save_path: Optional[str] = None,
+        minutes: float | None = None,
+        save_path: str | None = None,
         show: bool = True,
     ) -> None:
         """A trench's kymograph with the run's tracks over it
-        (:func:`pymmm.plotting.plot_track_kymograph`)."""
+        (:func:`pymmm.plotting.plot_track_kymograph`).
+        """
         from pymmm.plotting import plot_track_kymograph
 
         plot_track_kymograph(

@@ -6,10 +6,10 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from fake_experiment import FOV_H, fov_experiment
-
 from pymmm.steps.lanes import LaneDetector, LaneInfo
 from pymmm.store.companion import CompanionStore
+
+from fake_experiment import FOV_H, fov_experiment
 
 
 def test_lane_orientation_can_be_forced():

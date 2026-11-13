@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from pymmm.steps.lanes import LaneDetector
 
 
-def lane_widget(detector: "LaneDetector") -> None:
+def lane_widget(detector: LaneDetector) -> None:
     """Tune lane detection on one FOV at a time, then apply it to every FOV.
 
     ipywidgets for the controls, ndv for the registered image with the candidate

@@ -1,19 +1,14 @@
 """The Segmenter's widget and viewer: :meth:`Segmenter.interactive_segment` and
-:meth:`Segmenter.view`."""
+:meth:`Segmenter.view`.
+"""
 
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping, Sequence
 from typing import (
     TYPE_CHECKING,
     Any,
-    Dict,
-    List,
-    Mapping,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
 )
 
 import numpy as np
@@ -54,10 +49,10 @@ def label_overlay(images: np.ndarray, labels: np.ndarray) -> np.ndarray:
 
     images = np.asarray(images, dtype=np.float32)
     labels = np.asarray(labels)
-    out = np.empty(images.shape[:-2] + (2,) + images.shape[-2:], dtype=np.float32)
-    frames = images.reshape((-1,) + images.shape[-2:])
-    frame_labels = labels.reshape((-1,) + labels.shape[-2:])
-    flat_out = out.reshape((-1, 2) + images.shape[-2:])
+    out = np.empty((*images.shape[:-2], 2, *images.shape[-2:]), dtype=np.float32)
+    frames = images.reshape((-1, *images.shape[-2:]))
+    frame_labels = labels.reshape((-1, *labels.shape[-2:]))
+    flat_out = out.reshape((-1, 2, *images.shape[-2:]))
     for i, (frame_image, frame) in enumerate(zip(frames, frame_labels)):
         outline = find_boundaries(frame, mode="inner")
         flat_out[i, 0] = frame_image
@@ -66,7 +61,7 @@ def label_overlay(images: np.ndarray, labels: np.ndarray) -> np.ndarray:
     return out
 
 
-def segmentation_widget(segmenter: "Segmenter", batch_size: int = 64) -> None:
+def segmentation_widget(segmenter: Segmenter, batch_size: int = 64) -> None:
     """Tune the base settings on single trenches (see :meth:`Segmenter.interactive_segment`)."""
     import ipywidgets as widgets
     import matplotlib.pyplot as plt
@@ -119,7 +114,7 @@ def segmentation_widget(segmenter: "Segmenter", batch_size: int = 64) -> None:
     viewer_data = np.zeros((n_t, 2, n_y, n_x), dtype=np.float32)
     image_viewer = overlay_viewer(viewer_data, 1, segmenter.channel, OUTLINES)
 
-    def _widget_params() -> Dict[str, Any]:
+    def _widget_params() -> dict[str, Any]:
         return {
             **params,
             "floor": float(floor_slider.value),
@@ -224,9 +219,10 @@ def segmentation_widget(segmenter: "Segmenter", batch_size: int = 64) -> None:
     _update()
 
 
-def label_viewer(segmenter: "Segmenter") -> Any:
+def label_viewer(segmenter: Segmenter) -> Any:
     """An ndv viewer of the written labels as outlines over the channel (see
-    :meth:`Segmenter.view`)."""
+    :meth:`Segmenter.view`).
+    """
     return imshow(
         _label_overlay(segmenter),
         channel_axis=3,
@@ -235,16 +231,17 @@ def label_viewer(segmenter: "Segmenter") -> Any:
     )
 
 
-def _label_overlay(segmenter: "Segmenter") -> Any:
-    """ndv data ``(Hypothesis, Trench, T, C, Y, X)``: the channel and label
-    outlines, read from the trench images only for the frames ndv asks for."""
+def _label_overlay(segmenter: Segmenter) -> Any:
+    """Ndv data ``(Hypothesis, Trench, T, C, Y, X)``: the channel and label
+    outlines, read from the trench images only for the frames ndv asks for.
+    """
     import ndv
 
     ids = segmenter.trench_ids
     hypotheses = segmenter.hypotheses
     n_t, _, n_y, n_x = image(segmenter.root, ids[0]).shape
 
-    def _labels(trench_id: int) -> Optional[List[zarr.Array]]:
+    def _labels(trench_id: int) -> list[zarr.Array] | None:
         root = open_experiment(segmenter.store_path)  # fresh: sees labels written since
         if not has_segmentation(root, trench_id, segmenter.name):
             return None
@@ -256,11 +253,11 @@ def _label_overlay(segmenter: "Segmenter") -> Any:
             return False
 
         @property
-        def dims(self) -> Tuple[str, ...]:
+        def dims(self) -> tuple[str, ...]:
             return ("Hypothesis", "Trench", "T", "C", "Y", "X")
 
         @property
-        def coords(self) -> Dict[str, Sequence]:
+        def coords(self) -> dict[str, Sequence]:
             # ndv's Jupyter sliders only take ranges: Hypothesis and Trench are by position.
             return {
                 "Hypothesis": range(len(hypotheses)),
@@ -271,14 +268,14 @@ def _label_overlay(segmenter: "Segmenter") -> Any:
                 "X": range(n_x),
             }
 
-        def channel_names(self, channel_axis: Optional[int]) -> Dict[int, str]:
+        def channel_names(self, channel_axis: int | None) -> dict[int, str]:
             return {0: segmenter.channel, 1: "outlines"}
 
         @property
         def dtype(self) -> np.dtype:
             return np.dtype(np.float32)
 
-        def isel(self, index: Mapping[int, Union[int, slice]]) -> np.ndarray:
+        def isel(self, index: Mapping[int, int | slice]) -> np.ndarray:
             # ndv asks with a slice on every axis (an index k as k:k+1).
             h, trench, t, c, y, x = (
                 slice(i, i + 1) if isinstance(i, (int, np.integer)) else i

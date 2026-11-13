@@ -2,7 +2,6 @@ import operator
 from pathlib import Path
 
 import pytest
-
 from pymmm.parallel import Runner, dask_client
 
 
@@ -75,7 +74,6 @@ def test_slots_and_wait_first_wherever_tasks_run():
 
 def test_a_shared_array_reaches_every_task_wherever_it_runs(tmp_path):
     import numpy as np
-
     from pymmm.parallel import SharedFile
 
     array = np.arange(6.0).reshape(2, 3)

@@ -7,7 +7,6 @@ from types import SimpleNamespace
 import numpy as np
 import xarray as xr
 import zarr
-
 from pymmm.steps.lanes import LaneDetector, LaneInfo
 from pymmm.steps.registration import Registrator
 from pymmm.steps.trenches import TrenchDefinition, TrenchDetector
@@ -56,19 +55,19 @@ def test_companion_store_round_trips_checkpoints(tmp_path):
     registrator = Registrator.__new__(Registrator)
     registrator.experiment = experiment
     registrator.store = store
-    for name, value in dict(
-        channel="PC",
-        backend="stackreg",
-        mode="first",
-        rotation=0.0,
-        roi={"y": (250, 860)},
-        mean_n_frames=10,
-        mean_from="end",
-        downsample=2,
-        batch_size=4,
-        fov_window=2,
-        opencv_threads=1,
-    ).items():
+    for name, value in {
+        "channel": "PC",
+        "backend": "stackreg",
+        "mode": "first",
+        "rotation": 0.0,
+        "roi": {"y": (250, 860)},
+        "mean_n_frames": 10,
+        "mean_from": "end",
+        "downsample": 2,
+        "batch_size": 4,
+        "fov_window": 2,
+        "opencv_threads": 1,
+    }.items():
         setattr(registrator, name, value)
     registrator._tmats = xr.DataArray(
         tmats,

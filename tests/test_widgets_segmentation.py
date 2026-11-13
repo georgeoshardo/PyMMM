@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from fake_experiment import make_experiment
-
 from pymmm.steps.segmentation import HYPOTHESES, Segmenter, trench_bounds
 from pymmm.store import experiment_group as eg
 from pymmm.widgets.segmentation import label_overlay
+
+from fake_experiment import make_experiment
 
 pytestmark = [
     pytest.mark.notebook,

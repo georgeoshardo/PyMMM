@@ -1,10 +1,11 @@
 """LaneDetector – detect feeding-lane y-positions in each FOV, or, for an image cropped
-to its trenches, take the image's edge as the lane (:meth:`LaneDetector.use_image_edge`)."""
+to its trenches, take the image's edge as the lane (:meth:`LaneDetector.use_image_edge`).
+"""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -53,7 +54,7 @@ class LaneDetector:
         experiment: ND2Experiment,
         registrator: Registrator,
         store: CompanionStore,
-        detection_channel: Union[str, int] = 0,
+        detection_channel: str | int = 0,
     ) -> None:
         self.experiment = experiment
         self.registrator = registrator
@@ -61,15 +62,15 @@ class LaneDetector:
         self.channel = normalize_channel_arg(
             detection_channel, experiment.channel_names
         )
-        self._lanes: Optional[Dict[str, List[LaneInfo]]] = None
-        self._detection_params: Dict[str, Any] = {}
+        self._lanes: dict[str, list[LaneInfo]] | None = None
+        self._detection_params: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
 
     @property
-    def lanes(self) -> Dict[str, List[LaneInfo]]:
+    def lanes(self) -> dict[str, list[LaneInfo]]:
         if self._lanes is None:
             raise RuntimeError("Lanes not detected yet. Call detect_lanes() first.")
         return self._lanes
@@ -79,14 +80,15 @@ class LaneDetector:
         return self._lanes is not None
 
     @property
-    def detection_params(self) -> Dict[str, Any]:
+    def detection_params(self) -> dict[str, Any]:
         """The settings of the last detection (or the saved one)."""
         return dict(self._detection_params)
 
     @property
-    def image_edge(self) -> Optional[str]:
+    def image_edge(self) -> str | None:
         """``"down"`` or ``"up"`` when the lanes are the image's edge
-        (:meth:`use_image_edge`), ``None`` when they were detected."""
+        (:meth:`use_image_edge`), ``None`` when they were detected.
+        """
         return self._detection_params.get("image_edge")
 
     # ------------------------------------------------------------------
@@ -114,7 +116,7 @@ class LaneDetector:
         fov_lanes : list[LaneInfo]
         """
         pixel_size = self.experiment.pixel_size_um
-        window_px = max(1, int(round(orientation_window_um / pixel_size)))
+        window_px = max(1, round(orientation_window_um / pixel_size))
 
         # 1D y-profile: average along X
         y_profile = mean_img.mean(axis=1)
@@ -129,7 +131,7 @@ class LaneDetector:
         peaks, _ = find_peaks(y_profile_smooth, distance=distance, height=height)
 
         # Orientation detection
-        fov_lanes: List[LaneInfo] = []
+        fov_lanes: list[LaneInfo] = []
         for lane_idx, peak_y in enumerate(peaks):
             above_start = max(0, peak_y - window_px)
             above_end = peak_y
@@ -199,7 +201,7 @@ class LaneDetector:
             raise ValueError(
                 f"orientation must be 'auto', 'down' or 'up', not {orientation!r}"
             )
-        lanes: Dict[str, List[LaneInfo]] = {}
+        lanes: dict[str, list[LaneInfo]] = {}
 
         mean_images = self.registrator.compute_registered_means(channel=self.channel)
         for fov in self.experiment.fov_names:
@@ -225,7 +227,7 @@ class LaneDetector:
         }
 
         print(
-            f"Detected lanes: "
+            "Detected lanes: "
             + ", ".join(f"{fov}: {len(ls)}" for fov, ls in lanes.items())
         )
 
@@ -288,8 +290,8 @@ class LaneDetector:
             [
                 {
                     "image": mean_images[fov],
-                    "lane_y_positions": [l.y_center for l in fov_lanes],
-                    "orientations": [l.orientation for l in fov_lanes],
+                    "lane_y_positions": [lane.y_center for lane in fov_lanes],
+                    "orientations": [lane.orientation for lane in fov_lanes],
                     "title": f"Lanes – {fov}",
                     "save_path": str(diag_dir / f"lanes_{fov}.png"),
                 }
@@ -300,8 +302,8 @@ class LaneDetector:
 
     def plot_fov(
         self,
-        fov: Union[int, str] = 0,
-        save_path: Optional[str] = None,
+        fov: int | str = 0,
+        save_path: str | None = None,
         show: bool = True,
     ) -> None:
         """Plot the lane overlay for any FOV."""
@@ -314,8 +316,8 @@ class LaneDetector:
         fov_lanes = self.lanes[fov_name]
         plot_fov_with_lanes(
             mean_img,
-            [l.y_center for l in fov_lanes],
-            orientations=[l.orientation for l in fov_lanes],
+            [lane.y_center for lane in fov_lanes],
+            orientations=[lane.orientation for lane in fov_lanes],
             title=f"Lanes – {fov_name}",
             save_path=save_path,
             show=show,
@@ -327,7 +329,8 @@ class LaneDetector:
 
     def interactive_detect_lanes(self) -> None:
         """Tune the settings on one FOV at a time in a notebook widget, then apply them
-        to every FOV (:func:`pymmm.widgets.lanes.lane_widget`; the notebook extra)."""
+        to every FOV (:func:`pymmm.widgets.lanes.lane_widget`; the notebook extra).
+        """
         from pymmm.widgets.lanes import lane_widget
 
         lane_widget(self)
@@ -360,7 +363,7 @@ class LaneDetector:
         experiment: ND2Experiment,
         registrator: Registrator,
         store: CompanionStore,
-    ) -> "LaneDetector":
+    ) -> LaneDetector:
         """Reconstruct a LaneDetector from a checkpoint."""
         if not store.has_lane_detection():
             raise FileNotFoundError("No lane detection checkpoint found.")
@@ -378,7 +381,7 @@ class LaneDetector:
             key: value for key, value in params.items() if key != "channel"
         }
 
-        lanes: Dict[str, List[LaneInfo]] = {fov: [] for fov in data["fov_names"]}
+        lanes: dict[str, list[LaneInfo]] = {fov: [] for fov in data["fov_names"]}
         for row in data["lanes"].itertuples(index=False):
             lanes[str(row.fov)].append(
                 LaneInfo(

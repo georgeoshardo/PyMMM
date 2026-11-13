@@ -19,8 +19,9 @@ from __future__ import annotations
 import contextlib
 import functools
 import os
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator, Optional, Union
+from typing import Any
 
 import numpy as np
 
@@ -30,22 +31,22 @@ import numpy as np
 PARLAY_THREADS = {"PARLAY_NUM_THREADS": "1"}
 
 # compute_masks' settings that OmniModel.eval passes in 2D (besides the thresholds)
-EVAL_KW = dict(
-    rescale_factor=1.0,
-    flow_factor=5.0,
-    max_size=None,
-    interp=True,
-    cluster=False,
-    suppress=None,
-    despur=False,
-    dim=2,
-    bd=None,
-)
+EVAL_KW = {
+    "rescale_factor": 1.0,
+    "flow_factor": 5.0,
+    "max_size": None,
+    "interp": True,
+    "cluster": False,
+    "suppress": None,
+    "despur": False,
+    "dim": 2,
+    "bd": None,
+}
 
 
 def load_model(
-    model: Optional[str] = None,
-    checkpoint: Optional[Union[str, Path]] = None,
+    model: str | None = None,
+    checkpoint: str | Path | None = None,
     gpu: bool = True,
 ) -> Any:
     """An ``OmniModel``: the stock ``model`` by name, or a fine-tuned ``checkpoint`` file."""
@@ -89,7 +90,8 @@ def affinity_masks(
     min_size: int = 15,
 ) -> np.ndarray:
     """One frame's ``int32`` masks from the network's flow ``(2, Y, X)`` and distance
-    ``(Y, X)`` maps, by affinity (see the module docstring)."""
+    ``(Y, X)`` maps, by affinity (see the module docstring).
+    """
     import torch
     from omnipose.core import compute_masks
     from omnipose.core.diam import diameters

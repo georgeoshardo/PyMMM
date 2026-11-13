@@ -42,7 +42,7 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Union
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from pymmm.steps.segmentation import Segmenter
@@ -59,12 +59,12 @@ class Experiment:
     name: str
     store: Path
     nd2: Path | None = None
-    segmentation: Dict[str, Any] = field(default_factory=dict)
-    curation: Dict[str, Any] = field(default_factory=dict)
+    segmentation: dict[str, Any] = field(default_factory=dict)
+    curation: dict[str, Any] = field(default_factory=dict)
     source: Path | None = None
 
     @classmethod
-    def load(cls, path: Union[str, Path]) -> "Experiment":
+    def load(cls, path: str | Path) -> Experiment:
         path = Path(path).expanduser().resolve()
         with path.open("rb") as file:
             raw = tomllib.load(file)
@@ -94,14 +94,12 @@ class Experiment:
         seg = self.segmentation
         return str(seg.get("name") or seg.get("channel", "mCherry").lower())
 
-    def segmenter(self, **overrides: Any) -> "Segmenter":
+    def segmenter(self, **overrides: Any) -> Segmenter:
         """A :class:`~pymmm.steps.segmentation.Segmenter` for the experiment group."""
-        from pymmm.steps.segmentation import Segmenter
-
-        from pymmm.steps.segmentation import checkpoint_hypotheses
+        from pymmm.steps.segmentation import Segmenter, checkpoint_hypotheses
 
         seg = self.segmentation
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "channel": seg.get("channel", "mCherry"),
             "name": self.segmentation_name,
         }
@@ -121,9 +119,10 @@ class Experiment:
             kwargs["models"] = models.resolve()
         return Segmenter(self.store, **{**kwargs, **overrides})
 
-    def tracker(self, chaintrack: Union[str, Path], **overrides: Any) -> "Tracker":
+    def tracker(self, chaintrack: str | Path, **overrides: Any) -> Tracker:
         """A :class:`~pymmm.steps.tracking.Tracker` of the experiment's segmentation,
-        running the chaintrack at ``chaintrack`` (its ``chain.py``)."""
+        running the chaintrack at ``chaintrack`` (its ``chain.py``).
+        """
         from pymmm.steps.tracking import Tracker
 
         return Tracker(self.store, self.segmentation_name, chaintrack, **overrides)

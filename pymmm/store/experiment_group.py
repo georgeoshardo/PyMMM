@@ -30,8 +30,9 @@ docs/layout.md specifies the whole layout.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence, Union
+from typing import Any
 
 import numpy as np
 import zarr
@@ -43,7 +44,7 @@ LABEL_COMPRESSORS = (
     zarr.codecs.BloscCodec(cname="zstd", clevel=3, shuffle="bitshuffle"),
 )
 
-PathLike = Union[str, Path]
+PathLike = str | Path
 
 
 def trench_path(trench_id: int) -> str:
@@ -53,7 +54,8 @@ def trench_path(trench_id: int) -> str:
 
 def is_experiment(path: PathLike) -> bool:
     """Whether ``path`` is an experiment group, from its ``zarr.json`` alone: a group whose
-    ``pymmm.layout`` is ``"experiment"``."""
+    ``pymmm.layout`` is ``"experiment"``.
+    """
     try:
         meta = json.loads((Path(path) / "zarr.json").read_text())
     except (OSError, ValueError):
@@ -140,7 +142,7 @@ def write_label_image(
     name: str,
     labels: np.ndarray,
     *,
-    attrs: Optional[Mapping[str, Any]] = None,
+    attrs: Mapping[str, Any] | None = None,
     listed: bool = True,
 ) -> zarr.Array:
     """Write (or replace) one ``(t, y, x)`` label image of a trench, and list it
@@ -148,8 +150,18 @@ def write_label_image(
 
     Parameters
     ----------
+    root : zarr.Group
+        The experiment group, opened for writing.
+    trench_id : int
+        The trench.
+    name : str
+        The label image's name under the trench's ``labels/``.
+    labels : ndarray
+        ``(t, y, x)`` labels.
     attrs : mapping
         The label image's ``pymmm`` attributes.
+    listed : bool
+        List the label image in the trench's ``labels/`` once written.
     """
     labels = np.asarray(labels)
     if labels.ndim != 3:
@@ -200,7 +212,7 @@ def write_segmentation(
     name: str,
     labels: Mapping[str, np.ndarray],
     *,
-    attrs: Optional[Mapping[str, Any]] = None,
+    attrs: Mapping[str, Any] | None = None,
 ) -> None:
     """Write a trench's segmentation: one ``(t, y, x)`` label image per hypothesis
     (``labels`` maps every recorded hypothesis to its labels), listed together once all
@@ -208,6 +220,14 @@ def write_segmentation(
 
     Parameters
     ----------
+    root : zarr.Group
+        The experiment group, opened for writing.
+    trench_id : int
+        The trench.
+    name : str
+        The segmentation, as recorded in the group.
+    labels : mapping of str to ndarray
+        Each hypothesis's ``(t, y, x)`` labels.
     attrs : mapping
         ``pymmm`` attributes shared by the hypotheses' label images.
     """
@@ -241,7 +261,8 @@ def segmentation(
     root: zarr.Group, trench_id: int, name: str
 ) -> tuple[list[str], list[zarr.Array]]:
     """A finished segmentation of a trench: its hypotheses (the base first) and each
-    one's ``(t, y, x)`` labels."""
+    one's ``(t, y, x)`` labels.
+    """
     if not has_segmentation(root, trench_id, name):
         raise KeyError(
             f"{trench_path(trench_id)} has no finished segmentation {name!r}"
@@ -253,7 +274,8 @@ def segmentation(
 
 def remove_segmentation(root: zarr.Group, trench_id: int, name: str) -> None:
     """Remove a trench's label images of a segmentation's recorded hypotheses: unlisted
-    first, so the segmentation stops counting as finished before any pixels go."""
+    first, so the segmentation stops counting as finished before any pixels go.
+    """
     names = [label_name(name, h) for h in hypotheses(root, name)]
     _unlist_labels(root, trench_id, names)
     key = f"{trench_path(trench_id)}/labels"

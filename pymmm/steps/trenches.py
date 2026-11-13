@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, fields
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -119,7 +120,7 @@ def periodic_trench_centres(
     trench_width: int,
     expected_pitch: float = 0,
     min_symmetry: float = 0.1,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Trench centres on a lane's x-profile from periodicity and symmetry.
 
     Parameters
@@ -236,7 +237,7 @@ class TrenchDetector:
         registrator: Registrator,
         lane_detector: LaneDetector,
         store: CompanionStore,
-        detection_channel: Union[str, int] = 0,
+        detection_channel: str | int = 0,
     ) -> None:
         self.experiment = experiment
         self.registrator = registrator
@@ -245,15 +246,15 @@ class TrenchDetector:
         self.channel = normalize_channel_arg(
             detection_channel, experiment.channel_names
         )
-        self._trenches: Optional[Dict[str, List[TrenchDefinition]]] = None
-        self._detection_params: Dict[str, Any] = {}
+        self._trenches: dict[str, list[TrenchDefinition]] | None = None
+        self._detection_params: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
 
     @property
-    def trenches(self) -> Dict[str, List[TrenchDefinition]]:
+    def trenches(self) -> dict[str, list[TrenchDefinition]]:
         if self._trenches is None:
             raise RuntimeError(
                 "Trenches not detected yet. Call detect_trenches() first."
@@ -265,14 +266,15 @@ class TrenchDetector:
         return self._trenches is not None
 
     @property
-    def detection_params(self) -> Dict[str, Any]:
+    def detection_params(self) -> dict[str, Any]:
         """The settings of the last detection (or the saved one)."""
         return copy.deepcopy(self._detection_params)
 
-    def shape_defaults(self) -> Dict[str, int]:
+    def shape_defaults(self) -> dict[str, int]:
         """The default ``trench_length`` and ``trench_bottom_offset``: the image's whole
         height when the lanes are its edge (:meth:`LaneDetector.use_image_edge`), else
-        160 and 50 px."""
+        160 and 50 px.
+        """
         if self.lane_detector.image_edge is not None:
             return {
                 "trench_length": int(self.experiment.data.sizes["Y"]),
@@ -301,9 +303,9 @@ class TrenchDetector:
         trench_width: int,
         trench_length: int,
         trench_bottom_offset: int,
-        conv_filter: Optional[np.ndarray] = None,
+        conv_filter: np.ndarray | None = None,
         start_id: int = 0,
-        lane_params: Optional[Dict[int, Dict[str, Any]]] = None,
+        lane_params: dict[int, dict[str, Any]] | None = None,
         method: str = "peaks",
         expected_pitch: float = 0,
         min_symmetry: float = 0.1,
@@ -324,7 +326,7 @@ class TrenchDetector:
         fov_lanes = self.lane_detector.lanes.get(fov, [])
         img_height, img_width = mean_img.shape
 
-        fov_trenches: List[TrenchDefinition] = []
+        fov_trenches: list[TrenchDefinition] = []
         lane_profiles: list = []
         trench_counter = start_id
 
@@ -433,11 +435,11 @@ class TrenchDetector:
         prominence: float = 10,
         height: float = 0,
         trench_width: int = 32,
-        trench_length: Optional[int] = None,
-        trench_bottom_offset: Optional[int] = None,
-        conv_filter: Optional[np.ndarray] = None,
+        trench_length: int | None = None,
+        trench_bottom_offset: int | None = None,
+        conv_filter: np.ndarray | None = None,
         plot: bool = False,
-        lane_params: Optional[Dict[int, Dict[str, Any]]] = None,
+        lane_params: dict[int, dict[str, Any]] | None = None,
         save_diagnostics: bool = True,
         method: str = "peaks",
         expected_pitch: float = 0,
@@ -517,7 +519,7 @@ class TrenchDetector:
                     f"Lane {lane_idx} cannot override global shape settings: {names}"
                 )
 
-        trenches: Dict[str, List[TrenchDefinition]] = {}
+        trenches: dict[str, list[TrenchDefinition]] = {}
         trench_counter = 0
 
         mean_images = self.registrator.compute_registered_means(channel=self.channel)
@@ -589,7 +591,7 @@ class TrenchDetector:
             raise RuntimeError("No trenches detected yet.")
 
         rows = []
-        for fov, fov_trenches in self._trenches.items():
+        for fov_trenches in self._trenches.values():
             for td in fov_trenches:
                 rows.append(asdict(td))
         return pd.DataFrame(rows)
@@ -624,8 +626,8 @@ class TrenchDetector:
 
     def plot_fov(
         self,
-        fov: Union[int, str] = 0,
-        save_path: Optional[str] = None,
+        fov: int | str = 0,
+        save_path: str | None = None,
         show: bool = True,
     ) -> None:
         """Plot the trench overlay for any FOV."""
@@ -651,7 +653,8 @@ class TrenchDetector:
     def interactive_detect_trenches(self) -> None:
         """Tune the settings on one FOV at a time, per lane if need be, in a notebook
         widget, then apply them to every FOV (:func:`pymmm.widgets.trenches.trench_widget`;
-        the notebook extra)."""
+        the notebook extra).
+        """
         from pymmm.widgets.trenches import trench_widget
 
         trench_widget(self)
@@ -689,7 +692,7 @@ class TrenchDetector:
         registrator: Registrator,
         lane_detector: LaneDetector,
         store: CompanionStore,
-    ) -> "TrenchDetector":
+    ) -> TrenchDetector:
         """Reconstruct a TrenchDetector from a checkpoint."""
         if not store.has_trench_detection():
             raise FileNotFoundError("No trench detection checkpoint found.")
@@ -713,7 +716,7 @@ class TrenchDetector:
                 for lane_idx, values in det._detection_params["lane_params"].items()
             }
 
-        trenches: Dict[str, List[TrenchDefinition]] = {
+        trenches: dict[str, list[TrenchDefinition]] = {
             fov: [] for fov in data["fov_names"]
         }
         for row in data["trenches"].itertuples(index=False):

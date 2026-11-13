@@ -11,11 +11,11 @@ import json
 
 import numpy as np
 import pytest
-from fake_experiment import H, N_T, TRENCHES, W, make_experiment
-
 from pymmm.config import Experiment
 from pymmm.steps.tracking import Tracker, trench_ranges
 from pymmm.store import experiment_group as eg
+
+from fake_experiment import N_T, TRENCHES, H, W, make_experiment
 
 STAND_IN = """
 import json, sys
@@ -47,7 +47,7 @@ else:
         root.require_group(f"{eg.trench_path(t)}/tracks/{option('--out')}.geff")
         eg.write_label_image(root, t, f"tracks.{option('--out')}", np.zeros((%d, %d, %d), np.uint16))
         print(f"trench {t}: tracked")
-""" % (N_T, H, W)
+""" % (N_T, H, W)  # noqa: UP031 - the script's own {} would clash with format()
 
 
 @pytest.fixture

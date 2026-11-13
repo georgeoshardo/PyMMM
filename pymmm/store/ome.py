@@ -7,7 +7,8 @@ resolution level ``0`` scaled to minutes and micrometres (docs/layout.md).
 from __future__ import annotations
 
 import copy
-from typing import Any, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -82,7 +83,8 @@ def image(
 
 def display_windows(pixels: np.ndarray) -> list[tuple[float, float]]:
     """Each channel's display window for a ``(t, c, y, x)`` trench: its 0.5th and
-    99.9th percentiles, from every tenth frame or so."""
+    99.9th percentiles, from every tenth frame or so.
+    """
     step = max(1, pixels.shape[0] // 26)
     return [
         tuple(float(v) for v in np.percentile(pixels[::step, c], [0.5, 99.9]))
@@ -94,7 +96,8 @@ def with_windows(
     ome: dict[str, Any], windows: Iterable[tuple[float, float]]
 ) -> dict[str, Any]:
     """A copy of a trench image's ``ome`` attributes with each channel's window
-    ``start`` and ``end`` set from ``windows``."""
+    ``start`` and ``end`` set from ``windows``.
+    """
     ome = copy.deepcopy(ome)
     for channel, (start, end) in zip(ome["omero"]["channels"], windows):
         channel["window"].update(start=start, end=end)
@@ -105,7 +108,8 @@ def label_image(
     name: str, *, minutes_per_frame: float, um_per_pixel: float
 ) -> dict[str, Any]:
     """The ``ome`` attributes of a label image, ``(t, y, x)``, in ``labels/`` of the
-    trench image it labels."""
+    trench image it labels.
+    """
     axes = [
         {"name": "t", "type": "time", "unit": "minute"},
         {"name": "y", "type": "space", "unit": "micrometer"},

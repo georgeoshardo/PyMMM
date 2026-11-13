@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from fake_experiment import fake_nd2
-
 from pymmm.source.nd2 import ND2Experiment
+
+from fake_experiment import fake_nd2
 
 
 def test_nd2experiment_subset_metadata_tracks_selection(monkeypatch, tmp_path):

@@ -6,10 +6,13 @@ All functions are standalone — no class dependencies.
 from __future__ import annotations
 
 from itertools import cycle
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+if TYPE_CHECKING:
+    import xarray as xr
 
 CONTRAST_PERCENTILES = (5.0, 95.0)
 """Lower/upper intensity percentiles that set the contrast of every PyMMM
@@ -23,7 +26,7 @@ NDV_CLIMS = {
 """ndv LUT ``clims`` policy implementing :data:`CONTRAST_PERCENTILES`."""
 
 
-def contrast_limits(image: np.ndarray) -> Tuple[float, float]:
+def contrast_limits(image: np.ndarray) -> tuple[float, float]:
     """``(vmin, vmax)`` for displaying ``image`` at :data:`CONTRAST_PERCENTILES`."""
     vmin, vmax = np.nanpercentile(np.asarray(image), CONTRAST_PERCENTILES)
     return float(vmin), float(vmax)
@@ -34,7 +37,7 @@ def _save_figure(plot_func, kwargs: dict) -> str:
     return kwargs["save_path"]
 
 
-def save_figures(plot_func, jobs: List[dict]) -> None:
+def save_figures(plot_func, jobs: list[dict]) -> None:
     """Render and save one figure per job without showing them.
 
     Each job is the keyword arguments for ``plot_func`` and must include
@@ -57,7 +60,7 @@ def save_figures(plot_func, jobs: List[dict]) -> None:
     )
 
 
-def _finish(fig, save_path: Optional[str], show: bool) -> None:
+def _finish(fig, save_path: str | None, show: bool) -> None:
     """Save a figure if asked, then show it or release it."""
     if save_path:
         fig.savefig(save_path)
@@ -68,9 +71,9 @@ def _finish(fig, save_path: Optional[str], show: bool) -> None:
 
 
 def plot_drift_diagnostics(
-    tmats: "xr.DataArray",
+    tmats: xr.DataArray,
     fov_label: str = "",
-    save_path: Optional[str] = None,
+    save_path: str | None = None,
     show: bool = True,
 ) -> None:
     """3-panel drift diagnostic: spatial trace, X drift vs time, Y drift vs time.
@@ -133,7 +136,7 @@ def plot_drift_diagnostics(
 def plot_mean_image(
     image: np.ndarray,
     title: str = "Mean image",
-    save_path: Optional[str] = None,
+    save_path: str | None = None,
     show: bool = True,
 ) -> None:
     """Display a single image with a greyscale colormap."""
@@ -152,7 +155,7 @@ def plot_1d_profile_with_peaks(
     title: str = "1D profile",
     xlabel: str = "Position (px)",
     ylabel: str = "Intensity",
-    save_path: Optional[str] = None,
+    save_path: str | None = None,
     show: bool = True,
 ) -> None:
     """Plot a 1-D profile with peak markers."""
@@ -169,10 +172,10 @@ def plot_1d_profile_with_peaks(
 
 def plot_fov_with_lanes(
     image: np.ndarray,
-    lane_y_positions: List[float],
-    orientations: Optional[List[int]] = None,
+    lane_y_positions: list[float],
+    orientations: list[int] | None = None,
     title: str = "",
-    save_path: Optional[str] = None,
+    save_path: str | None = None,
     show: bool = True,
 ) -> None:
     """Show an image with horizontal lines at lane y-positions.
@@ -189,6 +192,10 @@ def plot_fov_with_lanes(
         lane widget.
     title : str
         Plot title.
+    save_path : str | None
+        File to save the figure to; ``None``: not saved.
+    show : bool
+        Show the figure; otherwise it is closed after saving.
     """
     fig, ax = plt.subplots(figsize=(14, 8))
     vmin, vmax = contrast_limits(image)
@@ -217,7 +224,7 @@ def plot_fov_with_trenches(
     image: np.ndarray,
     trench_definitions: list,
     title: str = "",
-    save_path: Optional[str] = None,
+    save_path: str | None = None,
     show: bool = True,
 ) -> None:
     """Show an image with coloured rectangles for trench boundaries.
@@ -229,6 +236,12 @@ def plot_fov_with_trenches(
     trench_definitions : list
         Sequence of objects with ``x_left``, ``x_right``, ``y_top``,
         ``y_bottom``, and ``trench_id`` attributes.
+    title : str
+        Plot title.
+    save_path : str | None
+        File to save the figure to; ``None``: not saved.
+    show : bool
+        Show the figure; otherwise it is closed after saving.
     """
     colors = cycle(["red", "green", "blue", "yellow", "orange", "purple", "cyan"])
     fig, ax = plt.subplots(figsize=(14, 8))
@@ -258,10 +271,10 @@ def plot_fov_with_trenches(
 
 
 def plot_fov_grid(
-    images: Dict[str, np.ndarray],
-    overlays: Optional[Dict[str, list]] = None,
+    images: dict[str, np.ndarray],
+    overlays: dict[str, list] | None = None,
     n_cols: int = 2,
-    save_dir: Optional[str] = None,
+    save_dir: str | None = None,
 ) -> None:
     """Grid of FOV images with optional trench overlays.
 
@@ -278,7 +291,7 @@ def plot_fov_grid(
     """
     n = len(images)
     n_rows = int(np.ceil(n / n_cols))
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(10 * n_cols, 8 * n_rows))
+    _fig, axes = plt.subplots(n_rows, n_cols, figsize=(10 * n_cols, 8 * n_rows))
     axes_flat = np.atleast_1d(axes).flatten()
 
     for i, (fov, img) in enumerate(images.items()):
@@ -314,7 +327,7 @@ def plot_trench_preview(
     trench_stack: np.ndarray,
     trench_id: int = 0,
     n_frames: int = 8,
-    save_path: Optional[str] = None,
+    save_path: str | None = None,
 ) -> None:
     """Timepoint montage of one trench.
 
@@ -326,6 +339,8 @@ def plot_trench_preview(
         ID for the title.
     n_frames : int
         Number of evenly-spaced frames to show.
+    save_path : str | None
+        File to save the figure to; ``None``: not saved.
     """
     total_t = trench_stack.shape[0]
     indices = np.linspace(0, total_t - 1, n_frames, dtype=int)
@@ -349,8 +364,8 @@ def plot_track_kymograph(
     trench_id: int,
     run: str,
     channel: str = "PC",
-    minutes: Optional[float] = None,
-    save_path: Optional[str] = None,
+    minutes: float | None = None,
+    save_path: str | None = None,
     show: bool = True,
 ) -> None:
     """One trench's kymograph beside the same kymograph with a tracking run's tracks.
@@ -374,6 +389,10 @@ def plot_track_kymograph(
         Channel of the kymograph.
     minutes : float | None
         Show only the first ``minutes``; ``None``: every frame.
+    save_path : str | None
+        File to save the figure to; ``None``: not saved.
+    show : bool
+        Show the figure; otherwise it is closed after saving.
     """
     import zarr
     from matplotlib.colors import hsv_to_rgb

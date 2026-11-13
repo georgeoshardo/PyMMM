@@ -23,8 +23,9 @@ napari-ome-zarr opens as it is, in µm and minutes::
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import Any
 
 import numpy as np
 import zarr
@@ -43,12 +44,13 @@ from pymmm.store.experiment_group import (
 
 AXES = ("trench", "t", "y", "x")
 # napari's layer data tuple: (data, keyword arguments of add_<type>, layer type)
-LayerData = Tuple[Any, Dict[str, Any], str]
+LayerData = tuple[Any, dict[str, Any], str]
 
 
-def label_images(root: zarr.Group) -> List[str]:
+def label_images(root: zarr.Group) -> list[str]:
     """The label image names the experiment records: each segmentation's hypotheses
-    (the base first), then each tracking run's ``tracks.<run>``."""
+    (the base first), then each tracking run's ``tracks.<run>``.
+    """
     names = [
         label_name(segmentation, str(hypothesis))
         for segmentation, record in records(root, "segmentations").items()
@@ -57,7 +59,7 @@ def label_images(root: zarr.Group) -> List[str]:
     return names + [f"tracks.{run}" for run in records(root, "tracks")]
 
 
-def _read(array_path: str, index: Tuple, dtype: np.dtype) -> np.ndarray:
+def _read(array_path: str, index: tuple, dtype: np.dtype) -> np.ndarray:
     return np.asarray(zarr.open_array(array_path, mode="r")[index]).astype(
         dtype, copy=False
     )
@@ -67,13 +69,14 @@ def _stack(
     path: Path,
     ids: Sequence[int],
     key: str,
-    index: Tuple,
-    shape: Tuple[int, ...],
+    index: tuple,
+    shape: tuple[int, ...],
     dtype: np.dtype,
-    present: Optional[Set[int]] = None,
+    present: set[int] | None = None,
 ):
     """Lazy ``(trench, *shape)``: ``trench_NNNN/<key>[index]`` of each trench, read only
-    when napari shows it; zeros for trenches not in ``present`` (``None``: all)."""
+    when napari shows it; zeros for trenches not in ``present`` (``None``: all).
+    """
     import dask
     import dask.array as da
 
@@ -94,10 +97,10 @@ def _colormap(name: str, hex_color: str):
     from napari.utils.colormaps import Colormap
 
     rgb = [int(hex_color[i : i + 2], 16) / 255 for i in (0, 2, 4)]
-    return Colormap([[0, 0, 0, 1], rgb + [1]], name=name)
+    return Colormap([[0, 0, 0, 1], [*rgb, 1]], name=name)
 
 
-def experiment_layers(path: Union[str, Path]) -> List[LayerData]:
+def experiment_layers(path: str | Path) -> list[LayerData]:
     """An experiment group's napari layers, as ``(data, kwargs, layer type)``.
 
     One image per channel, coloured and shown as the first trench's OME metadata says,
@@ -133,7 +136,7 @@ def experiment_layers(path: Union[str, Path]) -> List[LayerData]:
         .get("channels", [])
     }
     sample = np.asarray(first[n_t // 2])
-    layers: List[LayerData] = []
+    layers: list[LayerData] = []
     for c, channel in enumerate(channels):
         lo, hi = contrast_limits(sample[c])
         shown = omero.get(channel, {})
@@ -152,7 +155,7 @@ def experiment_layers(path: Union[str, Path]) -> List[LayerData]:
             )
         )
 
-    listed: Dict[int, Set[str]] = {t: set(listed_labels(root, t)) for t in ids}
+    listed: dict[int, set[str]] = {t: set(listed_labels(root, t)) for t in ids}
     bases = {
         label_name(s, str(r["hypotheses"][0]))
         for s, r in records(root, "segmentations").items()
@@ -185,7 +188,8 @@ def _text_overlay(viewer):
 def show_position(viewer) -> None:
     """Caption the viewer's canvas with the trench (and its FOV) and the frame the
     sliders are on, read from the top layer that came from an experiment group, and
-    name the sliders (napari < 0.8 doesn't take the layers' axis labels)."""
+    name the sliders (napari < 0.8 doesn't take the layers' axis labels).
+    """
     overlay = _text_overlay(viewer)
 
     def update(_event=None) -> None:
@@ -215,7 +219,7 @@ def show_position(viewer) -> None:
     update()
 
 
-def view_experiment(path: Union[str, Path], viewer=None):
+def view_experiment(path: str | Path, viewer=None):
     """Add an experiment group's channels and label images to a napari viewer.
 
     Parameters
@@ -242,17 +246,19 @@ def view_experiment(path: Union[str, Path], viewer=None):
 
 
 def napari_get_reader(path):
-    """napari's reader hook (``napari.yaml``): :func:`read_experiment` when ``path`` is
-    one experiment group, else ``None``, so napari offers its other readers."""
+    """Napari's reader hook (``napari.yaml``): :func:`read_experiment` when ``path`` is
+    one experiment group, else ``None``, so napari offers its other readers.
+    """
     paths = [path] if isinstance(path, (str, Path)) else list(path)
     if len(paths) == 1 and is_experiment(paths[0]):
         return read_experiment
     return None
 
 
-def read_experiment(path) -> List[LayerData]:
+def read_experiment(path) -> list[LayerData]:
     """An experiment group's layers (:func:`experiment_layers`), for napari to add, and
-    the trench and frame caption on napari's current viewer."""
+    the trench and frame caption on napari's current viewer.
+    """
     import napari
 
     viewer = napari.current_viewer()
@@ -261,7 +267,7 @@ def read_experiment(path) -> List[LayerData]:
     return experiment_layers(path if isinstance(path, (str, Path)) else path[0])
 
 
-def main(argv: Optional[List[str]] = None) -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="python -m pymmm.view",
         description=(

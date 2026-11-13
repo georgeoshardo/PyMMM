@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pymmm import CompanionStore, Extractor, LaneDetector, Registrator, TrenchDetector
 from real_data import (
     EXTRACTION,
     LANES,
@@ -20,8 +21,6 @@ from real_data import (
     no_dask_client,
     open_nd2,
 )
-
-from pymmm import CompanionStore, Extractor, LaneDetector, Registrator, TrenchDetector
 
 
 @pytest.fixture(scope="session")

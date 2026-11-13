@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import itertools
 import os
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Literal, Optional, Union
+from typing import Any, Literal
 
 import numpy as np
 import xarray as xr
@@ -45,9 +47,9 @@ def _registered_mean(
     nd2_path: str,
     fov_idx: int,
     time_indices: list[int],
-    channel_idx: Optional[int],
-    y_roi: Optional[tuple],
-    x_roi: Optional[tuple],
+    channel_idx: int | None,
+    y_roi: tuple | None,
+    x_roi: tuple | None,
     matrices: np.ndarray,
 ) -> np.ndarray:
     """Mean of registered frames for one FOV, read with a single ND2 handle.
@@ -97,8 +99,8 @@ def _rotation_matrix(angle: float, image_shape: tuple[int, int]) -> np.ndarray:
 
 def _intersect_roi(
     size: int,
-    experiment_roi: Optional[tuple],
-    registration_roi: Optional[tuple],
+    experiment_roi: tuple | None,
+    registration_roi: tuple | None,
 ) -> slice:
     """Intersect two slices expressed in raw-image coordinates."""
     experiment_slice = slice(*(experiment_roi or (None, None)))
@@ -144,9 +146,9 @@ def _register_opencv(ref: np.ndarray, mov: np.ndarray) -> np.ndarray:
 
 def _prepare_registration_frame(
     frame: np.ndarray,
-    channel_idx: Optional[int],
-    y_roi: Optional[tuple],
-    x_roi: Optional[tuple],
+    channel_idx: int | None,
+    y_roi: tuple | None,
+    x_roi: tuple | None,
     roi: dict,
     downsample: int,
     backend: str = "stackreg",
@@ -177,9 +179,9 @@ def _load_registration_frames(
     nd2_path: str,
     fov_idx: int,
     time_indices: list[int],
-    channel_idx: Optional[int],
-    y_roi: Optional[tuple],
-    x_roi: Optional[tuple],
+    channel_idx: int | None,
+    y_roi: tuple | None,
+    x_roi: tuple | None,
     roi: dict,
     downsample: int,
     backend: str = "stackreg",
@@ -218,9 +220,9 @@ def _register_fixed_batch(
     nd2_path: str,
     fov_idx: int,
     time_indices: list[int],
-    channel_idx: Optional[int],
-    y_roi: Optional[tuple],
-    x_roi: Optional[tuple],
+    channel_idx: int | None,
+    y_roi: tuple | None,
+    x_roi: tuple | None,
     roi: dict,
     downsample: int,
     reference: Any,
@@ -229,7 +231,8 @@ def _register_fixed_batch(
 ) -> list[np.ndarray]:
     """Load a batch of frames and register each to one fixed reference (a
     :meth:`~pymmm.parallel.Runner.share` handle). With the OpenCV backend, ``threads``
-    frames are registered at once."""
+    frames are registered at once.
+    """
     ref = shared(reference)
     frames = _load_registration_frames(
         nd2_path,
@@ -259,9 +262,9 @@ def _register_previous_batch(
     nd2_path: str,
     fov_idx: int,
     time_indices: list[int],
-    channel_idx: Optional[int],
-    y_roi: Optional[tuple],
-    x_roi: Optional[tuple],
+    channel_idx: int | None,
+    y_roi: tuple | None,
+    x_roi: tuple | None,
     roi: dict,
     downsample: int,
 ) -> list[np.ndarray]:
@@ -278,7 +281,7 @@ def _register_previous_batch(
     )
     return [
         _scale_translation(_register_stackreg(ref, mov), downsample)
-        for ref, mov in zip(frames[:-1], frames[1:])
+        for ref, mov in itertools.pairwise(frames)
     ]
 
 
@@ -294,13 +297,14 @@ def _cumulative(pair_matrices: list[np.ndarray]) -> np.ndarray:
 class _FovRegistration:
     """One FOV's registration work: its batches (``start`` into the FOV's results,
     and the task's arguments), how many results they give, and how those become the
-    FOV's ``(T, 3, 3)`` transforms."""
+    FOV's ``(T, 3, 3)`` transforms.
+    """
 
     task: Callable[..., list]
-    batches: List[tuple]
+    batches: list[tuple]
     n_results: int
     finish: Callable[[list], np.ndarray]
-    shared: List[Any] = field(default_factory=list)
+    shared: list[Any] = field(default_factory=list)
 
 
 # ======================================================================
@@ -349,10 +353,10 @@ class Registrator:
         self,
         experiment: ND2Experiment,
         store: CompanionStore,
-        registration_channel: Union[str, int] = 0,
-        mode: Union[str, int] = "mean",
+        registration_channel: str | int = 0,
+        mode: str | int = "mean",
         rotation: float = 0.0,
-        roi: Optional[Dict[str, tuple]] = None,
+        roi: dict[str, tuple] | None = None,
         mean_n_frames: int = 10,
         mean_from: Literal["end", "start"] = "end",
         downsample: int = 1,
@@ -393,9 +397,9 @@ class Registrator:
         self.opencv_threads = int(opencv_threads)
 
         # Computed state
-        self._mean_images: Optional[xr.DataArray] = None  # (P, Y, X)
-        self._tmats: Optional[xr.DataArray] = None  # (T, P, 3, 3)
-        self._registered_mean_cache: Dict[
+        self._mean_images: xr.DataArray | None = None  # (P, Y, X)
+        self._tmats: xr.DataArray | None = None  # (T, P, 3, 3)
+        self._registered_mean_cache: dict[
             tuple, np.ndarray
         ] = {}  # (fov, channel) → 2D array
 
@@ -436,7 +440,8 @@ class Registrator:
 
     def _apply_roi(self, data: xr.DataArray) -> xr.DataArray:
         """Slice data to the ROI (for registration only; tmat is still
-        valid for the full image)."""
+        valid for the full image).
+        """
         if not self.roi:
             return data
         slices = {}
@@ -533,7 +538,7 @@ class Registrator:
 
         parts = []
         waiting = list(fov_names)
-        in_flight: List[tuple] = []
+        in_flight: list[tuple] = []
 
         def launch() -> None:
             if waiting:
@@ -554,7 +559,7 @@ class Registrator:
             progress = tqdm(total=len(fov_names), desc="Registering FOVs")
             while in_flight:
                 fov, job, futures = in_flight.pop(0)
-                results: List[Any] = [None] * job.n_results
+                results: list[Any] = [None] * job.n_results
                 for future in tqdm(
                     runner.as_completed(futures),
                     total=len(futures),
@@ -579,16 +584,16 @@ class Registrator:
         """Where :func:`_load_registration_frames` reads this registration's frames."""
         exp = self.experiment
         y_roi, x_roi = exp.source_roi
-        return dict(
-            nd2_path=str(exp.path),
-            channel_idx=exp.channel_names.index(self.channel)
+        return {
+            "nd2_path": str(exp.path),
+            "channel_idx": exp.channel_names.index(self.channel)
             if exp.has_channels
             else None,
-            y_roi=y_roi,
-            x_roi=x_roi,
-            roi=_resolve_roi(self.roi),
-            downsample=self.downsample,
-        )
+            "y_roi": y_roi,
+            "x_roi": x_roi,
+            "roi": _resolve_roi(self.roi),
+            "downsample": self.downsample,
+        }
 
     def _reference(self, fov_idx: int) -> np.ndarray:
         """The fixed reference image of a FOV, prepared as its frames are."""
@@ -655,7 +660,8 @@ class Registrator:
         self, runner: Runner, fov_idx: int, threads: int
     ) -> _FovRegistration:
         """Each frame of a FOV registered to the frame before it, in overlapping
-        batches (each shares its first frame with the batch before)."""
+        batches (each shares its first frame with the batch before).
+        """
         f = self._frames()
         times = self.experiment.source_axes["original_t_index"].tolist()
         n_times = len(times)
@@ -716,9 +722,9 @@ class Registrator:
 
     def get_stabilized_data(
         self,
-        channel: Optional[Union[str, int]] = None,
-        fov: Optional[Union[str, int]] = None,
-        time_slice: Optional[slice] = None,
+        channel: str | int | None = None,
+        fov: str | int | None = None,
+        time_slice: slice | None = None,
     ) -> xr.DataArray:
         """Return lazy dask-backed DataArray of all warped frames.
 
@@ -786,9 +792,9 @@ class Registrator:
 
     def warp_frame(
         self,
-        fov: Union[int, str] = 0,
+        fov: int | str = 0,
         time: int = 0,
-        channel: Optional[Union[int, str]] = None,
+        channel: int | str | None = None,
     ) -> np.ndarray:
         """Load one raw frame and apply translation plus rotation once."""
         if self._tmats is None:
@@ -811,8 +817,8 @@ class Registrator:
 
     def get_registered_mean_of_timestack(
         self,
-        fov: Union[int, str] = 0,
-        channel: Optional[Union[int, str]] = None,
+        fov: int | str = 0,
+        channel: int | str | None = None,
     ) -> np.ndarray:
         """Return the mean of registered frames for one FOV + channel.
 
@@ -826,9 +832,9 @@ class Registrator:
 
     def compute_registered_means(
         self,
-        fovs: Optional[List[Union[int, str]]] = None,
-        channel: Optional[Union[int, str]] = None,
-    ) -> Dict[str, np.ndarray]:
+        fovs: list[int | str] | None = None,
+        channel: int | str | None = None,
+    ) -> dict[str, np.ndarray]:
         """Registered mean-of-timestack for several FOVs, computed together.
 
         FOVs not yet cached are computed in parallel, one task per FOV that
@@ -894,7 +900,7 @@ class Registrator:
     # Drift diagnostics shortcut
     # ------------------------------------------------------------------
 
-    def plot_drift(self, fov: Union[int, str] = 0) -> None:
+    def plot_drift(self, fov: int | str = 0) -> None:
         """Plot drift diagnostics for a single FOV."""
         from pymmm.plotting import plot_drift_diagnostics
 
@@ -944,7 +950,7 @@ class Registrator:
         experiment: ND2Experiment,
         store: CompanionStore,
         load_mean_images: bool = False,
-    ) -> "Registrator":
+    ) -> Registrator:
         """Reconstruct a Registrator from a checkpoint."""
         if not store.has_registration():
             raise FileNotFoundError("No registration checkpoint found in store.")

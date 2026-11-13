@@ -6,10 +6,9 @@ from __future__ import annotations
 
 import pytest
 from golden_io import check, digest
+from pymmm import LaneDetector, TrenchDetector
 from real_data import LANES, TRENCHES
 from test_golden_pipeline import lanes_summary, trenches_summary
-
-from pymmm import LaneDetector, TrenchDetector
 
 pytestmark = [
     pytest.mark.golden,

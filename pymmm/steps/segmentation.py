@@ -19,18 +19,20 @@ the labels, which this process writes), in a local process pool, or in this proc
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import hashlib
 import logging
 import os
 import socket
 import tempfile
+from collections.abc import Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any
 
 import numpy as np
 import zarr
@@ -59,7 +61,7 @@ LONG_NAME = (
 PERCENTILES = (1.0, 99.0)
 """Per-trench intensity percentiles mapped to 0 and 1 (before the gain)."""
 
-DEFAULT_PARAMS: Dict[str, Any] = {
+DEFAULT_PARAMS: dict[str, Any] = {
     "floor": None,
     "floor_sigma": 20.0,
     "gain": 1.0,
@@ -87,7 +89,7 @@ background).
 
 MASKS = ("eval", "affinity")
 
-HYPOTHESES: Dict[str, Dict[str, Any]] = {
+HYPOTHESES: dict[str, dict[str, Any]] = {
     "S1": {},
     "S2": {"gain": 1.5, "rescale": 0.8, "flow_threshold": 0.0},
     "S3": {"rescale": 0.8, "mask_threshold": -1.0, "flow_threshold": 0.0},
@@ -105,16 +107,16 @@ _OMNIPOSE_LOGGERS = ("omnipose", "core", "gpu")
 
 # What each process-pool worker gets: one thread per library, so ``workers``
 # processes use ``workers`` cores.
-_WORKER_THREADS = {
-    var: "1"
-    for var in (
+_WORKER_THREADS = dict.fromkeys(
+    (
         "OMP_NUM_THREADS",
         "MKL_NUM_THREADS",
         "OPENBLAS_NUM_THREADS",
         "NUMBA_NUM_THREADS",
         "PARLAY_NUM_THREADS",
-    )
-}
+    ),
+    "1",
+)
 
 # Dask warns about any task argument over 10 MB; a trench's frames are tens of MB,
 # sent once to the one worker that segments them.
@@ -123,8 +125,8 @@ _LARGE_TASK = {"distributed.admin.large-graph-warning-threshold": "4GB"}
 
 def preset_hypotheses(
     model: str = "bact_fluor_omni",
-    names: Optional[Sequence[str]] = None,
-) -> Dict[str, Dict[str, Any]]:
+    names: Sequence[str] | None = None,
+) -> dict[str, dict[str, Any]]:
     """The :data:`HYPOTHESES` (all, or ``names``) for the stock Omnipose ``model``."""
     names = list(HYPOTHESES) if names is None else [str(h) for h in names]
     unknown = [h for h in names if h not in HYPOTHESES]
@@ -135,18 +137,19 @@ def preset_hypotheses(
     return {h: {"model": model, **HYPOTHESES[h]} for h in names}
 
 
-def checkpoint_hypotheses(checkpoints: Mapping[str, str]) -> Dict[str, Dict[str, Any]]:
+def checkpoint_hypotheses(checkpoints: Mapping[str, str]) -> dict[str, dict[str, Any]]:
     """One hypothesis per fine-tuned checkpoint, ``{hypothesis: checkpoint file name}``
-    (in the Segmenter's ``models`` folder), the base first; all under the base settings."""
+    (in the Segmenter's ``models`` folder), the base first; all under the base settings.
+    """
     return {str(h): {"checkpoint": str(c)} for h, c in checkpoints.items()}
 
 
-def overrides(spec: Mapping[str, Any]) -> Dict[str, Any]:
+def overrides(spec: Mapping[str, Any]) -> dict[str, Any]:
     """A hypothesis's overrides of the base settings (its spec without its model)."""
     return {k: v for k, v in spec.items() if k not in _SOURCE_KEYS}
 
 
-def _check_spec(name: str, spec: Mapping[str, Any]) -> Dict[str, Any]:
+def _check_spec(name: str, spec: Mapping[str, Any]) -> dict[str, Any]:
     spec = dict(spec)
     if sum(k in spec for k in _SOURCE_KEYS) != 1:
         raise ValueError(
@@ -158,7 +161,7 @@ def _check_spec(name: str, spec: Mapping[str, Any]) -> Dict[str, Any]:
     return spec
 
 
-def _clean_params(params: Mapping[str, Any]) -> Dict[str, Any]:
+def _clean_params(params: Mapping[str, Any]) -> dict[str, Any]:
     """Base settings: known keys only; ``min_contrast`` ``"off"`` (TOML has no null) is ``None``."""
     unknown = sorted(set(params) - set(DEFAULT_PARAMS))
     if unknown:
@@ -173,7 +176,7 @@ def _clean_params(params: Mapping[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def sha256(path: Union[str, Path]) -> str:
+def sha256(path: str | Path) -> str:
     digest = hashlib.sha256()
     with open(path, "rb") as file:
         for block in iter(lambda: file.read(1 << 20), b""):
@@ -216,7 +219,7 @@ def _quiet_omnipose() -> Iterator[None]:
             logger.setLevel(level)
 
 
-def background_noise(pixels: np.ndarray) -> Tuple[float, float]:
+def background_noise(pixels: np.ndarray) -> tuple[float, float]:
     """Background level and noise SD of an image or stack.
 
     The background is the median pixel and the noise is the robust SD of the
@@ -233,7 +236,7 @@ def background_noise(pixels: np.ndarray) -> Tuple[float, float]:
     return background, float(1.4826 * np.median(background - below))
 
 
-def trench_bounds(stack: np.ndarray, floor: float) -> Tuple[float, float]:
+def trench_bounds(stack: np.ndarray, floor: float) -> tuple[float, float]:
     """Intensity bounds of one trench over all its frames.
 
     The :data:`PERCENTILES` of the non-zero pixels; the upper bound is at least
@@ -261,22 +264,24 @@ def normalise(
 
 
 def model_shape(
-    shape: Sequence[int], pixel_size: float, model_pixel_size: Optional[float]
-) -> Tuple[int, int]:
+    shape: Sequence[int], pixel_size: float, model_pixel_size: float | None
+) -> tuple[int, int]:
     """A frame's ``(Y, X)`` once resampled from ``pixel_size`` to ``model_pixel_size``
-    µm per pixel (its own when ``model_pixel_size`` is None)."""
+    µm per pixel (its own when ``model_pixel_size`` is None).
+    """
     y, x = (int(n) for n in shape[-2:])
     if model_pixel_size is None:
         return y, x
     factor = float(pixel_size) / float(model_pixel_size)
-    return max(1, int(round(y * factor))), max(1, int(round(x * factor)))
+    return max(1, round(y * factor)), max(1, round(x * factor))
 
 
 def model_input(
-    stack: np.ndarray, bounds: Tuple[float, float], gain: float, shape: Sequence[int]
+    stack: np.ndarray, bounds: tuple[float, float], gain: float, shape: Sequence[int]
 ) -> np.ndarray:
     """The ``(T, Y, X)`` stack Omnipose sees: :func:`normalise`, then each frame resized
-    to ``shape`` (area-averaged when shrinking, bilinear when enlarging)."""
+    to ``shape`` (area-averaged when shrinking, bilinear when enlarging).
+    """
     stack = np.asarray(stack)
     shape = tuple(int(n) for n in shape)
     if stack.shape[1:] == shape:
@@ -298,7 +303,8 @@ def model_input(
 def scale_labels(labels: np.ndarray, shape: Sequence[int]) -> np.ndarray:
     """``(T, y, x)`` labels resized to ``shape`` (Y, X), mask by mask: each mask resized
     bilinearly and kept where it is above one half. Masks stay disjoint (two disjoint
-    masks cannot both be above one half at a pixel), and keep their numbers."""
+    masks cannot both be above one half at a pixel), and keep their numbers.
+    """
     labels = np.asarray(labels)
     shape = tuple(int(n) for n in shape)
     if labels.shape[1:] == shape:
@@ -324,7 +330,7 @@ def drop_faint(masks: np.ndarray, stack: np.ndarray, min_contrast: float) -> np.
     mask (:func:`background_noise`).
     """
     masks = np.array(masks)
-    for t, (frame_masks, frame) in enumerate(zip(masks, np.asarray(stack))):
+    for frame_masks, frame in zip(masks, np.asarray(stack)):
         if not frame_masks.any():
             continue
         background, noise = background_noise(frame[frame_masks == 0])
@@ -386,11 +392,11 @@ def segment_with(
     model: Any,
     settings: Mapping[str, Any],
     stack: np.ndarray,
-    bounds: Tuple[float, float],
+    bounds: tuple[float, float],
     pixel_size: float,
     batch_size: int = 64,
-    model_pixel_size: Optional[float] = None,
-) -> Tuple[np.ndarray, List[int]]:
+    model_pixel_size: float | None = None,
+) -> tuple[np.ndarray, list[int]]:
     """Segment a ``(T, Y, X)`` stack with one model under one hypothesis's settings.
 
     Returns the ``uint16`` labels ordered from the closed end and the frames
@@ -407,8 +413,8 @@ def segment_with(
     small = model_shape(np.shape(stack), pixel_size, model_pixel_size)
     x = model_input(stack, bounds, s["gain"], small)
     scale = pixel_size if small == tuple(np.shape(stack)[1:]) else model_pixel_size
-    min_size = max(1, int(round(s["min_area"] / scale**2)))
-    failed: List[int] = []
+    min_size = max(1, round(s["min_area"] / scale**2))
+    failed: list[int] = []
     with _quiet_omnipose():
         if s["masks"] == "affinity":
             masks = _affinity(model, x, s, min_size, batch_size, failed)
@@ -526,14 +532,14 @@ class Segmenter:
 
     def __init__(
         self,
-        store_path: Union[str, Path],
+        store_path: str | Path,
         channel: str = "mCherry",
         model: str = "bact_fluor_omni",
-        name: Optional[str] = None,
-        hypotheses: Union[Sequence[str], Mapping[str, Mapping[str, Any]], None] = None,
-        models: Union[str, Path, None] = None,
-        params: Optional[Mapping[str, Any]] = None,
-        model_pixel_size: Optional[float] = None,
+        name: str | None = None,
+        hypotheses: Sequence[str] | Mapping[str, Mapping[str, Any]] | None = None,
+        models: str | Path | None = None,
+        params: Mapping[str, Any] | None = None,
+        model_pixel_size: float | None = None,
         gpu: bool = True,
     ) -> None:
         self.store_path = Path(store_path)
@@ -554,10 +560,10 @@ class Segmenter:
             None if model_pixel_size is None else float(model_pixel_size)
         )
         self.trench_ids = trench_ids(self.root)
-        self._models: Dict[str, Any] = {}
-        self._bounds: Dict[int, Tuple[float, float]] = {}
-        self._sha: Dict[str, str] = {}
-        self._loader: Optional[str] = (
+        self._models: dict[str, Any] = {}
+        self._bounds: dict[int, tuple[float, float]] = {}
+        self._sha: dict[str, str] = {}
+        self._loader: str | None = (
             None  # "module:function" loading models in tasks (tests)
         )
 
@@ -590,7 +596,7 @@ class Segmenter:
         """A fresh handle, so attributes written since are seen."""
         return open_experiment(self.store_path, mode=mode)
 
-    def _saved_record(self) -> Optional[Dict[str, Any]]:
+    def _saved_record(self) -> dict[str, Any] | None:
         return records(self._open(), "segmentations").get(self.name)
 
     def read(self, trench_id: int) -> np.ndarray:
@@ -598,20 +604,20 @@ class Segmenter:
         return np.asarray(image(self.root, trench_id)[:, self.channel_index])
 
     @property
-    def params(self) -> Dict[str, Any]:
+    def params(self) -> dict[str, Any]:
         """Current base settings (see :data:`DEFAULT_PARAMS`)."""
         return dict(self._params)
 
     @property
-    def hypotheses(self) -> List[str]:
+    def hypotheses(self) -> list[str]:
         """The segmentation's hypotheses, the base first."""
         return list(self._specs)
 
-    def spec(self, hypothesis: str) -> Dict[str, Any]:
+    def spec(self, hypothesis: str) -> dict[str, Any]:
         """A hypothesis's model (``model`` or ``checkpoint``) and its overrides."""
         return dict(self._specs[hypothesis])
 
-    def checkpoint_path(self, hypothesis: str) -> Optional[Path]:
+    def checkpoint_path(self, hypothesis: str) -> Path | None:
         """The hypothesis's checkpoint file, or None for a stock model."""
         checkpoint = self._specs[hypothesis].get("checkpoint")
         if checkpoint is None:
@@ -623,15 +629,15 @@ class Segmenter:
         return self.models_dir / checkpoint
 
     def settings(
-        self, hypothesis: str, params: Optional[Mapping[str, Any]] = None
-    ) -> Dict[str, Any]:
+        self, hypothesis: str, params: Mapping[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Base settings with ``hypothesis``'s overrides applied."""
         return {
             **(self._params if params is None else params),
             **overrides(self._specs[hypothesis]),
         }
 
-    def _checkpoint_sha(self, hypothesis: str) -> Optional[str]:
+    def _checkpoint_sha(self, hypothesis: str) -> str | None:
         path = self.checkpoint_path(hypothesis)
         if path is None:
             return None
@@ -639,7 +645,7 @@ class Segmenter:
             self._sha[str(path)] = sha256(path)
         return self._sha[str(path)]
 
-    def _record(self) -> Dict[str, Any]:
+    def _record(self) -> dict[str, Any]:
         """What identifies the labels (compared with the saved record on resume)."""
         extraction = dict(self.root.attrs)["pymmm"].get("provenance") or {}
         shas = {h: self._checkpoint_sha(h) for h in self.hypotheses}
@@ -656,14 +662,14 @@ class Segmenter:
             }
         )
 
-    def finished(self) -> List[int]:
+    def finished(self) -> list[int]:
         """The trenches whose segmentation is finished, in table order."""
         root = self._open()
         if self.name not in records(root, "segmentations"):
             return []
         return [t for t in self.trench_ids if has_segmentation(root, t, self.name)]
 
-    def set_params(self, params: Mapping[str, Any]) -> List[int]:
+    def set_params(self, params: Mapping[str, Any]) -> list[int]:
         """Use these base settings (see :data:`DEFAULT_PARAMS`) from now on.
 
         Returns the finished trenches whose labels were made with other settings:
@@ -680,7 +686,7 @@ class Segmenter:
     def is_complete(self) -> bool:
         return len(self.finished()) == len(self.trench_ids)
 
-    def labels(self, trench_id: int, hypothesis: Optional[str] = None) -> zarr.Array:
+    def labels(self, trench_id: int, hypothesis: str | None = None) -> zarr.Array:
         """A finished trench's ``(t, y, x)`` labels under one hypothesis (the base if ``None``)."""
         names, arrays = segmentation(self._open(), trench_id, self.name)
         return arrays[names.index(hypothesis or names[0])]
@@ -712,8 +718,8 @@ class Segmenter:
         return float(np.median(floors))
 
     def bounds(
-        self, trench_id: int, stack: Optional[np.ndarray] = None
-    ) -> Tuple[float, float]:
+        self, trench_id: int, stack: np.ndarray | None = None
+    ) -> tuple[float, float]:
         """Intensity bounds of a trench (cached)."""
         if trench_id not in self._bounds:
             if stack is None:
@@ -725,7 +731,7 @@ class Segmenter:
     # Omnipose
     # ------------------------------------------------------------------
 
-    def _source(self, hypothesis: str, data: Any = None) -> "_ModelSource":
+    def _source(self, hypothesis: str, data: Any = None) -> _ModelSource:
         path = self.checkpoint_path(hypothesis)
         return _ModelSource(
             hypothesis=hypothesis,
@@ -742,14 +748,15 @@ class Segmenter:
     def segment_stack(
         self,
         stack: np.ndarray,
-        bounds: Tuple[float, float],
-        hypothesis: Optional[str] = None,
-        params: Optional[Mapping[str, Any]] = None,
+        bounds: tuple[float, float],
+        hypothesis: str | None = None,
+        params: Mapping[str, Any] | None = None,
         batch_size: int = 64,
-    ) -> Tuple[np.ndarray, List[int]]:
+    ) -> tuple[np.ndarray, list[int]]:
         """Segment a ``(T, Y, X)`` stack of one trench under one hypothesis (the base if
         ``None``), in this process: the labels ordered from the closed end and the
-        frames Omnipose failed on (see :func:`segment_with`)."""
+        frames Omnipose failed on (see :func:`segment_with`).
+        """
         hypothesis = hypothesis or self.hypotheses[0]
         return segment_with(
             self._get_model(hypothesis),
@@ -769,7 +776,7 @@ class Segmenter:
         """Check the saved record against the current settings; clear what is re-run."""
         current = self._record()
         saved = records(root, "segmentations").get(self.name)
-        mismatches: List[str] = []
+        mismatches: list[str] = []
         if saved is not None:
             done = [t for t in self.trench_ids if has_segmentation(root, t, self.name)]
             mismatches = [
@@ -810,10 +817,11 @@ class Segmenter:
             )
 
     def _recipe(
-        self, runner: Runner, threads: Optional[int]
-    ) -> Tuple["_Recipe", Dict[str, Any]]:
+        self, runner: Runner, threads: int | None
+    ) -> tuple[_Recipe, dict[str, Any]]:
         """What every task needs, and the checkpoints' bytes (sent once per Dask worker,
-        which may be on another machine; pool workers read the files)."""
+        which may be on another machine; pool workers read the files).
+        """
         weights = {}
         if runner.kind == "dask":
             for h in self.hypotheses:
@@ -832,7 +840,7 @@ class Segmenter:
         )
         return recipe, weights
 
-    def _read(self, trench_id: int) -> Tuple[int, np.ndarray, Tuple[float, float]]:
+    def _read(self, trench_id: int) -> tuple[int, np.ndarray, tuple[float, float]]:
         stack = self.read(trench_id)
         return trench_id, stack, self.bounds(trench_id, stack)
 
@@ -840,9 +848,9 @@ class Segmenter:
         self,
         root: zarr.Group,
         trench_id: int,
-        bounds: Tuple[float, float],
+        bounds: tuple[float, float],
         packed: Mapping[str, Any],
-        failed: Mapping[str, List[int]],
+        failed: Mapping[str, list[int]],
         made_on: Mapping[str, str],
     ) -> None:
         write_segmentation(
@@ -862,7 +870,7 @@ class Segmenter:
 
     def segment(
         self,
-        trenches: Optional[Sequence[int]] = None,
+        trenches: Sequence[int] | None = None,
         resume: bool = True,
         batch_size: int = 64,
         workers: int = 1,
@@ -912,7 +920,7 @@ class Segmenter:
         root = self._open(mode="r+")
         self._prepare(root, wanted, resume)
         todo = [t for t in wanted if not has_segmentation(root, t, self.name)]
-        failed_frames: Dict[int, Dict[str, List[int]]] = {}
+        failed_frames: dict[int, dict[str, list[int]]] = {}
 
         progress = tqdm(
             total=len(todo),
@@ -923,7 +931,7 @@ class Segmenter:
         pool = runner.kind == "pool"
         reader = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pymmm-read")
         writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pymmm-write")
-        writes: List[Any] = []
+        writes: list[Any] = []
         try:
             with (
                 _environment(_WORKER_THREADS if pool else {}),
@@ -944,7 +952,7 @@ class Segmenter:
                     )
 
                 pending = _read_next()
-                running: Dict[Any, Tuple[int, Tuple[float, float]]] = {}
+                running: dict[Any, tuple[int, tuple[float, float]]] = {}
                 while pending is not None or running:
                     # at most two trenches per worker thread: one running, one waiting
                     while pending is not None and len(running) < 2 * runner.slots:
@@ -1013,7 +1021,8 @@ class Segmenter:
 
     def view(self):
         """Browse the written labels as outlines over the channel: any hypothesis,
-        trench and frame (unfinished trenches show no outlines)."""
+        trench and frame (unfinished trenches show no outlines).
+        """
         from pymmm.widgets.segmentation import label_viewer
 
         return label_viewer(self)
@@ -1041,12 +1050,13 @@ class Segmenter:
 class _ModelSource:
     """A hypothesis's model: a stock model by name, or a checkpoint (its file on the
     machine that made the task, its sha256, and ``data``: its bytes, shared with the
-    Runner, for workers on other machines)."""
+    Runner, for workers on other machines).
+    """
 
     hypothesis: str
-    model: Optional[str]
-    checkpoint: Optional[str]
-    sha256: Optional[str]
+    model: str | None
+    checkpoint: str | None
+    sha256: str | None
     data: Any = None
 
 
@@ -1054,23 +1064,25 @@ class _ModelSource:
 class _Recipe:
     """What every task of a run needs besides the trench."""
 
-    sources: Tuple[_ModelSource, ...]
-    settings: Dict[str, Dict[str, Any]]
+    sources: tuple[_ModelSource, ...]
+    settings: dict[str, dict[str, Any]]
     pixel_size: float
-    model_pixel_size: Optional[float]
+    model_pixel_size: float | None
     gpu: bool
-    threads: Optional[int]
+    threads: int | None
     digest: str
-    loader: Optional[str] = None
+    loader: str | None = None
 
 
-_MODELS: Dict[Tuple[str, bool], Any] = {}  # in each process: the models it loaded
-_DIGEST: Optional[str] = None
+_MODELS: dict[tuple[str, bool], Any] = {}  # in each process: the models it loaded
+_DIGEST: str | None = None
 
 
 def code_digest() -> str:
-    """This process's segmentation code and Omnipose version, as a short hash: a task
-    made by another process (another machine's notebook) must find the same."""
+    """The segmentation code and Omnipose version of this process, as a short hash.
+
+    A task made by another process (another machine's notebook) must find the same.
+    """
     global _DIGEST
     if _DIGEST is None:
         digest = hashlib.sha256()
@@ -1085,7 +1097,7 @@ def code_digest() -> str:
     return _DIGEST
 
 
-def _load_model(source: _ModelSource, path: Optional[str], gpu: bool) -> Any:
+def _load_model(source: _ModelSource, path: str | None, gpu: bool) -> Any:
     from pymmm.steps.omnipose import load_model
 
     with _quiet_omnipose():
@@ -1094,9 +1106,10 @@ def _load_model(source: _ModelSource, path: Optional[str], gpu: bool) -> Any:
         return load_model(model=source.model, gpu=gpu)
 
 
-def _model_for(source: _ModelSource, gpu: bool, loader: Optional[str] = None) -> Any:
+def _model_for(source: _ModelSource, gpu: bool, loader: str | None = None) -> Any:
     """The source's model, loaded once per process. A checkpoint sent as bytes is
-    written once to this machine's temporary folder, under its own file name."""
+    written once to this machine's temporary folder, under its own file name.
+    """
     key = (source.sha256 or f"model:{source.model}", gpu)
     if key not in _MODELS:
         path = source.checkpoint
@@ -1129,7 +1142,7 @@ def _materialise(source: _ModelSource) -> str:
 
 
 @contextmanager
-def _limit_threads(threads: Optional[int]) -> Iterator[None]:
+def _limit_threads(threads: int | None) -> Iterator[None]:
     """At most ``threads`` CPU threads in BLAS/OpenMP, torch and numba (None: no limit)."""
     if threads is None:
         yield
@@ -1169,7 +1182,7 @@ def _nothing() -> Iterator[None]:
 
 
 @contextmanager
-def _dask_config(values: Optional[Mapping[str, Any]]) -> Iterator[None]:
+def _dask_config(values: Mapping[str, Any] | None) -> Iterator[None]:
     if not values:
         yield
         return
@@ -1183,7 +1196,7 @@ def _failed(future: Any) -> bool:
     return future.exception() is not None
 
 
-def _pack(labels: np.ndarray) -> Tuple[bytes, Tuple[int, ...]]:
+def _pack(labels: np.ndarray) -> tuple[bytes, tuple[int, ...]]:
     """``uint16`` labels, compressed for the way back (mostly background: a few % of their size)."""
     from numcodecs import Blosc
 
@@ -1192,7 +1205,7 @@ def _pack(labels: np.ndarray) -> Tuple[bytes, Tuple[int, ...]]:
     return codec.encode(labels), labels.shape
 
 
-def _unpack(packed: Tuple[bytes, Tuple[int, ...]]) -> np.ndarray:
+def _unpack(packed: tuple[bytes, tuple[int, ...]]) -> np.ndarray:
     from numcodecs import Blosc
 
     data, shape = packed
@@ -1203,22 +1216,23 @@ def _segment_task(
     recipe: _Recipe,
     weights: Mapping[str, Any],
     stack: np.ndarray,
-    bounds: Tuple[float, float],
+    bounds: tuple[float, float],
     batch_size: int,
-) -> Tuple[
-    Dict[str, Tuple[bytes, Tuple[int, ...]]], Dict[str, List[int]], Dict[str, str]
+) -> tuple[
+    dict[str, tuple[bytes, tuple[int, ...]]], dict[str, list[int]], dict[str, str]
 ]:
     """Segment one trench's frames under every hypothesis: each one's packed labels,
     the frames Omnipose failed on, and the machine and device that made them (GPUs
     differ in the last bits, so masks may differ by a boundary pixel between
-    machines). Store-free, so it runs on any machine."""
+    machines). Store-free, so it runs on any machine.
+    """
     if code_digest() != recipe.digest:
         raise RuntimeError(
             f"{socket.gethostname()} runs other segmentation code or another Omnipose "
             "than the notebook: copy this PyMMM there (rsync) and restart its workers"
         )
-    packed: Dict[str, Tuple[bytes, Tuple[int, ...]]] = {}
-    failed: Dict[str, List[int]] = {}
+    packed: dict[str, tuple[bytes, tuple[int, ...]]] = {}
+    failed: dict[str, list[int]] = {}
     model = None
     with _limit_threads(recipe.threads):
         for source in recipe.sources:
@@ -1249,10 +1263,10 @@ def _segment_task(
 def _device_name(model: Any) -> str:
     device = str(getattr(model, "device", "cpu"))
     if device.startswith("cuda"):
-        try:
+        with contextlib.suppress(
+            Exception
+        ):  # no torch, or no such GPU: name the device
             import torch
 
             return torch.cuda.get_device_name(torch.device(device))
-        except Exception:  # noqa: BLE001 - a name for the record only
-            pass
     return device

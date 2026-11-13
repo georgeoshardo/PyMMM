@@ -25,9 +25,10 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, Optional, Sequence, Tuple, Union
+from typing import Any
 
 import dask
 import dask.array as da
@@ -137,24 +138,25 @@ def _crop_frames(
 @dataclass(frozen=True)
 class FovCrops:
     """Everything needed to cut one FOV's trenches out of its frames (one
-    :func:`_crop_frames` call per batch of frames, anywhere)."""
+    :func:`_crop_frames` call per batch of frames, anywhere).
+    """
 
     nd2_path: str
     fov: str
     fov_index: int  # its P index in the ND2
-    time_indices: Tuple[int, ...]  # ND2 T index of each frame
-    roi: Tuple[Any, Any]  # the experiment's (y, x) ROI
+    time_indices: tuple[int, ...]  # ND2 T index of each frame
+    roi: tuple[Any, Any]  # the experiment's (y, x) ROI
     image_width: int
     dtype: np.dtype
     tmats: np.ndarray  # (T, 3, 3): registration, then rotation
-    trench_ids: Tuple[int, ...]  # in table order
-    trench_specs: Tuple[tuple, ...]  # (y_top, y_bottom, x_left, x_right, needs_flip)
-    band_specs: Tuple[
+    trench_ids: tuple[int, ...]  # in table order
+    trench_specs: tuple[tuple, ...]  # (y_top, y_bottom, x_left, x_right, needs_flip)
+    band_specs: tuple[
         tuple, ...
     ]  # (y_top, y_bottom, ((local index, x_left, x_right, needs_flip), ...))
 
     def batch(
-        self, start: int, stop: int, channels: Optional[Sequence[int]] = None
+        self, start: int, stop: int, channels: Sequence[int] | None = None
     ) -> tuple:
         """The :func:`_crop_frames` arguments for frames ``start:stop``."""
         return (
@@ -175,13 +177,13 @@ class FovCrops:
 class _ImageLayout:
     """A trench image's array: (t, c, y, x) shape, inner chunks, shard, dtype."""
 
-    shape: Tuple[int, int, int, int]
-    chunks: Tuple[int, int, int, int]
-    shards: Tuple[int, int, int, int]
+    shape: tuple[int, int, int, int]
+    chunks: tuple[int, int, int, int]
+    shards: tuple[int, int, int, int]
     dtype: np.dtype
 
 
-def _codecs(compressor: str, clevel: int, byte_shuffle: bool) -> Tuple[list, list]:
+def _codecs(compressor: str, clevel: int, byte_shuffle: bool) -> tuple[list, list]:
     """The metadata's and the pixels' compressors."""
     if compressor != "zstd":
         return [], []
@@ -212,7 +214,7 @@ def _cut(runner: Runner, crops: FovCrops, batch_size: int) -> np.ndarray:
         batch = future.result()
         if pixels is None:
             pixels = np.empty(
-                (batch.shape[1], n_times) + batch.shape[2:], dtype=batch.dtype
+                (batch.shape[1], n_times, *batch.shape[2:]), dtype=batch.dtype
             )
         pixels[:, start : start + batch.shape[0]] = batch.transpose(1, 0, 2, 3, 4)
     return pixels
@@ -286,7 +288,7 @@ class Extractor:
         experiment: ND2Experiment,
         registrator: Registrator,
         trench_detector: TrenchDetector,
-        output_path: Optional[Union[str, Path]] = None,
+        output_path: str | Path | None = None,
     ) -> None:
         self.experiment = experiment
         self.registrator = registrator
@@ -374,10 +376,9 @@ class Extractor:
                             "needs_flip",
                         )
                     },
-                    "units": {
-                        key: "pixel"
-                        for key in ("x_left", "x_right", "y_top", "y_bottom")
-                    },
+                    "units": dict.fromkeys(
+                        ("x_left", "x_right", "y_top", "y_bottom"), "pixel"
+                    ),
                     "experiment": "..",
                 },
             }
@@ -870,10 +871,11 @@ class Extractor:
         return store
 
     def _create(
-        self, table: pd.DataFrame, layout: _ImageLayout, codecs: Tuple[list, list]
+        self, table: pd.DataFrame, layout: _ImageLayout, codecs: tuple[list, list]
     ) -> zarr.Group:
         """A new experiment group: its metadata, and every trench image, empty.
-        ``codecs``: the metadata's and the pixels' compressors."""
+        ``codecs``: the metadata's and the pixels' compressors.
+        """
         exp = self.experiment
         channel_names = list(exp.channel_names)
         n_channels = len(channel_names)
@@ -958,7 +960,7 @@ class Extractor:
         }
         return store
 
-    def _crops(self, table: pd.DataFrame) -> List[FovCrops]:
+    def _crops(self, table: pd.DataFrame) -> list[FovCrops]:
         """How each FOV's trenches are cut (FOVs in table order)."""
         exp = self.experiment
         rotation = _rotation_matrix(
@@ -1010,7 +1012,8 @@ class Extractor:
         self, store: zarr.Group, crops: FovCrops, pixels: np.ndarray
     ) -> None:
         """Write a FOV's trench images, ``(trench, t, c, y, x)``, and their display
-        windows."""
+        windows.
+        """
         for local_idx, trench_id in enumerate(crops.trench_ids):
             image = store[trench_path(trench_id)]
             image["0"][...] = pixels[local_idx]
@@ -1022,7 +1025,7 @@ class Extractor:
     # Preview
     # ------------------------------------------------------------------
 
-    def preview(self, channel: Optional[Union[str, int]] = None) -> xr.DataArray:
+    def preview(self, channel: str | int | None = None) -> xr.DataArray:
         """Return a lazy dask-backed DataArray previewing the extraction output.
 
         The same crops as :meth:`extract`, with one lazy task per FOV and timepoint:
@@ -1082,7 +1085,7 @@ class Extractor:
     def extract_single_trench(
         self,
         trench_id: int,
-        channel: Optional[Union[str, int]] = None,
+        channel: str | int | None = None,
     ) -> np.ndarray:
         """Cut one trench out of every frame, as :meth:`extract` does, without writing.
 
@@ -1146,7 +1149,7 @@ class Extractor:
             f"Extractor: {self.experiment.experiment_name}",
             f"  Output: {self.output_path}",
             f"  Shape: {dim_str}",
-            f"  Layout: one OME-Zarr image per trench (trench_NNNN), one shard file each",
+            "  Layout: one OME-Zarr image per trench (trench_NNNN), one shard file each",
             f"  Dtype: {dtype}",
             f"  Size (uncompressed): {size_str}",
             f"  Trenches: {n_trenches} across {len(fovs)} FOVs",

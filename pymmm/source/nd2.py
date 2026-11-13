@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Sequence
 from pathlib import Path
-from typing import List, Optional, Sequence, Union
 
 import nd2
 import numpy as np
@@ -70,10 +70,10 @@ class ND2Experiment:
             fallback_time_interval_ms = 0.0
 
         # Track discarded FOVs / time subsetting
-        self._discarded_fovs: List[str] = []
-        self._time_slice: Optional[slice] = None
-        self._y_slice: Optional[slice] = None
-        self._x_slice: Optional[slice] = None
+        self._discarded_fovs: list[str] = []
+        self._time_slice: slice | None = None
+        self._y_slice: slice | None = None
+        self._x_slice: slice | None = None
         self._source_acquisition_metadata = extract_acquisition_metadata(
             self.path,
             pixel_size_um=fallback_pixel_size_um,
@@ -112,14 +112,14 @@ class ND2Experiment:
         return self.path.stem
 
     @property
-    def fov_names(self) -> List[str]:
+    def fov_names(self) -> list[str]:
         """List of FOV (position) names after subsetting."""
         if "P" not in self.data.dims:
             return ["single"]
         return [str(v) for v in self.data.coords["P"].values]
 
     @property
-    def channel_names(self) -> List[str]:
+    def channel_names(self) -> list[str]:
         """List of channel names."""
         if "C" not in self.data.dims:
             return ["single"]
@@ -226,9 +226,9 @@ class ND2Experiment:
 
     def get_frame(
         self,
-        fov: Union[int, str] = 0,
+        fov: int | str = 0,
         time: int = 0,
-        channel: Union[int, str] = 0,
+        channel: int | str = 0,
     ) -> xr.DataArray:
         """Return a single ``(Y, X)`` frame (lazy).
 
@@ -254,8 +254,8 @@ class ND2Experiment:
 
     def get_fov_stack(
         self,
-        fov: Union[int, str] = 0,
-        channel: Union[int, str] = 0,
+        fov: int | str = 0,
+        channel: int | str = 0,
     ) -> xr.DataArray:
         """Return a ``(T, Y, X)`` stack for one FOV and channel (lazy).
 
@@ -279,10 +279,11 @@ class ND2Experiment:
     # Subsetting
     # ------------------------------------------------------------------
 
-    def _named_fovs(self, fovs: Sequence[Union[str, int]]) -> List[str]:
+    def _named_fovs(self, fovs: Sequence[str | int]) -> list[str]:
         """The names of ``fovs``, each a FOV name or the FOV's integer P index in the ND2
         (``10`` is ``P`` 10, whatever is selected). A name or index the ND2 does not have
-        raises ``ValueError``: it would otherwise select or discard nothing, silently."""
+        raises ``ValueError``: it would otherwise select or discard nothing, silently.
+        """
         all_fovs = self._all_fov_names()
         names = []
         for fov in fovs:
@@ -299,7 +300,7 @@ class ND2Experiment:
                 shown = ", ".join(
                     all_fovs
                     if len(all_fovs) <= 6
-                    else all_fovs[:3] + ["...", all_fovs[-1]]
+                    else [*all_fovs[:3], "...", all_fovs[-1]]
                 )
                 raise ValueError(
                     f"no FOV named {fov!r} in the ND2 ({shown}); give a name, "
@@ -307,13 +308,13 @@ class ND2Experiment:
                 )
         return names
 
-    def _all_fov_names(self) -> List[str]:
+    def _all_fov_names(self) -> list[str]:
         """Every FOV's name, in the ND2's ``P`` order."""
         if "P" not in self._raw_data.dims:
             return []
         return [str(v) for v in self._raw_data.coords["P"].values]
 
-    def select_fovs(self, fovs: Sequence[Union[str, int]]) -> "ND2Experiment":
+    def select_fovs(self, fovs: Sequence[str | int]) -> ND2Experiment:
         """Keep only the listed FOVs, discarding all others. Returns self for chaining.
 
         Each is a FOV name or its integer P index in the ND2; one the ND2 does not have
@@ -328,7 +329,7 @@ class ND2Experiment:
         self._discarded_fovs.extend(f for f in self._all_fov_names() if f not in keep)
         return self
 
-    def discard_fovs(self, fovs: Sequence[Union[str, int]]) -> "ND2Experiment":
+    def discard_fovs(self, fovs: Sequence[str | int]) -> ND2Experiment:
         """Leave the listed FOVs out of ``data``. Returns self for chaining.
 
         Each is a FOV name or its integer P index in the ND2 (``[10, 11]`` or
@@ -337,12 +338,12 @@ class ND2Experiment:
         self._discarded_fovs.extend(self._named_fovs(fovs))
         return self
 
-    def select_times(self, start: int, end: int) -> "ND2Experiment":
+    def select_times(self, start: int, end: int) -> ND2Experiment:
         """Restrict time dimension to ``[start, end)``. Returns self for chaining."""
         self._time_slice = slice(start, end)
         return self
 
-    def select_roi(self, y=None, x=None) -> "ND2Experiment":
+    def select_roi(self, y=None, x=None) -> ND2Experiment:
         """Restrict Y and X dimensions to a region of interest. Returns self for chaining."""
         if y is not None:
             self._y_slice = slice(y[0], y[1])
@@ -354,7 +355,7 @@ class ND2Experiment:
     # Context manager
     # ------------------------------------------------------------------
 
-    def __enter__(self) -> "ND2Experiment":
+    def __enter__(self) -> ND2Experiment:
         return self
 
     def __exit__(self, *exc) -> None:

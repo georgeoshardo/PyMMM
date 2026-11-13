@@ -7,10 +7,10 @@ from dataclasses import asdict
 
 import numpy as np
 import pytest
-from fake_experiment import fov_experiment, fov_registrator, lane_image
-
 from pymmm.plotting import NDV_CLIMS
 from pymmm.steps.lanes import LaneDetector
+
+from fake_experiment import fov_experiment, fov_registrator, lane_image
 
 pytestmark = [
     pytest.mark.notebook,
@@ -82,8 +82,8 @@ def test_lane_widget_applies_its_settings_to_every_fov(notebook, lane_setup):
         orientation="down",
         save_diagnostics=False,
     )
-    assert {f: [asdict(l) for l in ls] for f, ls in detector.lanes.items()} == {
-        f: [asdict(l) for l in ls] for f, ls in expected.lanes.items()
+    assert {f: [asdict(lane) for lane in ls] for f, ls in detector.lanes.items()} == {
+        f: [asdict(lane) for lane in ls] for f, ls in expected.lanes.items()
     }
     assert detector.detection_params == expected.detection_params
     assert notebook.text("Applied") == "<b>Applied</b> — 2 lanes across 2 FOVs"

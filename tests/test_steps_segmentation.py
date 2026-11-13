@@ -8,20 +8,6 @@ import socket
 
 import numpy as np
 import pytest
-from fake_experiment import (
-    BACKGROUND,
-    CELL,
-    N_T,
-    NOISE,
-    PIXEL_SIZE,
-    TRENCHES,
-    FakeModel,
-    H,
-    W,
-    cell_image,
-    make_experiment,
-)
-
 from pymmm.steps.segmentation import (
     HYPOTHESES,
     Segmenter,
@@ -35,6 +21,20 @@ from pymmm.steps.segmentation import (
     trench_bounds,
 )
 from pymmm.store import experiment_group as eg
+
+from fake_experiment import (
+    BACKGROUND,
+    CELL,
+    N_T,
+    NOISE,
+    PIXEL_SIZE,
+    TRENCHES,
+    FakeModel,
+    H,
+    W,
+    cell_image,
+    make_experiment,
+)
 
 
 @pytest.fixture
@@ -369,7 +369,7 @@ def test_checkpoint_hypotheses_record_their_files(
     )
     with pytest.raises(
         RuntimeError,
-        match="checkpoint_sha256, settings differ|checkpoint_sha256 differ",
+        match=r"checkpoint_sha256, settings differ|checkpoint_sha256 differ",
     ):
         changed.segment(show_progress=False)
 

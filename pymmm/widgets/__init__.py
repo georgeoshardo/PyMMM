@@ -4,7 +4,8 @@
 ``Segmenter.view``.
 
 A notebook's own ndv viewers use :func:`imshow`: ``ndv.imshow`` on the canvas that works
-in Jupyter (:data:`NDV_CANVAS`)."""
+in Jupyter (:data:`NDV_CANVAS`).
+"""
 
 from pymmm.widgets._common import NDV_CANVAS, imshow
 

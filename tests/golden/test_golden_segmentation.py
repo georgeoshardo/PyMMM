@@ -10,7 +10,6 @@ import shutil
 import numpy as np
 import pytest
 from golden_io import check, manifest, scrub
-
 from pymmm.steps.segmentation import Segmenter
 from pymmm.store import experiment_group as eg
 

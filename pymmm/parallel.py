@@ -25,12 +25,13 @@ import os
 import signal
 import tempfile
 import weakref
+from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor
 from concurrent.futures import as_completed as _futures_completed
 from concurrent.futures import wait as _futures_wait
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, Optional, Set, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -50,11 +51,12 @@ def _ignore_interrupt() -> None:
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def local_cluster(workers: int, **kwargs: Any) -> Tuple[Any, Any]:
+def local_cluster(workers: int, **kwargs: Any) -> tuple[Any, Any]:
     """A Dask cluster of ``workers`` processes on this machine, one thread each, and its
     client: ``cluster, client = local_cluster(16)``. Its workers ignore SIGINT
     (:data:`IGNORE_INTERRUPT`); ``client.close()`` and ``cluster.close()`` stop them.
-    ``kwargs`` go to ``LocalCluster`` (``dashboard_address=None``, say)."""
+    ``kwargs`` go to ``LocalCluster`` (``dashboard_address=None``, say).
+    """
     from dask.distributed import Client, LocalCluster
 
     cluster = LocalCluster(
@@ -84,13 +86,14 @@ class SharedFile:
     path: str
 
 
-_loaded: Dict[str, np.ndarray] = {}  # in a pool worker: the shared files it read lately
+_loaded: dict[str, np.ndarray] = {}  # in a pool worker: the shared files it read lately
 _KEEP = 4  # a few, for the FOVs in flight at once
 
 
 def shared(value: Any) -> Any:
     """In a task: the array a :meth:`Runner.share` handle stands for (each pool worker
-    reads a shared file once)."""
+    reads a shared file once).
+    """
     if not isinstance(value, SharedFile):
         return value  # Dask has resolved its future; in this process it is the array
     if value.path not in _loaded:
@@ -112,15 +115,15 @@ class Runner:
         Use the active Dask client when there is one, whatever ``workers`` is.
     """
 
-    def __init__(self, workers: Optional[int] = None, *, dask: bool = True) -> None:
+    def __init__(self, workers: int | None = None, *, dask: bool = True) -> None:
         self.client = dask_client() if dask else None
         self.workers = workers
-        self._pool: Optional[ProcessPoolExecutor] = None
-        self._folder: Optional[tempfile.TemporaryDirectory] = None
+        self._pool: ProcessPoolExecutor | None = None
+        self._folder: tempfile.TemporaryDirectory | None = None
         self._n_shared = 0
         # The futures the caller still holds (Dask's or the pool's): cancelled if the
         # run stops early.
-        self._futures: "weakref.WeakSet[Any]" = weakref.WeakSet()
+        self._futures: weakref.WeakSet[Any] = weakref.WeakSet()
 
     @property
     def kind(self) -> str:
@@ -155,7 +158,8 @@ class Runner:
     def share(self, array: np.ndarray) -> Any:
         """``array`` once for every task that takes it: scattered to every Dask worker,
         saved to a file each pool worker reads once, or the array itself in this
-        process. Tasks read it with :func:`shared`."""
+        process. Tasks read it with :func:`shared`.
+        """
         if self.client is not None:
             future = self.client.scatter(array, broadcast=True, hash=False)
             self._futures.add(future)
@@ -171,14 +175,16 @@ class Runner:
 
     def release(self, handle: Any) -> None:
         """Done with a shared array: its file goes (a Dask worker drops it with the
-        last reference to its future)."""
+        last reference to its future).
+        """
         if isinstance(handle, SharedFile):
             os.unlink(handle.path)
 
     @property
     def slots(self) -> int:
         """How many tasks run at once now: the Dask workers' threads (workers may join or
-        leave during a run), the pool's processes, or 1."""
+        leave during a run), the pool's processes, or 1.
+        """
         if self.client is not None:
             return max(1, sum(self.client.nthreads().values()))
         if self.workers == 1:
@@ -193,7 +199,7 @@ class Runner:
             return iter(as_completed(list(futures)))
         return _futures_completed(list(futures))
 
-    def wait_first(self, futures: Iterable[Any]) -> Set[Any]:
+    def wait_first(self, futures: Iterable[Any]) -> set[Any]:
         """Wait until at least one of the futures is done; the done ones."""
         futures = list(futures)
         if self.client is not None:
@@ -203,10 +209,12 @@ class Runner:
         return set(_futures_wait(futures, return_when=FIRST_COMPLETED).done)
 
     def cancel(self) -> None:
-        """Drop the tasks not started yet: the queued Dask tasks (and shared arrays) and
-        the pool's. A task already running finishes; stopping it would mean killing its
+        """Drop the tasks not started yet, Dask's and the pool's.
+
+        The queued Dask tasks and shared arrays go too. A task already running finishes; stopping it would mean killing its
         worker. (The pool's own ``cancel_futures`` is not enough: the pool goes with
-        the Runner's reference, before its manager thread cancels anything.)"""
+        the Runner's reference, before its manager thread cancels anything.)
+        """
         futures = [future for future in self._futures if not future.done()]
         if self.client is not None:
             if futures:
@@ -220,7 +228,8 @@ class Runner:
 
     def close(self) -> None:
         """Wait for the pool's tasks and stop it, and remove the shared files (the Dask
-        client is not ours to close)."""
+        client is not ours to close).
+        """
         if self._pool is not None:
             self._pool.shutdown(wait=True)
             self._pool = None
@@ -228,12 +237,13 @@ class Runner:
             self._folder.cleanup()
             self._folder = None
 
-    def __enter__(self) -> "Runner":
+    def __enter__(self) -> Runner:
         return self
 
     def __exit__(self, exc_type: Any, *exc: Any) -> None:
         """Close; first :meth:`cancel` if the block raised (an interrupted cell, a failed
-        batch), so the work queued behind it does not run on."""
+        batch), so the work queued behind it does not run on.
+        """
         if exc_type is not None:
             self.cancel()
         self.close()

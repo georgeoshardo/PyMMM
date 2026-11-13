@@ -6,14 +6,14 @@ from __future__ import annotations
 import json
 
 import pytest
-from fake_experiment import fake_nd2
-
 from pymmm.source.metadata import (
     _median_frame_interval_ms,
     extract_acquisition_metadata,
     extract_source_frame_metadata,
 )
 from pymmm.source.nd2 import ND2Experiment
+
+from fake_experiment import fake_nd2
 
 
 def test_extract_acquisition_metadata_is_json_serializable(monkeypatch, tmp_path):

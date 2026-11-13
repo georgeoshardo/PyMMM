@@ -12,8 +12,9 @@ still compares against).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Union
+from typing import Any
 
 import numpy as np
 import zarr
@@ -29,7 +30,7 @@ NODE_PROPS = ("t", "y", "x", "seg_id", "track_id", "lineage_id")
 GEFF_NAME = "tracking_graph.geff"
 
 
-def read_trench_geff(trench_group: Union[str, Path]) -> Dict[str, np.ndarray]:
+def read_trench_geff(trench_group: str | Path) -> dict[str, np.ndarray]:
     """Read a trench's graph (``<trench_group>/tracking_graph.geff``) as arrays.
 
     Faster than a graph library for summaries and plots. Works on curated copies
@@ -47,7 +48,7 @@ def read_trench_geff(trench_group: Union[str, Path]) -> Dict[str, np.ndarray]:
     graph = zarr.open_group(str(geff_path), mode="r")
     node_ids = np.asarray(graph["nodes/ids"][:])
     order = np.argsort(node_ids)
-    out: Dict[str, np.ndarray] = {"node_id": node_ids[order]}
+    out: dict[str, np.ndarray] = {"node_id": node_ids[order]}
     props = graph["nodes/props"]
     for key in NODE_PROPS:
         if key in props:
@@ -66,8 +67,8 @@ def tracklets_and_lineages(n_nodes: int, times: np.ndarray, edges: np.ndarray):
     and the parent is its only parent; lineages are the connected parts. Both are
     numbered from 1, in time order: readers such as mm-track take 0 for no track.
     """
-    children: Dict[int, List[int]] = {}
-    parents: Dict[int, List[int]] = {}
+    children: dict[int, list[int]] = {}
+    parents: dict[int, list[int]] = {}
     for parent, child in np.asarray(edges, dtype=np.int64).reshape(-1, 2):
         children.setdefault(int(parent), []).append(int(child))
         parents.setdefault(int(child), []).append(int(parent))
@@ -113,6 +114,12 @@ def write_tracks(
 
     Parameters
     ----------
+    root : zarr.Group
+        The experiment group, opened for writing.
+    trench_id : int
+        The trench.
+    run : str
+        The tracking run's name.
     nodes : mapping of str to ndarray
         Arrays of equal length keyed by :data:`NODE_PROPS`; ``t`` is the frame,
         ``y``/``x`` pixels in the trench, ``seg_id`` the node's value in ``masks``.

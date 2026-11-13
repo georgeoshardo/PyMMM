@@ -1,5 +1,6 @@
 """What PyMMM writes into its stores' attributes: the schema version, provenance
-records, and values as plain JSON."""
+records, and values as plain JSON.
+"""
 
 from __future__ import annotations
 
@@ -31,7 +32,8 @@ _LIBRARIES = {
 
 def plain_json(value: Any) -> Any:
     """``value`` as zarr attributes store it: plain JSON types, tuples as lists, and
-    anything else JSON cannot encode (numpy integers, paths) as its ``str``."""
+    anything else JSON cannot encode (numpy integers, paths) as its ``str``.
+    """
     return json.loads(json.dumps(value, default=str))
 
 
@@ -44,8 +46,8 @@ def _distribution_version(name: str) -> str | None:
 
 def _git(*args: str) -> str | None:
     try:
-        result = subprocess.run(
-            ["git", "-C", str(Path(__file__).resolve().parent), *args],
+        result = subprocess.run(  # noqa: S603 - fixed git arguments
+            ["git", "-C", str(Path(__file__).resolve().parent), *args],  # noqa: S607
             capture_output=True,
             text=True,
             timeout=10,

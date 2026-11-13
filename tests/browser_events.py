@@ -13,14 +13,14 @@ and by the main repo's extraction notebook check.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 
 
 def _pointer(
-    kind: str, x: int, y: int, button: int, buttons: List[int], timestamp: int
-) -> Dict[str, Any]:
+    kind: str, x: int, y: int, button: int, buttons: list[int], timestamp: int
+) -> dict[str, Any]:
     return {
         "type": kind,
         "x": x,
@@ -34,7 +34,7 @@ def _pointer(
     }
 
 
-EVENTS: List[Dict[str, Any]] = [
+EVENTS: list[dict[str, Any]] = [
     {
         "type": "resize",
         "width": 400,
@@ -74,7 +74,7 @@ EVENTS: List[Dict[str, Any]] = [
 builds them."""
 
 
-def canvases(widget: Any) -> List[Any]:
+def canvases(widget: Any) -> list[Any]:
     """The ``RemoteFrameBuffer`` canvases in an ipywidgets tree (``viewer.widget()``)."""
     from jupyter_rfb import RemoteFrameBuffer
 
@@ -84,7 +84,7 @@ def canvases(widget: Any) -> List[Any]:
     return found
 
 
-def exercise(canvas: Any) -> Dict[str, Any]:
+def exercise(canvas: Any) -> dict[str, Any]:
     """Send ``canvas`` :data:`EVENTS` as the browser does, then draw a frame.
 
     Returns the canvas's class, the last line of each error shown under it, and the

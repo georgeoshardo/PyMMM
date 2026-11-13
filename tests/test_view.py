@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from fake_experiment import CELL, N_T, N_TRENCH, H, W, cell_image, make_experiment
-
 from pymmm.store import experiment_group as eg
 from pymmm.view import (
     AXES,
@@ -14,6 +12,8 @@ from pymmm.view import (
     read_experiment,
     view_experiment,
 )
+
+from fake_experiment import CELL, N_T, N_TRENCH, H, W, cell_image, make_experiment
 
 pytestmark = pytest.mark.view
 

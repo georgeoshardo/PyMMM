@@ -7,11 +7,13 @@ environment), ``pytest -m "not segment"`` everything else.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from importlib.util import find_spec
 from types import SimpleNamespace
-from typing import Any, Iterator, List
+from typing import Any
 
 import pytest
+
 from fake_experiment import FakeModel
 
 # marker: the modules its extra (pyproject.toml) brings that the tests import
@@ -37,9 +39,9 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 def fake_model(monkeypatch) -> FakeModel:
     """Every Omnipose model in this process, thresholding the image (:class:`FakeModel`);
     affinity masks threshold the same way."""
-    from fake_experiment import fake_affinity_masks
-
     from pymmm.steps import omnipose, segmentation
+
+    from fake_experiment import fake_affinity_masks
 
     model = FakeModel()
     monkeypatch.setattr(segmentation, "_MODELS", {})
@@ -52,8 +54,8 @@ class _Notebook:
     """What a widget showed: the widgets given to ``display()`` and the ndv viewers made."""
 
     def __init__(self) -> None:
-        self.shown: List[Any] = []
-        self.viewers: List[Any] = []
+        self.shown: list[Any] = []
+        self.viewers: list[Any] = []
 
     @staticmethod
     def _walk(widget: Any) -> Iterator[Any]:
@@ -61,7 +63,7 @@ class _Notebook:
         for child in getattr(widget, "children", ()):
             yield from _Notebook._walk(child)
 
-    def widgets(self) -> List[Any]:
+    def widgets(self) -> list[Any]:
         return [w for root in self.shown for w in self._walk(root)]
 
     def control(self, description: str) -> Any:
@@ -72,7 +74,7 @@ class _Notebook:
         assert len(found) == 1, f"{len(found)} controls named {description!r}"
         return found[0]
 
-    def texts(self) -> List[str]:
+    def texts(self) -> list[str]:
         """Every HTML label's text, in display order."""
         import ipywidgets
 

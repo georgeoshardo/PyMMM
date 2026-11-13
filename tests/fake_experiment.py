@@ -19,10 +19,9 @@ from types import SimpleNamespace
 import numpy as np
 import xarray as xr
 import zarr
-from scipy import ndimage
-
 from pymmm.store import experiment_group as eg
 from pymmm.store import ome
+from scipy import ndimage
 
 # ----------------------------------------------------------------------------
 # Experiment groups
@@ -253,7 +252,7 @@ class FakeND2File:
             "StreamDataV1_0": {"ignored": True},
         }
 
-    def __enter__(self) -> "FakeND2File":
+    def __enter__(self) -> FakeND2File:
         return self
 
     def __exit__(self, *exc) -> None:
@@ -373,7 +372,7 @@ def fake_nd2(
     of ``shape_yx``; ``read_frame`` gives the 3 × 4 frames of :class:`FakeND2File`."""
     path.write_bytes(b"nd2")
     data = xr.DataArray(
-        np.zeros((2, len(fov_names), 2) + tuple(shape_yx), dtype=np.uint16),
+        np.zeros((2, len(fov_names), 2, *tuple(shape_yx)), dtype=np.uint16),
         dims=("T", "P", "C", "Y", "X"),
         coords={
             "T": [0.0, 30000.0],
@@ -456,7 +455,7 @@ class FakeModel:
         if kwargs.get("compute_masks") is False:  # masks="affinity": the network's maps
             self.stack_calls += 1
             return SimpleNamespace(
-                flows=[SimpleNamespace(dP=np.zeros((2,) + f.shape), dist=f) for f in x]
+                flows=[SimpleNamespace(dP=np.zeros((2, *f.shape)), dist=f) for f in x]
             )
         if x.shape[0] > 1:
             self.stack_calls += 1

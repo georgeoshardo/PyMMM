@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from fake_experiment import FOV_H, FOV_W, fov_experiment, fov_registrator
-from scipy.signal import find_peaks
-
 from pymmm.steps.lanes import LaneDetector, LaneInfo
 from pymmm.steps.trenches import TrenchDetector
+from scipy.signal import find_peaks
+
+from fake_experiment import FOV_H, FOV_W, fov_experiment, fov_registrator
 
 
 def _make_detector() -> TrenchDetector:
@@ -75,7 +75,10 @@ def _side_trench_profile(centres, filled, length=2300, seed=0):
     that is bright when empty and dark when it holds cells."""
     x = np.arange(length, dtype=float)
     profile = 4000 + 0.3 * x  # uneven illumination
-    bump = lambda c, w, a: a * np.exp(-0.5 * ((x - c) / w) ** 2)
+
+    def bump(c, w, a):
+        return a * np.exp(-0.5 * ((x - c) / w) ** 2)
+
     for centre, full in zip(centres, filled):
         profile += bump(centre - 28, 3, 1500) + bump(centre + 28, 3, 1500)
         profile += bump(centre, 4, -1200 if full else 2500)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 LANE_PARAMETERS = {"sigma", "distance", "prominence", "height", "trench_bottom_offset"}
 
 
-def trench_widget(detector: "TrenchDetector") -> None:
+def trench_widget(detector: TrenchDetector) -> None:
     """Tune trench detection on one FOV at a time, then apply it to every FOV.
 
     ipywidgets for the controls (global, and per lane of the FOV: a lane's sliders
@@ -98,8 +98,8 @@ def trench_widget(detector: "TrenchDetector") -> None:
         viewer_data, 0, detector.channel, [("candidate trenches", "red")]
     )
 
-    lane_widget_state: Dict[int, Dict[str, widgets.Widget]] = {}
-    lane_override_values: Dict[int, Dict[str, Any]] = {
+    lane_widget_state: dict[int, dict[str, widgets.Widget]] = {}
+    lane_override_values: dict[int, dict[str, Any]] = {
         int(lane_idx): {
             key: value for key, value in values.items() if key in LANE_PARAMETERS
         }
@@ -113,7 +113,7 @@ def trench_widget(detector: "TrenchDetector") -> None:
         "trench_bottom_offset": trench_bottom_offset_slider,
     }
 
-    def _lane_params_from_widgets() -> Dict[int, Dict[str, Any]]:
+    def _lane_params_from_widgets() -> dict[int, dict[str, Any]]:
         lane_params = {
             lane_idx: values.copy()
             for lane_idx, values in lane_override_values.items()
@@ -164,8 +164,8 @@ def trench_widget(detector: "TrenchDetector") -> None:
 
     def _rebuild_lane_controls(_change: Any = None) -> None:
         fov_lanes = detector.lane_detector.lanes.get(fov_select.value, [])
-        new_state: Dict[int, Dict[str, widgets.Widget]] = {}
-        accordion_children: List[widgets.Widget] = []
+        new_state: dict[int, dict[str, widgets.Widget]] = {}
+        accordion_children: list[widgets.Widget] = []
 
         for lane_info in fov_lanes:
             lane_idx = lane_info.lane_index
@@ -233,20 +233,20 @@ def trench_widget(detector: "TrenchDetector") -> None:
         for widget in (pitch_slider, symmetry_slider):
             widget.disabled = not periodic
 
-    def _settings() -> Dict[str, Any]:
-        return dict(
-            sigma=sigma_slider.value,
-            distance=distance_slider.value,
-            prominence=prominence_slider.value,
-            height=params.get("height", 0),
-            trench_width=trench_width_slider.value,
-            trench_length=trench_length_slider.value,
-            trench_bottom_offset=trench_bottom_offset_slider.value,
-            lane_params=_lane_params_from_widgets(),
-            method=method_select.value,
-            expected_pitch=pitch_slider.value,
-            min_symmetry=symmetry_slider.value,
-        )
+    def _settings() -> dict[str, Any]:
+        return {
+            "sigma": sigma_slider.value,
+            "distance": distance_slider.value,
+            "prominence": prominence_slider.value,
+            "height": params.get("height", 0),
+            "trench_width": trench_width_slider.value,
+            "trench_length": trench_length_slider.value,
+            "trench_bottom_offset": trench_bottom_offset_slider.value,
+            "lane_params": _lane_params_from_widgets(),
+            "method": method_select.value,
+            "expected_pitch": pitch_slider.value,
+            "min_symmetry": symmetry_slider.value,
+        }
 
     def _update(_change: Any = None) -> None:
         _sync_method_controls()
@@ -344,10 +344,11 @@ def trench_widget(detector: "TrenchDetector") -> None:
 
 
 def _plot_lane_profile(
-    ax: Any, lane_profile: Dict[str, Any], min_symmetry: float
+    ax: Any, lane_profile: dict[str, Any], min_symmetry: float
 ) -> None:
     """One lane's x-profile, its trench centres and, for the periodic method, the
-    symmetry score against its threshold."""
+    symmetry score against its threshold.
+    """
     x_prof, x_smooth = lane_profile["profile"], lane_profile["smooth"]
     centres = lane_profile["centres"]
     xs = np.arange(len(x_prof))

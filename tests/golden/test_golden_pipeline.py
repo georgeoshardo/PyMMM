@@ -15,6 +15,8 @@ import numpy as np
 import pytest
 import zarr
 from golden_io import canonical, check, digest, manifest
+from pymmm import CompanionStore, Extractor, LaneDetector, Registrator, TrenchDetector
+from pymmm.steps.segmentation import background_noise, normalise, trench_bounds
 from real_data import (
     EXTRACTION,
     LANES,
@@ -23,9 +25,6 @@ from real_data import (
     no_dask_client,
     open_nd2,
 )
-
-from pymmm import CompanionStore, Extractor, LaneDetector, Registrator, TrenchDetector
-from pymmm.steps.segmentation import background_noise, normalise, trench_bounds
 
 pytestmark = pytest.mark.golden
 

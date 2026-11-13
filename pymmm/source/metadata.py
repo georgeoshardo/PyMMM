@@ -61,7 +61,7 @@ def _extract_frame_scalars(frame_metadata: dict[str, Any]) -> dict[str, Any]:
             float(stage.get("z", np.nan)),
         )
     elif isinstance(stage, Sequence) and not isinstance(stage, (str, bytes, bytearray)):
-        padded = list(stage) + [np.nan, np.nan, np.nan]
+        padded = [*list(stage), np.nan, np.nan, np.nan]
         stage_xyz = tuple(float(v) for v in padded[:3])
     else:
         stage_xyz = (np.nan, np.nan, np.nan)
@@ -536,7 +536,8 @@ def build_acquisition_dataset(
 
 def _median_frame_interval_ms(event_rows: Sequence[Mapping[str, Any]]) -> float | None:
     """Median time between consecutive timepoints of the same FOV, from the
-    ND2 event table's frame rows."""
+    ND2 event table's frame rows.
+    """
     times_by_fov: dict[int, dict[int, float]] = {}
     for row in event_rows:
         if "Index" not in row or row.get("Time [s]") is None:

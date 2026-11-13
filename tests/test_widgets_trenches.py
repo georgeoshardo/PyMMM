@@ -8,10 +8,10 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from fake_experiment import FOV_H, FOV_W, fov_experiment, fov_registrator
-
 from pymmm.steps.lanes import LaneDetector, LaneInfo
 from pymmm.steps.trenches import TrenchDetector
+
+from fake_experiment import FOV_H, FOV_W, fov_experiment, fov_registrator
 
 pytestmark = [
     pytest.mark.notebook,

@@ -8,9 +8,9 @@ import json
 import numpy as np
 import pytest
 import zarr
-from fake_experiment import make_empty_experiment
-
 from pymmm.store import experiment_group as eg
+
+from fake_experiment import make_empty_experiment
 
 
 @pytest.fixture

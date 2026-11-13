@@ -12,11 +12,11 @@ import pandas as pd
 import pytest
 import xarray as xr
 import zarr
-from fake_experiment import fake_nd2
-
 from pymmm.source.nd2 import ND2Experiment
 from pymmm.steps.extraction import Extractor
 from pymmm.store.provenance import SCHEMA_VERSION
+
+from fake_experiment import fake_nd2
 
 
 def test_extractor_writes_one_ome_zarr_image_per_trench(monkeypatch, tmp_path):

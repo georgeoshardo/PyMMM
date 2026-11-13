@@ -24,39 +24,39 @@ ND2 = Path(
 FOVS = ["XYPos:2", "XYPos:5"]
 TIMES = (20, 30)
 
-REGISTRATION = dict(
-    registration_channel="PC",
-    mode="first",
-    rotation=0.0,
-    roi={"y": (250, 800)},
-    mean_n_frames=10,
-    mean_from="end",
-    backend="stackreg",
-    downsample=4,
-    batch_size=4,
-    fov_window=2,
-    opencv_threads=1,
-)
-LANES = dict(
-    sigma=48.0,
-    distance=1000.0,
-    height=5000.0,
-    orientation_window_um=20.0,
-    orientation="down",
-)
-TRENCHES = dict(
-    sigma=4.0,
-    distance=100.0,
-    prominence=10.0,
-    height=0,
-    trench_width=94,
-    trench_length=655,
-    trench_bottom_offset=50,
-    method="periodic",
-    expected_pitch=0.0,
-    min_symmetry=0.1,
-)
-EXTRACTION = dict(clevel=3, byte_shuffle=True, batch_size=4, time_chunk=None)
+REGISTRATION = {
+    "registration_channel": "PC",
+    "mode": "first",
+    "rotation": 0.0,
+    "roi": {"y": (250, 800)},
+    "mean_n_frames": 10,
+    "mean_from": "end",
+    "backend": "stackreg",
+    "downsample": 4,
+    "batch_size": 4,
+    "fov_window": 2,
+    "opencv_threads": 1,
+}
+LANES = {
+    "sigma": 48.0,
+    "distance": 1000.0,
+    "height": 5000.0,
+    "orientation_window_um": 20.0,
+    "orientation": "down",
+}
+TRENCHES = {
+    "sigma": 4.0,
+    "distance": 100.0,
+    "prominence": 10.0,
+    "height": 0,
+    "trench_width": 94,
+    "trench_length": 655,
+    "trench_bottom_offset": 50,
+    "method": "periodic",
+    "expected_pitch": 0.0,
+    "min_symmetry": 0.1,
+}
+EXTRACTION = {"clevel": 3, "byte_shuffle": True, "batch_size": 4, "time_chunk": None}
 
 
 def no_dask_client() -> bool:

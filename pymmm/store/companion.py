@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -85,7 +85,7 @@ class CompanionStore:
     # ------------------------------------------------------------------
 
     @classmethod
-    def for_experiment(cls, experiment: "ND2Experiment") -> "CompanionStore":
+    def for_experiment(cls, experiment: ND2Experiment) -> CompanionStore:
         """Derive the companion store path from the ND2 file location.
 
         The store is placed next to the ND2 file as
@@ -119,9 +119,9 @@ class CompanionStore:
         self,
         name: str,
         dataset: xr.Dataset,
-        params: Dict[str, Any],
-        source_subset_metadata: Dict[str, Any] | None,
-        extra_attrs: Dict[str, Any] | None = None,
+        params: dict[str, Any],
+        source_subset_metadata: dict[str, Any] | None,
+        extra_attrs: dict[str, Any] | None = None,
     ) -> None:
         if name in self._store:
             del self._store[name]
@@ -152,7 +152,7 @@ class CompanionStore:
     def _has_section(self, name: str) -> bool:
         return name in self._store and bool(self._store[name].attrs.get("complete"))
 
-    def section_attrs(self, name: str) -> Dict[str, Any]:
+    def section_attrs(self, name: str) -> dict[str, Any]:
         """Return a section's attrs (params, subset, provenance, complete)."""
         return dict(self._store[name].attrs)
 
@@ -164,8 +164,8 @@ class CompanionStore:
         self,
         tmats: xr.DataArray,
         mean_images: xr.DataArray | None,
-        params: Dict[str, Any],
-        source_subset_metadata: Dict[str, Any] | None = None,
+        params: dict[str, Any],
+        source_subset_metadata: dict[str, Any] | None = None,
     ) -> None:
         """Persist registration results.
 
@@ -187,7 +187,7 @@ class CompanionStore:
         dataset["tmats"].attrs["long_name"] = "registration transform (3x3 affine)"
         self._write_section("registration", dataset, params, source_subset_metadata)
 
-    def load_registration(self, load_mean_images: bool = True) -> Dict[str, Any]:
+    def load_registration(self, load_mean_images: bool = True) -> dict[str, Any]:
         """Load registration checkpoint.
 
         Returns
@@ -206,7 +206,7 @@ class CompanionStore:
             "params": dataset.attrs["params"],
         }
 
-    def load_registration_params(self) -> Dict[str, Any]:
+    def load_registration_params(self) -> dict[str, Any]:
         """Load registration parameters without reading image arrays."""
         return self.section_attrs("registration")["params"]
 
@@ -223,10 +223,10 @@ class CompanionStore:
         name: str,
         dim: str,
         table: pd.DataFrame,
-        columns: Dict[str, Dict[str, str]],
+        columns: dict[str, dict[str, str]],
         fov_names: list[str],
-        params: Dict[str, Any],
-        source_subset_metadata: Dict[str, Any] | None,
+        params: dict[str, Any],
+        source_subset_metadata: dict[str, Any] | None,
         index: np.ndarray | None = None,
     ) -> None:
         data_vars = {}
@@ -246,7 +246,7 @@ class CompanionStore:
             extra_attrs={"fov_names": fov_names},
         )
 
-    def _load_table(self, name: str, dim: str) -> tuple[pd.DataFrame, Dict[str, Any]]:
+    def _load_table(self, name: str, dim: str) -> tuple[pd.DataFrame, dict[str, Any]]:
         dataset = self._open_section(name).load()
         table = dataset.to_dataframe().reset_index()
         if dim == "Lane":
@@ -259,8 +259,8 @@ class CompanionStore:
         self,
         lanes: pd.DataFrame,
         fov_names: list[str],
-        params: Dict[str, Any],
-        source_subset_metadata: Dict[str, Any] | None = None,
+        params: dict[str, Any],
+        source_subset_metadata: dict[str, Any] | None = None,
     ) -> None:
         """Persist lane detection results.
 
@@ -286,7 +286,7 @@ class CompanionStore:
             source_subset_metadata,
         )
 
-    def load_lane_detection(self) -> Dict[str, Any]:
+    def load_lane_detection(self) -> dict[str, Any]:
         """Load lane detection checkpoint.
 
         Returns
@@ -310,8 +310,8 @@ class CompanionStore:
         self,
         trenches: pd.DataFrame,
         fov_names: list[str],
-        params: Dict[str, Any],
-        source_subset_metadata: Dict[str, Any] | None = None,
+        params: dict[str, Any],
+        source_subset_metadata: dict[str, Any] | None = None,
     ) -> None:
         """Persist trench detection results.
 
@@ -338,7 +338,7 @@ class CompanionStore:
             index=trenches["trench_id"].to_numpy(dtype=np.int32),
         )
 
-    def load_trench_detection(self) -> Dict[str, Any]:
+    def load_trench_detection(self) -> dict[str, Any]:
         """Load trench detection checkpoint.
 
         Returns
@@ -362,7 +362,7 @@ class CompanionStore:
     # Reset
     # ------------------------------------------------------------------
 
-    def reset(self, section: Optional[str] = None) -> None:
+    def reset(self, section: str | None = None) -> None:
         """Delete checkpointed data and re-open the store.
 
         Parameters

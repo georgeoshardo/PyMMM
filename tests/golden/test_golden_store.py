@@ -13,8 +13,6 @@ import shutil
 import numpy as np
 import pytest
 from golden_io import check, digest, manifest
-from scipy import ndimage
-
 from pymmm.steps.segmentation import order_from_closed_end
 from pymmm.store import experiment_group as eg
 from pymmm.store.geff import (
@@ -24,6 +22,7 @@ from pymmm.store.geff import (
     tracklets_and_lineages,
     write_tracks,
 )
+from scipy import ndimage
 
 pytestmark = pytest.mark.golden
 

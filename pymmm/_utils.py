@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any, List, Union
+from typing import Any
 
 import xarray as xr
 
@@ -23,9 +23,9 @@ def get_diagnostics_dir(experiment_path: Path, kind: str | None = None) -> Path:
 
 
 def rename_duplicate_coords(
-    data: Union[xr.DataArray, xr.Dataset],
+    data: xr.DataArray | xr.Dataset,
     dim: str,
-) -> Union[xr.DataArray, xr.Dataset]:
+) -> xr.DataArray | xr.Dataset:
     """Rename duplicate coordinate values by appending ``-01``, ``-02`` suffixes.
 
     Values that occur only once are left unchanged.  Values that occur
@@ -47,11 +47,11 @@ def rename_duplicate_coords(
     if dim not in data.coords:
         raise ValueError(f"Dimension '{dim}' not found in coordinates.")
 
-    original_values: List[Any] = data.coords[dim].values.tolist()
+    original_values: list[Any] = data.coords[dim].values.tolist()
     value_counts: Counter = Counter(original_values)
     current_counts: defaultdict = defaultdict(int)
 
-    new_values: List[str] = []
+    new_values: list[str] = []
     for val in original_values:
         current_counts[val] += 1
         if value_counts[val] > 1:
@@ -62,7 +62,7 @@ def rename_duplicate_coords(
     return data.assign_coords({dim: new_values})
 
 
-def normalize_channel_arg(channel: Union[int, str], channel_names: List[str]) -> str:
+def normalize_channel_arg(channel: int | str, channel_names: list[str]) -> str:
     """Convert an int channel index to its string name.
 
     Parameters
@@ -84,7 +84,7 @@ def normalize_channel_arg(channel: Union[int, str], channel_names: List[str]) ->
     return channel
 
 
-def normalize_fov_arg(fov: Union[int, str], fov_names: List[str]) -> str:
+def normalize_fov_arg(fov: int | str, fov_names: list[str]) -> str:
     """Convert an int FOV index to its string name.
 
     Parameters
