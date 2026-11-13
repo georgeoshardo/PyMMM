@@ -60,14 +60,31 @@ def save_figures(plot_func, jobs: list[dict]) -> None:
     )
 
 
+def _subplots(show: bool, *args, **kwargs):
+    """``plt.subplots`` for a figure to show; for one only saved, a figure outside
+    pyplot (``matplotlib.figure.Figure``), which renders with Agg whatever the backend.
+    A figure only saved can then be drawn from any thread, as the napari dock's
+    background runs do: pyplot's Qt backend makes its figures on the Qt thread only.
+    """
+    if show:
+        return plt.subplots(*args, **kwargs)
+    from matplotlib.figure import Figure
+
+    figure_kwargs = {
+        key: kwargs.pop(key)
+        for key in ("figsize", "constrained_layout", "layout", "dpi")
+        if key in kwargs
+    }
+    fig = Figure(**figure_kwargs)
+    return fig, fig.subplots(*args, **kwargs)
+
+
 def _finish(fig, save_path: str | None, show: bool) -> None:
     """Save a figure if asked, then show it or release it."""
     if save_path:
         fig.savefig(save_path)
     if show:
         plt.show()
-    else:
-        plt.close(fig)
 
 
 def plot_drift_diagnostics(
@@ -103,7 +120,7 @@ def plot_drift_diagnostics(
         time_hours = np.arange(len(x_drift))
         xlabel = "Frame"
 
-    fig, axs = plt.subplots(1, 3, figsize=(12, 4))
+    fig, axs = _subplots(show, 1, 3, figsize=(12, 4))
 
     # Panel 1: Spatial trajectory
     axs[0].plot(x_drift, y_drift, lw=1, alpha=0.8, color="k")
@@ -129,7 +146,7 @@ def plot_drift_diagnostics(
     axs[2].set_ylabel("Y Drift (px)")
     axs[2].grid(True, linestyle="--", alpha=0.5)
 
-    plt.tight_layout()
+    fig.tight_layout()
     _finish(fig, save_path, show)
 
 
@@ -140,12 +157,12 @@ def plot_mean_image(
     show: bool = True,
 ) -> None:
     """Display a single image with a greyscale colormap."""
-    fig, ax = plt.subplots(figsize=(10, 10))
+    fig, ax = _subplots(show, figsize=(10, 10))
     vmin, vmax = contrast_limits(image)
     ax.imshow(image, cmap="Greys_r", vmin=vmin, vmax=vmax)
     ax.set_title(title)
     ax.grid(which="both", color="w", linestyle="-", linewidth=0.5, alpha=0.3)
-    plt.tight_layout()
+    fig.tight_layout()
     _finish(fig, save_path, show)
 
 
@@ -159,14 +176,14 @@ def plot_1d_profile_with_peaks(
     show: bool = True,
 ) -> None:
     """Plot a 1-D profile with peak markers."""
-    fig, ax = plt.subplots(figsize=(12, 4))
+    fig, ax = _subplots(show, figsize=(12, 4))
     ax.plot(profile)
     ax.plot(peaks, profile[peaks], "x", c="r", markersize=10, label="Peaks")
     ax.set_title(title)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.legend()
-    plt.tight_layout()
+    fig.tight_layout()
     _finish(fig, save_path, show)
 
 
@@ -197,7 +214,7 @@ def plot_fov_with_lanes(
     show : bool
         Show the figure; otherwise it is closed after saving.
     """
-    fig, ax = plt.subplots(figsize=(14, 8))
+    fig, ax = _subplots(show, figsize=(14, 8))
     vmin, vmax = contrast_limits(image)
     ax.imshow(image, cmap="Greys_r", vmin=vmin, vmax=vmax)
     for i, y in enumerate(lane_y_positions):
@@ -216,7 +233,7 @@ def plot_fov_with_lanes(
         )
     ax.set_title(title)
     ax.set_axis_off()
-    plt.tight_layout()
+    fig.tight_layout()
     _finish(fig, save_path, show)
 
 
@@ -244,7 +261,7 @@ def plot_fov_with_trenches(
         Show the figure; otherwise it is closed after saving.
     """
     colors = cycle(["red", "green", "blue", "yellow", "orange", "purple", "cyan"])
-    fig, ax = plt.subplots(figsize=(14, 8))
+    fig, ax = _subplots(show, figsize=(14, 8))
     vmin, vmax = contrast_limits(image)
     ax.imshow(image, cmap="Greys_r", vmin=vmin, vmax=vmax)
 
@@ -266,7 +283,7 @@ def plot_fov_with_trenches(
 
     ax.set_title(title)
     ax.set_axis_off()
-    plt.tight_layout()
+    fig.tight_layout()
     _finish(fig, save_path, show)
 
 
@@ -471,8 +488,8 @@ def plot_track_kymograph(
     starts = [k for k in nodes if parents[k] == 0 and t[k] > t.min()]
 
     extent = (0, T * dt, H * px, 0)
-    fig, axes = plt.subplots(
-        1, 2, figsize=(13, 8), constrained_layout=True, sharey=True
+    fig, axes = _subplots(
+        show, 1, 2, figsize=(13, 8), constrained_layout=True, sharey=True
     )
     for ax in axes:
         ax.imshow(

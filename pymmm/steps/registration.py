@@ -527,13 +527,17 @@ class Registrator:
         n_jobs: int = -1,
         progress: Callable[[int, int], None] | None = None,
         cancel: Any = None,
+        save_diagnostics: bool = False,
     ) -> None:
         """Compute transformation matrices for all FOVs.
 
         Parameters
         ----------
         plot : bool
-            Save drift diagnostics for each FOV as it completes.
+            Save each FOV's drift figure as it completes, and show it.
+        save_diagnostics : bool
+            Save the drift figures without showing them (from a thread other than
+            the GUI's, as the napari dock registers).
         n_jobs : int
             ``1`` registers in this process with one ND2 reader (the OpenCV backend
             still registers ``opencv_threads`` frames at once). Otherwise batches of
@@ -611,7 +615,9 @@ class Registrator:
                     runner.release(handle)
                 fov_da = self._fov_tmats(reg_data, fov, job.finish(results))
                 parts.append(fov_da)
-                self._plot_fov_drift(fov, fov_da.squeeze(drop=True), plot)
+                self._plot_fov_drift(
+                    fov, fov_da.squeeze(drop=True), plot, save_diagnostics
+                )
                 bar.update()
                 if progress is not None:
                     progress(len(parts), len(fov_names))
@@ -740,9 +746,11 @@ class Registrator:
         )
         return fov_da.expand_dims(P=[str(fov)]) if fov is not None else fov_da
 
-    def _plot_fov_drift(self, fov: Any, fov_da: xr.DataArray, plot: bool) -> None:
-        """Persist drift diagnostics for one completed FOV immediately."""
-        if not plot:
+    def _plot_fov_drift(
+        self, fov: Any, fov_da: xr.DataArray, plot: bool, save: bool = False
+    ) -> None:
+        """Save one completed FOV's drift figure at once, and show it if ``plot``."""
+        if not (plot or save):
             return
 
         from pymmm._utils import get_diagnostics_dir
@@ -754,6 +762,7 @@ class Registrator:
             fov_da,
             fov_label=fov_label,
             save_path=str(diag_dir / f"drift_{fov_label}.png"),
+            show=plot,
         )
 
     # ------------------------------------------------------------------
