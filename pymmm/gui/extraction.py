@@ -1460,10 +1460,6 @@ class ExtractionDock(QWidget):
         _set_shapes(self._layers["lanes"], lines, "line", colours)
         n = len(positions)
         self.lane_status.setText(f"<b>{fov}</b>: {n} lane{'s' if n != 1 else ''}")
-        self._say(
-            "Red: trenches above the lane, opening down; cyan: below, opening up. "
-            "Move the P slider to check other FOVs."
-        )
 
     def apply_lanes(self) -> None:
         """Detect the lanes of every FOV with the tab's settings (or take the image's
@@ -1625,7 +1621,6 @@ class ExtractionDock(QWidget):
             + "".join(f"<br>No trenches kept for the {note}" for note in outside)
             + pitch_note
         )
-        self._say("Move the P slider to check other FOVs, then apply.")
 
     def _experiment_pitch(self, detector, settings: dict[str, Any]) -> float | None:
         """The trench spacing across every FOV, as Apply finds it, for the preview
