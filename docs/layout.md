@@ -95,9 +95,10 @@ xarray datasets, each with `layout` (its name) in its attributes. Variables carr
 - **`registration/`**: `tmats` (`FOV`, `T`, `Row`, `Col`): each frame's 3×3 transform,
   and `shift` (`FOV`, `T`, `ShiftAxis`): its translation (y, x) in pixels. Attributes:
   the registration settings (`channel`, `backend`, `mode`, `rotation`, `roi`,
-  `mean_n_frames`, `mean_from`, `downsample`) and `transform_convention`.
+  `downsample`) and `transform_convention`.
 - **`detection/`**: attributes only: `lane_detection` and `trench_detection`, each
-  `{channel, params}`, the settings that produced the trench table.
+  `{channel, params}`, the settings that produced the trench table, the detection
+  image among them (`mean_n_frames` registered frames, from `mean_from`).
 
 ### Transforms and crops
 
@@ -273,7 +274,7 @@ notebook can resume without redoing registration or detection:
 
 ```
 <experiment_name>.pymmm.zarr/       attrs: layout "pymmm_companion", the source ND2, created, provenance
-    registration/                   tmats (P, T, row, col), mean_images (P, Y, X)
+    registration/                   tmats (P, T, row, col)
     lane_detection/                 one row per lane: fov, lane_index, y_center, orientation
     trench_detection/               one row per trench: fov, lane_index, x_left, x_right,
                                     y_top, y_bottom, orientation, needs_flip

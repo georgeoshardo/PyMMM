@@ -20,6 +20,8 @@
  "params": {
   "distance": 1000.0,
   "height": 5000.0,
+  "mean_from": "end",
+  "mean_n_frames": 10,
   "orientation": "down",
   "orientation_window_um": 20.0,
   "sigma": 48.0

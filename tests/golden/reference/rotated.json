@@ -154,7 +154,7 @@
     "zarr_json_sha256": "4e48d132272e9dd7b5242fe946904a0df82e4318e8ceec91ef85a799f1d2d550"
    },
    "detection": {
-    "zarr_json_sha256": "8b6cd3b243337fa6461eb0a5562dd68aab8f3fa2a7632e6ba4e400bf77210cb1"
+    "zarr_json_sha256": "9875ba6169db813f7ac5a5686a456dc7b42989df1ab533e57da4541fb4009766"
    },
    "events": {
     "zarr_json_sha256": "e458bc25781ef9b455a9b17b4978444bd2be91f593fb9c090aa13a9665c82fc8"
@@ -168,7 +168,7 @@
     "zarr_json_sha256": "25810a34c354b993b0ba22b6fd57a6c02c4771aafc912657a9bbc3b784caeafa"
    },
    "registration": {
-    "zarr_json_sha256": "e4565b14b809f085781eea58dfc28b8d807150825231bcd0aedd73c9b59eeb8d"
+    "zarr_json_sha256": "6f2f0443299031236245bc802ac4bc58ad20e400a3746e3e1f33b4b1daeaf992"
    },
    "registration/Col": {
     "data": {
@@ -1065,6 +1065,8 @@
   "params": {
    "distance": 1000.0,
    "height": 5000.0,
+   "mean_from": "end",
+   "mean_n_frames": 10,
    "orientation": "down",
    "orientation_window_um": 20.0,
    "sigma": 48.0
@@ -1115,6 +1117,8 @@
    "expected_pitch": 0.0,
    "height": 0,
    "lane_params": {},
+   "mean_from": "end",
+   "mean_n_frames": 10,
    "method": "periodic",
    "min_symmetry": 0.1,
    "prominence": 10.0,

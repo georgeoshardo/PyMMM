@@ -16,8 +16,8 @@ def _make_detector() -> TrenchDetector:
     image = np.ones((200, 160), dtype=np.float32)
     experiment = SimpleNamespace(channel_names=["PC"], fov_names=["f0"])
     registrator = SimpleNamespace(
-        get_registered_mean_of_timestack=lambda fov, channel: image,
-        compute_registered_means=lambda channel: {"f0": image},
+        get_registered_mean_of_timestack=lambda fov, channel, **mean: image,
+        compute_registered_means=lambda channel, **mean: {"f0": image},
     )
     lane_detector = SimpleNamespace(
         lanes={"f0": [LaneInfo(100, 1, "f0", 0)]}, image_edge=None

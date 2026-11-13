@@ -34,7 +34,7 @@ def get_diagnostics_dir(experiment_path: Path, kind: str | None = None) -> Path:
     """Return (and create) the diagnostics directory next to the data file.
 
     ``kind`` selects a subfolder for one kind of diagnostic (``"drift"``,
-    ``"mean_images"``, ``"lanes"``, ``"trenches"``).
+    ``"lanes"``, ``"trenches"``).
     """
     diag_dir = experiment_path.parent / f"{experiment_path.stem}_diagnostics"
     if kind is not None:

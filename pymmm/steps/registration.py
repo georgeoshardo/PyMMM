@@ -81,6 +81,28 @@ def _registered_mean(
     return total / len(time_indices)
 
 
+DETECTION_MEAN = {"mean_n_frames": 20, "mean_from": "spread"}
+"""The default detection image for lanes and trenches: the mean of this many registered
+frames, from here (:func:`mean_frames`)."""
+
+
+def mean_frames(n_timepoints: int, mean_n_frames: int, mean_from: str) -> list[int]:
+    """Which frames (indices into the experiment's frames) a detection image averages:
+    ``mean_n_frames`` of them, spread evenly from the first to the last
+    (``"spread"``), or the first or last ones (``"start"``, ``"end"``). Spread frames
+    show the trenches best: cells move between them and average away.
+    """
+    n = max(1, min(int(mean_n_frames), n_timepoints))
+    if mean_from == "spread":
+        spread = np.rint(np.linspace(0, n_timepoints - 1, n)).astype(int)
+        return sorted(set(spread.tolist()))
+    if mean_from == "start":
+        return list(range(n))
+    if mean_from == "end":
+        return list(range(n_timepoints - n, n_timepoints))
+    raise ValueError(f"mean_from must be 'spread', 'start' or 'end', not {mean_from!r}")
+
+
 def _json_value(value: Any) -> Any:
     """``value`` as it reads back from the store's JSON attributes (tuples as lists)."""
     return json.loads(json.dumps(value, default=str))
@@ -361,18 +383,14 @@ class Registrator:
         Companion zarr store for checkpointing.
     registration_channel : str | int
         Channel to use for registration (e.g. ``"PC"``).
-    mode : str
-        Registration mode: ``"mean"``, ``"previous"``, ``"first"``,
-        ``"last"``, or an ``int`` frame index.
+    mode : str | int
+        What each frame is registered to: ``"first"``, ``"last"`` or an ``int``
+        frame index (that frame), or ``"previous"`` (the frame before it).
     rotation : float
         Fixed output rotation applied together with drift correction.
     roi : dict | None
         Registration region in unrotated raw-image coordinates. It is
         intersected with any experiment ROI before registration.
-    mean_n_frames : int
-        Number of frames to average for the reference image.
-    mean_from : str
-        ``"end"`` or ``"start"`` — which end of the timeseries to average.
     downsample : int
         Block-averaging factor used only while estimating translations.
     batch_size : int
@@ -392,11 +410,9 @@ class Registrator:
         experiment: ND2Experiment,
         store: CompanionStore,
         registration_channel: str | int = 0,
-        mode: str | int = "mean",
+        mode: str | int = "first",
         rotation: float = 0.0,
         roi: dict[str, tuple] | None = None,
-        mean_n_frames: int = 10,
-        mean_from: Literal["end", "start"] = "end",
         downsample: int = 1,
         batch_size: int = 8,
         fov_window: int = 1,
@@ -413,6 +429,11 @@ class Registrator:
             raise ValueError("opencv_threads must be a positive integer")
         if backend not in {"stackreg", "opencv"}:
             raise ValueError("backend must be 'stackreg' or 'opencv'")
+        if mode not in ("first", "last", "previous") and not isinstance(mode, int):
+            raise ValueError(
+                f"mode must be 'first', 'last', 'previous' or a frame index, not "
+                f"{mode!r} (registering to a mean of frames is no longer offered)"
+            )
         if backend == "opencv" and mode == "previous":
             raise ValueError(
                 "backend='opencv' is not supported for mode='previous' because "
@@ -426,8 +447,6 @@ class Registrator:
         self.mode = mode
         self.rotation = rotation
         self.roi = roi or {}
-        self.mean_n_frames = mean_n_frames
-        self.mean_from = mean_from
         self.downsample = int(downsample)
         self.batch_size = int(batch_size)
         self.fov_window = int(fov_window)
@@ -435,11 +454,9 @@ class Registrator:
         self.opencv_threads = int(opencv_threads)
 
         # Computed state
-        self._mean_images: xr.DataArray | None = None  # (P, Y, X)
         self._tmats: xr.DataArray | None = None  # (T, P, 3, 3)
-        self._registered_mean_cache: dict[
-            tuple, np.ndarray
-        ] = {}  # (fov, channel) → 2D array
+        # (fov, channel, frames) -> the mean of those registered frames
+        self._registered_mean_cache: dict[tuple, np.ndarray] = {}
 
     # ------------------------------------------------------------------
     # Properties
@@ -454,14 +471,6 @@ class Registrator:
         if self._tmats is None:
             raise RuntimeError("Tmats not computed yet. Call compute_tmats() first.")
         return self._tmats
-
-    @property
-    def mean_images(self) -> xr.DataArray:
-        if self._mean_images is None:
-            raise RuntimeError(
-                "Mean images not computed yet. Call compute_mean_images() first."
-            )
-        return self._mean_images
 
     # ------------------------------------------------------------------
     # Data selection helpers
@@ -492,45 +501,6 @@ class Registrator:
         if slices:
             data = data.isel(**slices)
         return data
-
-    # ------------------------------------------------------------------
-    # Mean images
-    # ------------------------------------------------------------------
-
-    def compute_mean_images(self, plot: bool = False) -> None:
-        """Compute temporal mean images for each FOV.
-
-        Uses the last (or first) ``mean_n_frames`` frames.
-        """
-        data = self._get_registration_data()
-
-        n = min(self.mean_n_frames, self.experiment.n_timepoints)
-        if self.mean_from == "end":
-            data_subset = data.isel(T=slice(-n, None))
-        else:
-            data_subset = data.isel(T=slice(0, n))
-
-        # Compute mean along T → (P, Y, X) or (Y, X)
-        mean_imgs = data_subset.mean(dim="T")
-
-        # Compute eagerly — mean images are small
-        self._mean_images = mean_imgs.compute()
-
-        if plot:
-            from pymmm._utils import get_diagnostics_dir
-            from pymmm.plotting import plot_mean_image
-
-            diag_dir = get_diagnostics_dir(self.experiment.path, "mean_images")
-            fov = self.experiment.fov_names[0]
-            if "P" in self._mean_images.dims:
-                img = self._mean_images.sel(P=fov).values
-            else:
-                img = self._mean_images.values
-            plot_mean_image(
-                img,
-                title=f"Mean image – {fov}",
-                save_path=str(diag_dir / f"mean_image_{fov}.png"),
-            )
 
     # ------------------------------------------------------------------
     # Transformation matrices
@@ -569,7 +539,6 @@ class Registrator:
 
         The ``mode`` decides what each frame is registered to (by translation):
 
-        - ``"mean"``: the mean of ``mean_n_frames`` frames from ``mean_from``
         - ``"first"`` / ``"last"`` / an ``int``: that frame
         - ``"previous"``: the frame before it; the transforms are then chained
         """
@@ -660,13 +629,7 @@ class Registrator:
         """The fixed reference image of a FOV, prepared as its frames are."""
         f = self._frames()
         times = self.experiment.source_axes["original_t_index"].tolist()
-        n_times = len(times)
-        if self.mode == "mean":
-            n_ref = min(self.mean_n_frames, n_times)
-            ref_times = (
-                times[n_times - n_ref :] if self.mean_from == "end" else times[:n_ref]
-            )
-        elif self.mode == "first":
+        if self.mode == "first":
             ref_times = [times[0]]
         elif self.mode == "last":
             ref_times = [times[-1]]
@@ -685,7 +648,7 @@ class Registrator:
             f["downsample"],
             self.backend,
         )
-        return np.mean(frames, axis=0) if self.mode == "mean" else frames[0]
+        return frames[0]
 
     def _fixed_plan(
         self, runner: Runner, fov_idx: int, threads: int
@@ -889,23 +852,27 @@ class Registrator:
         self,
         fov: int | str = 0,
         channel: int | str | None = None,
+        mean_n_frames: int = DETECTION_MEAN["mean_n_frames"],
+        mean_from: str = DETECTION_MEAN["mean_from"],
     ) -> np.ndarray:
-        """Return the mean of registered frames for one FOV + channel.
-
-        Results are cached per (fov, channel) so repeated calls (e.g. from
-        LaneDetector and TrenchDetector) return instantly.  Only
-        ``mean_n_frames`` frames are averaged (taken from the ``mean_from``
-        end of the timeseries), matching the reference used for registration.
+        """The detection image of one FOV: the mean of ``mean_n_frames`` registered
+        frames from ``mean_from`` (:func:`mean_frames`). Cached, so lane and trench
+        detection reuse it.
         """
         fov_name = normalize_fov_arg(fov, self.experiment.fov_names)
-        return self.compute_registered_means([fov_name], channel)[fov_name]
+        return self.compute_registered_means(
+            [fov_name], channel, mean_n_frames, mean_from
+        )[fov_name]
 
     def compute_registered_means(
         self,
         fovs: list[int | str] | None = None,
         channel: int | str | None = None,
+        mean_n_frames: int = DETECTION_MEAN["mean_n_frames"],
+        mean_from: str = DETECTION_MEAN["mean_from"],
     ) -> dict[str, np.ndarray]:
-        """Registered mean-of-timestack for several FOVs, computed together.
+        """Detection images of several FOVs (:meth:`get_registered_mean_of_timestack`),
+        computed together.
 
         FOVs not yet cached are computed in parallel, one task per FOV that
         reads its frames with a single ND2 handle: on the active distributed
@@ -919,12 +886,15 @@ class Registrator:
             normalize_fov_arg(fov, self.experiment.fov_names)
             for fov in (fovs if fovs is not None else self.experiment.fov_names)
         ]
-        missing = [f for f in fov_names if (f, ch) not in self._registered_mean_cache]
+        frames = tuple(
+            mean_frames(self.experiment.n_timepoints, mean_n_frames, mean_from)
+        )
+        missing = [
+            f for f in fov_names if (f, ch, frames) not in self._registered_mean_cache
+        ]
         if missing:
             exp = self.experiment
-            n = min(self.mean_n_frames, exp.n_timepoints)
-            time_slice = slice(-n, None) if self.mean_from == "end" else slice(0, n)
-            time_indices = exp.source_axes["original_t_index"][time_slice].tolist()
+            time_indices = exp.source_axes["original_t_index"][list(frames)].tolist()
             channel_idx = exp.channel_names.index(ch) if exp.has_channels else None
             y_roi, x_roi = exp.source_roi
             rotation_matrix = _rotation_matrix(
@@ -937,7 +907,7 @@ class Registrator:
                     if "P" in self._tmats.dims
                     else self._tmats
                 )
-                matrices = np.matmul(tmats.isel(T=time_slice).values, rotation_matrix)
+                matrices = np.matmul(tmats.isel(T=list(frames)).values, rotation_matrix)
                 tasks.append(
                     (
                         str(exp.path),
@@ -963,8 +933,8 @@ class Registrator:
                         pool.map(lambda task: _registered_mean(*task), tasks)
                     )
             for fov_name, result in zip(missing, results):
-                self._registered_mean_cache[(fov_name, ch)] = result
-        return {f: self._registered_mean_cache[(f, ch)] for f in fov_names}
+                self._registered_mean_cache[(fov_name, ch, frames)] = result
+        return {f: self._registered_mean_cache[(f, ch, frames)] for f in fov_names}
 
     # ------------------------------------------------------------------
     # Drift diagnostics shortcut
@@ -997,8 +967,6 @@ class Registrator:
                 "mode": self.mode,
                 "rotation": self.rotation,
                 "roi": _json_value(self.roi),
-                "mean_n_frames": self.mean_n_frames,
-                "mean_from": self.mean_from,
                 "downsample": self.downsample,
                 "transform_convention": TRANSFORM_CONVENTION,
                 "fov_names": self.experiment.fov_names,
@@ -1026,7 +994,7 @@ class Registrator:
         return lineage.registration_fingerprint(self.tmats, self.rotation)
 
     def save(self) -> None:
-        """Write tmats, mean_images, and params to the companion zarr store, with the
+        """Write the transforms and params to the companion zarr store, with the
         source it was computed from.
         """
         if self._tmats is None:
@@ -1038,8 +1006,6 @@ class Registrator:
             "mode": self.mode,
             "rotation": self.rotation,
             "roi": self.roi,
-            "mean_n_frames": self.mean_n_frames,
-            "mean_from": self.mean_from,
             "downsample": self.downsample,
             "batch_size": self.batch_size,
             "fov_window": self.fov_window,
@@ -1050,7 +1016,6 @@ class Registrator:
         }
         self.store.save_registration(
             self._tmats,
-            self._mean_images,
             params,
             source_subset_metadata=self.experiment.source_subset_metadata,
             made_from={"source": lineage.source_fingerprint(self.experiment)},
@@ -1062,13 +1027,14 @@ class Registrator:
         cls,
         experiment: ND2Experiment,
         store: CompanionStore,
-        load_mean_images: bool = False,
     ) -> Registrator:
-        """Reconstruct a Registrator from a checkpoint."""
+        """Reconstruct a Registrator from a checkpoint. One registered to a mean of
+        frames (no longer offered) loads too, with ``mode`` ``"mean"``.
+        """
         if not store.has_registration():
             raise FileNotFoundError("No registration checkpoint found in store.")
 
-        data = store.load_registration(load_mean_images=load_mean_images)
+        data = store.load_registration()
         params = data["params"]
         if params.get("transform_convention") != TRANSFORM_CONVENTION:
             raise ValueError(
@@ -1080,11 +1046,9 @@ class Registrator:
             experiment=experiment,
             store=store,
             registration_channel=params["channel"],
-            mode=params["mode"],
+            mode="first" if params["mode"] == "mean" else params["mode"],
             rotation=params.get("rotation", 0.0),
             roi=params.get("roi"),
-            mean_n_frames=params.get("mean_n_frames", 10),
-            mean_from=params.get("mean_from", "end"),
             downsample=params.get("downsample", 1),
             batch_size=params.get("batch_size", 8),
             fov_window=params.get("fov_window", 1),
@@ -1099,9 +1063,8 @@ class Registrator:
                 )
             return array
 
+        reg.mode = params["mode"]
         reg._tmats = _str_fovs(data["tmats"])
-        if data["mean_images"] is not None:
-            reg._mean_images = _str_fovs(data["mean_images"])
         return reg
 
     def __repr__(self) -> str:

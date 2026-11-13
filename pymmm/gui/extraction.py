@@ -64,6 +64,7 @@ from qtpy.QtWidgets import (
 )
 
 from pymmm.plotting import contrast_limits
+from pymmm.steps.registration import DETECTION_MEAN, mean_frames
 from pymmm.store import lineage
 
 RAW_AXES = ("T", "P", "y", "x")
@@ -214,6 +215,24 @@ def _select(box: QComboBox, value: Any) -> None:
         box.setCurrentIndex(index)
 
 
+def _mean_controls():
+    """The detection image's settings: how many registered frames to average, and
+    which (:func:`pymmm.steps.registration.mean_frames`).
+    """
+    from pymmm.steps.registration import DETECTION_MEAN
+
+    n = _spin(DETECTION_MEAN["mean_n_frames"], 1, 100000)
+    where = _combo(
+        [
+            ("spread over the movie", "spread"),
+            ("the first", "start"),
+            ("the last", "end"),
+        ],
+        DETECTION_MEAN["mean_from"],
+    )
+    return n, where
+
+
 def _canvas(height: float = 2.4):
     """A matplotlib figure on a Qt canvas (not pyplot, so no global state)."""
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -262,6 +281,7 @@ class ExtractionDock(QWidget):
         self._mean_jobs: set[tuple[str, str]] = set()
         self._opened_file: Path | None = None
         self._opened_fields: tuple[str, ...] | None = None
+        self._legacy_mean = dict(DETECTION_MEAN)
         self.experiment_group: Path | None = None  # where extract() writes
         self.lineage: dict[str, str] = {}
 
@@ -379,7 +399,6 @@ class ExtractionDock(QWidget):
         self.mode = _combo(
             [
                 ("first frame", "first"),
-                ("mean of frames", "mean"),
                 ("last frame", "last"),
                 ("previous frame", "previous"),
             ],
@@ -389,8 +408,6 @@ class ExtractionDock(QWidget):
             [("stackreg", "stackreg"), ("opencv (fast)", "opencv")], "stackreg"
         )
         self.downsample = _spin(4, 1, 16)
-        self.mean_n_frames = _spin(10, 1, 500)
-        self.mean_from = _combo([("end", "end"), ("start", "start")], "end")
         self.batch_size = _spin(4, 1, 64)
         self.workers = _spin(0, 0, 256)
         self.workers.setSpecialValueText("one per core")
@@ -401,8 +418,6 @@ class ExtractionDock(QWidget):
         form.addRow("register to", self.mode)
         form.addRow("backend", self.backend)
         form.addRow("downsample", self.downsample)
-        form.addRow("mean of n frames", self.mean_n_frames)
-        form.addRow("mean from", self.mean_from)
         form.addRow("frames per task", self.batch_size)
         form.addRow("workers", self.workers)
         buttons = QHBoxLayout()
@@ -424,9 +439,9 @@ class ExtractionDock(QWidget):
         form.addRow(self.drift_canvas)
 
         self._rotation_timer = self._timer(self._on_registration_settings)
-        for box in (self.rotation, self.downsample, self.mean_n_frames):
+        for box in (self.rotation, self.downsample):
             box.valueChanged.connect(self._rotation_timer.start)
-        for box in (self.reg_channel, self.mode, self.backend, self.mean_from):
+        for box in (self.reg_channel, self.mode, self.backend):
             box.currentIndexChanged.connect(self._rotation_timer.start)
         for edit in (self.reg_y_edit, self.reg_x_edit):
             edit.editingFinished.connect(self._rotation_timer.start)
@@ -456,7 +471,10 @@ class ExtractionDock(QWidget):
             "auto",
         )
         self.lane_window = _dspin(20, 1, 100, 1)
+        self.lane_mean_n, self.lane_mean_from = _mean_controls()
         form.addRow("channel", self.det_channel)
+        form.addRow("mean of n frames", self.lane_mean_n)
+        form.addRow("frames from", self.lane_mean_from)
         form.addRow("lanes", self.lane_mode)
         form.addRow("sigma", self.lane_sigma)
         form.addRow("distance", self.lane_distance)
@@ -478,9 +496,10 @@ class ExtractionDock(QWidget):
             self.lane_distance,
             self.lane_height,
             self.lane_window,
+            self.lane_mean_n,
         ):
             box.valueChanged.connect(self._lane_timer.start)
-        for box in (self.lane_mode, self.lane_orientation):
+        for box in (self.lane_mode, self.lane_orientation, self.lane_mean_from):
             box.currentIndexChanged.connect(self._lane_timer.start)
         self.det_channel.currentIndexChanged.connect(self._lane_timer.start)
         return tab
@@ -504,6 +523,9 @@ class ExtractionDock(QWidget):
         self.trench_width = _spin(32, 1, 400)
         self.trench_length = _spin(160, 10, 10000, 5)
         self.trench_offset = _spin(50, -2000, 2000, 5)
+        self.trench_mean_n, self.trench_mean_from = _mean_controls()
+        form.addRow("mean of n frames", self.trench_mean_n)
+        form.addRow("frames from", self.trench_mean_from)
         form.addRow("method", self.trench_method)
         form.addRow("sigma", self.trench_sigma)
         form.addRow("distance", self.trench_distance)
@@ -535,9 +557,11 @@ class ExtractionDock(QWidget):
             self.trench_width,
             self.trench_length,
             self.trench_offset,
+            self.trench_mean_n,
         ):
             box.valueChanged.connect(self._trench_timer.start)
-        self.trench_method.currentIndexChanged.connect(self._trench_timer.start)
+        for box in (self.trench_method, self.trench_mean_from):
+            box.currentIndexChanged.connect(self._trench_timer.start)
         return tab
 
     def _preview_tab(self) -> QWidget:
@@ -651,9 +675,17 @@ class ExtractionDock(QWidget):
             )
         return int(saved) == box.value()
 
+    def _mean_matches(self, n_box, from_box, saved: dict) -> bool:
+        mean = self._saved_mean(saved)
+        return self._same(n_box, mean["mean_n_frames"]) and self._same(
+            from_box, mean["mean_from"]
+        )
+
     def _lanes_match(self) -> bool:
         saved = self.lane_detector.detection_params
         if self.det_channel.currentData() != self.lane_detector.channel:
+            return False
+        if not self._mean_matches(self.lane_mean_n, self.lane_mean_from, saved):
             return False
         edge = self.lane_mode.currentData()
         if edge is not None or saved.get("image_edge") is not None:
@@ -672,6 +704,8 @@ class ExtractionDock(QWidget):
     def _trenches_match(self) -> bool:
         saved = self.trench_detector.detection_params
         if self.det_channel.currentData() != self.trench_detector.channel:
+            return False
+        if not self._mean_matches(self.trench_mean_n, self.trench_mean_from, saved):
             return False
         return all(
             self._same(box, saved.get(key))
@@ -865,16 +899,26 @@ class ExtractionDock(QWidget):
             _select(self.mode, saved.get("mode"))
             _select(self.backend, saved.get("backend", "stackreg"))
             self.downsample.setValue(int(saved.get("downsample", 1)))
-            self.mean_n_frames.setValue(int(saved.get("mean_n_frames", 10)))
-            _select(self.mean_from, saved.get("mean_from", "end"))
             self.batch_size.setValue(int(saved.get("batch_size", 4)))
+            # lanes and trenches saved before they recorded their detection image
+            # used the registration's
+            self._legacy_mean = {
+                k: saved.get(k, v) for k, v in self._legacy_mean.items()
+            }
         if store.has_lane_detection():
             params = store.load_lane_detection()["params"]
             self._fill_lanes(params)
         if store.has_trench_detection():
             self._fill_trenches(store.load_trench_detection()["params"])
 
+    def _saved_mean(self, params: dict) -> dict[str, Any]:
+        """The detection image saved lanes or trenches were found on."""
+        return {k: params.get(k, v) for k, v in self._legacy_mean.items()}
+
     def _fill_lanes(self, params: dict) -> None:
+        mean = self._saved_mean(params)
+        self.lane_mean_n.setValue(int(mean["mean_n_frames"]))
+        _select(self.lane_mean_from, mean["mean_from"])
         _select(self.lane_mode, params.get("image_edge"))
         self.lane_sigma.setValue(float(params.get("sigma", 40)))
         self.lane_distance.setValue(float(params.get("distance", 300)))
@@ -883,6 +927,9 @@ class ExtractionDock(QWidget):
         self.lane_window.setValue(float(params.get("orientation_window_um", 20)))
 
     def _fill_trenches(self, params: dict) -> None:
+        mean = self._saved_mean(params)
+        self.trench_mean_n.setValue(int(mean["mean_n_frames"]))
+        _select(self.trench_mean_from, mean["mean_from"])
         _select(self.trench_method, params.get("method", "peaks"))
         self.trench_sigma.setValue(float(params.get("sigma", 4)))
         self.trench_distance.setValue(float(params.get("distance", 100)))
@@ -1004,8 +1051,6 @@ class ExtractionDock(QWidget):
             # as the box shows it: stepping leaves residue (-1.9000000000000006)
             rotation=round(self.rotation.value(), self.rotation.decimals()),
             roi=roi,
-            mean_n_frames=self.mean_n_frames.value(),
-            mean_from=self.mean_from.currentData(),
             backend=self.backend.currentData(),
             downsample=self.downsample.value(),
             batch_size=self.batch_size.value(),
@@ -1146,7 +1191,7 @@ class ExtractionDock(QWidget):
             self._cancel.set()
             self._say("Cancelling: the batches already running finish first…")
 
-    def _with_mean(self, fov: str, then) -> None:
+    def _with_mean(self, fov: str, then, mean: dict[str, Any]) -> None:
         """``then(fov, image)`` with the FOV's registered mean, the detection image,
         computed in the background the first time (about a second).
         """
@@ -1154,7 +1199,8 @@ class ExtractionDock(QWidget):
         channel = self.det_channel.currentData()
         if registrator is None or channel is None:
             return
-        key = (fov, channel)
+        frames = tuple(mean_frames(self.experiment.n_timepoints, **mean))
+        key = (fov, channel, frames)
         if key in registrator._registered_mean_cache:
             then(fov, registrator._registered_mean_cache[key])
             return
@@ -1164,7 +1210,10 @@ class ExtractionDock(QWidget):
 
         self._mean_jobs.add(key)
         worker = create_worker(
-            registrator.get_registered_mean_of_timestack, fov=fov, channel=channel
+            registrator.get_registered_mean_of_timestack,
+            fov=fov,
+            channel=channel,
+            **mean,
         )
 
         def ready(image: np.ndarray) -> None:
@@ -1252,6 +1301,18 @@ class ExtractionDock(QWidget):
     # Lanes
     # ------------------------------------------------------------------
 
+    def _lane_mean(self) -> dict[str, Any]:
+        return {
+            "mean_n_frames": self.lane_mean_n.value(),
+            "mean_from": self.lane_mean_from.currentData(),
+        }
+
+    def _trench_mean(self) -> dict[str, Any]:
+        return {
+            "mean_n_frames": self.trench_mean_n.value(),
+            "mean_from": self.trench_mean_from.currentData(),
+        }
+
     def _lane_settings(self) -> dict[str, Any]:
         return {
             "sigma": self.lane_sigma.value(),
@@ -1276,7 +1337,7 @@ class ExtractionDock(QWidget):
             self.lane_window,
         ):
             box.setEnabled(edge is None)
-        self._with_mean(fov, self._draw_lanes)
+        self._with_mean(fov, self._draw_lanes, self._lane_mean())
 
     def _draw_lanes(self, fov: str, image: np.ndarray) -> None:
         from pymmm import LaneDetector
@@ -1340,6 +1401,7 @@ class ExtractionDock(QWidget):
 
         edge = self.lane_mode.currentData()
         settings = self._lane_settings()
+        mean = self._lane_mean()
         detector = LaneDetector(
             self.experiment,
             self.registrator,
@@ -1350,9 +1412,9 @@ class ExtractionDock(QWidget):
 
         def job():
             if edge is None:
-                detector.detect_lanes(**settings, save_diagnostics=True)
+                detector.detect_lanes(**settings, **mean, save_diagnostics=True)
             else:
-                detector.use_image_edge(edge, save_diagnostics=True)
+                detector.use_image_edge(edge, save_diagnostics=True, **mean)
             store.clear("lane_detection", "trench_detection")
             detector.save()
             return detector
@@ -1437,7 +1499,7 @@ class ExtractionDock(QWidget):
         self.trench_prominence.setEnabled(not periodic)
         self.trench_pitch.setEnabled(periodic)
         self.trench_symmetry.setEnabled(periodic)
-        self._with_mean(fov, self._draw_trenches)
+        self._with_mean(fov, self._draw_trenches, self._trench_mean())
 
     def _draw_trenches(self, fov: str, image: np.ndarray) -> None:
         from pymmm.widgets.trenches import _plot_lane_profile
@@ -1482,9 +1544,10 @@ class ExtractionDock(QWidget):
         """Detect the trenches of every FOV with the tab's settings and save them."""
         detector = self._trench_detector()
         settings = self._trench_settings()
+        mean = self._trench_mean()
 
         def job():
-            detector.detect_trenches(**settings, save_diagnostics=True)
+            detector.detect_trenches(**settings, **mean, save_diagnostics=True)
             detector.save()
             return detector
 

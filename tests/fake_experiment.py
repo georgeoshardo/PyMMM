@@ -418,8 +418,8 @@ def fov_experiment(tmp_path, fovs):
 def fov_registrator(images):
     """A Registrator whose registered means are ``images`` (by FOV)."""
     return SimpleNamespace(
-        get_registered_mean_of_timestack=lambda fov, channel: images[fov],
-        compute_registered_means=lambda fovs=None, channel=None: {
+        get_registered_mean_of_timestack=lambda fov, channel, **mean: images[fov],
+        compute_registered_means=lambda fovs=None, channel=None, **mean: {
             f: images[f] for f in (fovs or list(images))
         },
     )

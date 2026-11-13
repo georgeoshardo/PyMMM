@@ -64,18 +64,53 @@ def slider(
 
 
 class MeanImages:
-    """A registrator's registered mean image of each FOV, computed once."""
+    """A registrator's detection images (the mean of registered frames) of each FOV,
+    each computed once.
+    """
 
     def __init__(self, registrator: Any, channel: str) -> None:
         self.registrator, self.channel = registrator, channel
-        self._images: dict[str, np.ndarray] = {}
+        self._images: dict[tuple, np.ndarray] = {}
 
-    def __call__(self, fov: str) -> np.ndarray:
-        if fov not in self._images:
-            self._images[fov] = self.registrator.get_registered_mean_of_timestack(
-                fov=fov, channel=self.channel
+    def __call__(self, fov: str, mean_n_frames: int, mean_from: str) -> np.ndarray:
+        key = (fov, mean_n_frames, mean_from)
+        if key not in self._images:
+            self._images[key] = self.registrator.get_registered_mean_of_timestack(
+                fov=fov,
+                channel=self.channel,
+                mean_n_frames=mean_n_frames,
+                mean_from=mean_from,
             )
-        return self._images[fov]
+        return self._images[key]
+
+
+def mean_controls(params: dict[str, Any]) -> tuple[Any, Any]:
+    """The detection image's controls: "mean of n frames" and "frames from", set to
+    ``params`` (a detection's saved settings) or the defaults.
+    """
+    import ipywidgets as widgets
+
+    from pymmm.steps.registration import DETECTION_MEAN
+
+    n = slider(
+        "int",
+        "mean of n frames",
+        params.get("mean_n_frames", DETECTION_MEAN["mean_n_frames"]),
+        1,
+        500,
+        1,
+    )
+    where = widgets.Dropdown(
+        options=[
+            ("spread over the movie", "spread"),
+            ("the first", "start"),
+            ("the last", "end"),
+        ],
+        value=params.get("mean_from", DETECTION_MEAN["mean_from"]),
+        description="frames from",
+        style=STYLE,
+    )
+    return n, where
 
 
 def overlay_luts(

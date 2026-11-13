@@ -92,8 +92,6 @@ def test_registration(pipeline):
         ),
         ("registration_first_opencv", {"backend": "opencv"}, "pool"),
         ("registration_first_opencv", {"backend": "opencv"}, "dask"),
-        ("registration_mean", {"mode": "mean"}, "serial"),
-        ("registration_mean", {"mode": "mean"}, "dask"),
         ("registration_frame3", {"mode": 3}, "serial"),
         ("registration_previous", {"mode": "previous"}, "serial"),
         ("registration_previous", {"mode": "previous"}, "pool"),
@@ -111,8 +109,9 @@ def test_registered_images(pipeline, request, path):
     """The registered means detection runs on, a stabilised stack and a warped frame."""
     run_on(path, request)
     reg = Registrator.load(pipeline.exp, pipeline.store)  # nothing cached
-    means = reg.compute_registered_means(channel="PC")
-    reg.compute_mean_images()
+    means = reg.compute_registered_means(
+        channel="PC", mean_n_frames=10, mean_from="end"
+    )
     stabilised = reg.get_stabilized_data(
         channel="mCherry", fov="XYPos:5", time_slice=slice(3, 5)
     )
@@ -121,9 +120,10 @@ def test_registered_images(pipeline, request, path):
         {
             "registered_means_PC": {fov: digest(image) for fov, image in means.items()},
             "registered_mean_mVenus": digest(
-                reg.get_registered_mean_of_timestack(1, "mVenus")
+                reg.get_registered_mean_of_timestack(
+                    1, "mVenus", mean_n_frames=10, mean_from="end"
+                )
             ),
-            "mean_images": digest(reg.mean_images.values),
             "stabilized_mCherry_XYPos5_t3_5": {
                 "dims": list(stabilised.dims),
                 "data": digest(stabilised.values),
@@ -174,8 +174,6 @@ def test_checkpoints(pipeline):
         "mode",
         "rotation",
         "roi",
-        "mean_n_frames",
-        "mean_from",
         "downsample",
         "batch_size",
         "fov_window",

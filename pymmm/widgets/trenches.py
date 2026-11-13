@@ -6,7 +6,14 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from pymmm.widgets._common import STYLE, MeanImages, overlay_viewer, show, slider
+from pymmm.widgets._common import (
+    STYLE,
+    MeanImages,
+    mean_controls,
+    overlay_viewer,
+    show,
+    slider,
+)
 
 if TYPE_CHECKING:
     from pymmm.steps.trenches import TrenchDetector
@@ -36,6 +43,7 @@ def trench_widget(detector: TrenchDetector) -> None:
         value=experiment.fov_names[0],
         description="FOV",
     )
+    mean_slider, mean_select = mean_controls(params)
     lane_controls = widgets.VBox()
     method_select = widgets.Dropdown(
         options=[
@@ -251,7 +259,7 @@ def trench_widget(detector: TrenchDetector) -> None:
     def _update(_change: Any = None) -> None:
         _sync_method_controls()
         fov = fov_select.value
-        mean_img = mean_image(fov)
+        mean_img = mean_image(fov, mean_slider.value, mean_select.value)
         fov_trenches, lane_profiles, _ = detector.detect_fov(
             mean_img, fov, **_settings()
         )
@@ -306,7 +314,11 @@ def trench_widget(detector: TrenchDetector) -> None:
 
     def _on_apply(_btn: Any) -> None:
         status_label.value = "<b>Applying…</b>"
-        detector.detect_trenches(**_settings())
+        detector.detect_trenches(
+            **_settings(),
+            mean_n_frames=mean_slider.value,
+            mean_from=mean_select.value,
+        )
         status_label.value = (
             f"<b>Applied</b> — {detector.n_trenches} trenches across "
             f"{len(detector.trenches)} FOVs"
@@ -315,6 +327,8 @@ def trench_widget(detector: TrenchDetector) -> None:
     apply_btn.on_click(_on_apply)
     fov_select.observe(_rebuild_lane_controls, names="value")
     for w in [
+        mean_slider,
+        mean_select,
         sigma_slider,
         distance_slider,
         prominence_slider,
@@ -330,6 +344,8 @@ def trench_widget(detector: TrenchDetector) -> None:
     show(
         [
             fov_select,
+            mean_slider,
+            mean_select,
             method_select,
             sigma_slider,
             distance_slider,

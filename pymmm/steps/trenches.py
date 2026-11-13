@@ -16,7 +16,7 @@ from scipy.stats import theilslopes
 from pymmm._utils import mean_without_fill, normalize_channel_arg, normalize_fov_arg
 from pymmm.source.nd2 import ND2Experiment
 from pymmm.steps.lanes import LaneDetector
-from pymmm.steps.registration import Registrator
+from pymmm.steps.registration import DETECTION_MEAN, Registrator
 from pymmm.store import lineage
 from pymmm.store.companion import CompanionStore
 
@@ -301,6 +301,14 @@ class TrenchDetector:
         """The settings of the last detection (or the saved one)."""
         return copy.deepcopy(self._detection_params)
 
+    @property
+    def detection_image(self) -> dict[str, Any]:
+        """The detection image the trenches were found on (``mean_n_frames``,
+        ``mean_from``); the default for trenches saved without it.
+        """
+        params = self._detection_params
+        return {k: params.get(k, v) for k, v in DETECTION_MEAN.items()}
+
     def shape_defaults(self) -> dict[str, int]:
         """The default ``trench_length`` and ``trench_bottom_offset``: the image's whole
         height when the lanes are its edge (:meth:`LaneDetector.use_image_edge`), else
@@ -491,6 +499,8 @@ class TrenchDetector:
         method: str = "peaks",
         expected_pitch: float = 0,
         min_symmetry: float = 0.1,
+        mean_n_frames: int = DETECTION_MEAN["mean_n_frames"],
+        mean_from: str = DETECTION_MEAN["mean_from"],
     ) -> None:
         """Detect trench x-positions in all FOVs and lanes.
 
@@ -544,6 +554,10 @@ class TrenchDetector:
         min_symmetry : float
             Periodic method: drop centres whose symmetry score (0-1) is lower,
             e.g. where a trench is missing.
+        mean_n_frames, mean_from : int, str
+            The detection image: the mean of this many registered frames, spread
+            over the experiment (``"spread"``) or from its ``"start"`` or ``"end"``
+            (:func:`pymmm.steps.registration.mean_frames`).
         """
         if method not in ("peaks", "periodic"):
             raise ValueError(f"method must be 'peaks' or 'periodic', not {method!r}")
@@ -570,7 +584,9 @@ class TrenchDetector:
         trench_counter = 0
         self.outside = {}
 
-        mean_images = self.registrator.compute_registered_means(channel=self.channel)
+        mean_images = self.registrator.compute_registered_means(
+            channel=self.channel, mean_n_frames=mean_n_frames, mean_from=mean_from
+        )
         for fov in self.experiment.fov_names:
             mean_img = mean_images[fov]
             fov_trenches, profiles, trench_counter = self.detect_fov(
@@ -607,6 +623,8 @@ class TrenchDetector:
             "method": method,
             "expected_pitch": expected_pitch,
             "min_symmetry": min_symmetry,
+            "mean_n_frames": mean_n_frames,
+            "mean_from": mean_from,
             "lane_params": {
                 int(lane_idx): values.copy()
                 for lane_idx, values in (lane_params or {}).items()
@@ -660,8 +678,7 @@ class TrenchDetector:
 
         diag_dir = get_diagnostics_dir(self.experiment.path, "trenches")
         mean_images = self.registrator.compute_registered_means(
-            list(self._trenches),
-            self.channel,
+            list(self._trenches), self.channel, **self.detection_image
         )
         save_figures(
             plot_fov_with_trenches,
@@ -688,7 +705,7 @@ class TrenchDetector:
 
         fov_name = normalize_fov_arg(fov, self.experiment.fov_names)
         mean_img = self.registrator.get_registered_mean_of_timestack(
-            fov=fov_name, channel=self.channel
+            fov=fov_name, channel=self.channel, **self.detection_image
         )
         fov_trenches = self._trenches.get(fov_name, [])
         plot_fov_with_trenches(

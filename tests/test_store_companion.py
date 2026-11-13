@@ -61,8 +61,6 @@ def test_companion_store_round_trips_checkpoints(tmp_path):
         "mode": "first",
         "rotation": 0.0,
         "roi": {"y": (250, 860)},
-        "mean_n_frames": 10,
-        "mean_from": "end",
         "downsample": 2,
         "batch_size": 4,
         "fov_window": 2,
@@ -78,11 +76,6 @@ def test_companion_store_round_trips_checkpoints(tmp_path):
             "row": [0, 1, 2],
             "col": [0, 1, 2],
         },
-    )
-    registrator._mean_images = xr.DataArray(
-        np.ones((2, 4, 5)),
-        dims=("P", "Y", "X"),
-        coords={"P": experiment.fov_names},
     )
     registrator.save()
 
@@ -110,10 +103,9 @@ def test_companion_store_round_trips_checkpoints(tmp_path):
     assert zarr_attrs["params"]["roi"] == {"y": [250, 860]}  # native JSON, not a string
     assert repr(store).endswith("[registration, lane_detection, trench_detection])")
 
-    loaded = Registrator.load(experiment, store, load_mean_images=True)
+    loaded = Registrator.load(experiment, store)
     np.testing.assert_array_equal(loaded.tmats.sel(P="XYPos:1").values, tmats[1])
     assert loaded.tmats.coords["T"].values.tolist() == [0.0, 60000.0, 120000.0]
-    assert loaded.mean_images.dims == ("P", "Y", "X")
     assert loaded.downsample == 2
 
     loaded_lanes = LaneDetector.load(experiment, loaded, store)

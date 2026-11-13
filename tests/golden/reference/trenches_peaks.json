@@ -4,6 +4,8 @@
   "expected_pitch": 0.0,
   "height": 0,
   "lane_params": {},
+  "mean_from": "end",
+  "mean_n_frames": 10,
   "method": "peaks",
   "min_symmetry": 0.1,
   "prominence": 10.0,

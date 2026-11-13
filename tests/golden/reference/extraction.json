@@ -584,6 +584,8 @@
      "params": {
       "distance": 1000.0,
       "height": 5000.0,
+      "mean_from": "end",
+      "mean_n_frames": 10,
       "orientation": "down",
       "orientation_window_um": 20.0,
       "sigma": 48.0
@@ -597,6 +599,8 @@
       "expected_pitch": 0.0,
       "height": 0,
       "lane_params": {},
+      "mean_from": "end",
+      "mean_n_frames": 10,
       "method": "periodic",
       "min_symmetry": 0.1,
       "prominence": 10.0,
@@ -666,8 +670,6 @@
     "description": "Registration transforms per FOV and timepoint, before rotation. shift is the translation part of tmats (y = [1, 2], x = [0, 2]).",
     "downsample": 4,
     "layout": "registration",
-    "mean_from": "end",
-    "mean_n_frames": 10,
     "mode": "first",
     "roi": "{\"y\": [250, 800]}",
     "rotation": 0.0,

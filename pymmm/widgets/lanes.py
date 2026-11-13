@@ -6,7 +6,14 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from pymmm.widgets._common import STYLE, MeanImages, overlay_viewer, show, slider
+from pymmm.widgets._common import (
+    STYLE,
+    MeanImages,
+    mean_controls,
+    overlay_viewer,
+    show,
+    slider,
+)
 
 if TYPE_CHECKING:
     from pymmm.steps.lanes import LaneDetector
@@ -32,6 +39,7 @@ def lane_widget(detector: LaneDetector) -> None:
         value=experiment.fov_names[0],
         description="FOV",
     )
+    mean_slider, mean_select = mean_controls(params)
     sigma_slider = slider("float", "sigma", params.get("sigma", 40), 0, 200, 1)
     distance_slider = slider(
         "float", "distance", params.get("distance", 300), 10, 1000, 10
@@ -71,7 +79,7 @@ def lane_widget(detector: LaneDetector) -> None:
 
     def _update(_change: Any = None) -> None:
         fov = fov_select.value
-        mean_img = mean_image(fov)
+        mean_img = mean_image(fov, mean_slider.value, mean_select.value)
         y_profile, y_profile_smooth, peaks, fov_lanes = detector.detect_fov(
             mean_img,
             sigma_slider.value,
@@ -125,6 +133,8 @@ def lane_widget(detector: LaneDetector) -> None:
             height=height_slider.value,
             orientation_window_um=orientation_slider.value,
             orientation=orientation_select.value,
+            mean_n_frames=mean_slider.value,
+            mean_from=mean_select.value,
         )
         lanes = detector.lanes
         total = sum(len(v) for v in lanes.values())
@@ -133,6 +143,8 @@ def lane_widget(detector: LaneDetector) -> None:
     apply_btn.on_click(_on_apply)
     for w in [
         fov_select,
+        mean_slider,
+        mean_select,
         sigma_slider,
         distance_slider,
         height_slider,
@@ -144,6 +156,8 @@ def lane_widget(detector: LaneDetector) -> None:
     show(
         [
             fov_select,
+            mean_slider,
+            mean_select,
             sigma_slider,
             distance_slider,
             height_slider,

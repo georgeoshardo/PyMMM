@@ -14,7 +14,7 @@ from scipy.signal import find_peaks
 
 from pymmm._utils import mean_without_fill, normalize_channel_arg, normalize_fov_arg
 from pymmm.source.nd2 import ND2Experiment
-from pymmm.steps.registration import Registrator
+from pymmm.steps.registration import DETECTION_MEAN, Registrator
 from pymmm.store import lineage
 from pymmm.store.companion import CompanionStore
 
@@ -84,6 +84,14 @@ class LaneDetector:
     def detection_params(self) -> dict[str, Any]:
         """The settings of the last detection (or the saved one)."""
         return dict(self._detection_params)
+
+    @property
+    def detection_image(self) -> dict[str, Any]:
+        """The detection image the lanes were found on (``mean_n_frames``,
+        ``mean_from``); the default for lanes saved without it.
+        """
+        params = self._detection_params
+        return {k: params.get(k, v) for k, v in DETECTION_MEAN.items()}
 
     @property
     def image_edge(self) -> str | None:
@@ -167,11 +175,14 @@ class LaneDetector:
         orientation: str = "auto",
         plot: bool = False,
         save_diagnostics: bool = True,
+        mean_n_frames: int = DETECTION_MEAN["mean_n_frames"],
+        mean_from: str = DETECTION_MEAN["mean_from"],
     ) -> None:
         """Detect lane y-positions in all FOVs.
 
         Algorithm:
-        1. Get registered mean-of-timestack for detection channel.
+        1. The detection image: the mean of registered frames (``mean_n_frames``,
+           ``mean_from``).
         2. Average along X → 1-D y-profile.
         3. Gaussian smoothing.
         4. ``find_peaks()`` → lane centre positions.
@@ -197,6 +208,10 @@ class LaneDetector:
         save_diagnostics : bool
             Save a lane overlay for every FOV to the ``lanes`` diagnostics
             folder (see :meth:`save_diagnostics`).
+        mean_n_frames, mean_from : int, str
+            The detection image: the mean of this many registered frames, spread
+            over the experiment (``"spread"``) or from its ``"start"`` or ``"end"``
+            (:func:`pymmm.steps.registration.mean_frames`).
         """
         if orientation not in ("auto", *_FORCED_ORIENTATION):
             raise ValueError(
@@ -204,7 +219,9 @@ class LaneDetector:
             )
         lanes: dict[str, list[LaneInfo]] = {}
 
-        mean_images = self.registrator.compute_registered_means(channel=self.channel)
+        mean_images = self.registrator.compute_registered_means(
+            channel=self.channel, mean_n_frames=mean_n_frames, mean_from=mean_from
+        )
         for fov in self.experiment.fov_names:
             mean_img = mean_images[fov]
             _, _, _, fov_lanes = self.detect_fov(
@@ -225,6 +242,8 @@ class LaneDetector:
             "height": height,
             "orientation_window_um": orientation_window_um,
             "orientation": orientation,
+            "mean_n_frames": mean_n_frames,
+            "mean_from": mean_from,
         }
 
         print(
@@ -238,7 +257,11 @@ class LaneDetector:
             self.plot_fov(self.experiment.fov_names[0])
 
     def use_image_edge(
-        self, opening: str = "down", save_diagnostics: bool = True
+        self,
+        opening: str = "down",
+        save_diagnostics: bool = True,
+        mean_n_frames: int = DETECTION_MEAN["mean_n_frames"],
+        mean_from: str = DETECTION_MEAN["mean_from"],
     ) -> None:
         """No lane detection: one lane per FOV, on the image's edge where its trenches
         open. For an image cropped to its trenches (``ND2Experiment.select_roi``, the
@@ -253,6 +276,9 @@ class LaneDetector:
             default (:meth:`TrenchDetector.shape_defaults`).
         save_diagnostics : bool
             Save the lane overlays, as :meth:`detect_lanes` does.
+        mean_n_frames, mean_from : int, str
+            The detection image the overlays and trench detection show (recorded;
+            the lanes themselves don't need one).
         """
         if opening not in _FORCED_ORIENTATION:
             raise ValueError(f"opening must be 'down' or 'up', not {opening!r}")
@@ -268,7 +294,11 @@ class LaneDetector:
             ]
             for fov in self.experiment.fov_names
         }
-        self._detection_params = {"image_edge": opening}
+        self._detection_params = {
+            "image_edge": opening,
+            "mean_n_frames": mean_n_frames,
+            "mean_from": mean_from,
+        }
         edge = "bottom" if opening == "down" else "top"
         print(
             f"Lanes: the image's {edge} edge (y = {y}) in every FOV; the trenches open "
@@ -284,7 +314,7 @@ class LaneDetector:
 
         diag_dir = get_diagnostics_dir(self.experiment.path, "lanes")
         mean_images = self.registrator.compute_registered_means(
-            list(self.lanes), self.channel
+            list(self.lanes), self.channel, **self.detection_image
         )
         save_figures(
             plot_fov_with_lanes,
@@ -312,7 +342,7 @@ class LaneDetector:
 
         fov_name = normalize_fov_arg(fov, self.experiment.fov_names)
         mean_img = self.registrator.get_registered_mean_of_timestack(
-            fov=fov_name, channel=self.channel
+            fov=fov_name, channel=self.channel, **self.detection_image
         )
         fov_lanes = self.lanes[fov_name]
         plot_fov_with_lanes(

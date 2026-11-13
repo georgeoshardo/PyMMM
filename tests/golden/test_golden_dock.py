@@ -110,8 +110,6 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     _choose(dock.mode, REGISTRATION["mode"])
     _choose(dock.backend, REGISTRATION["backend"])
     dock.downsample.setValue(REGISTRATION["downsample"])
-    dock.mean_n_frames.setValue(REGISTRATION["mean_n_frames"])
-    _choose(dock.mean_from, REGISTRATION["mean_from"])
     dock.batch_size.setValue(REGISTRATION["batch_size"])
     dock.workers.setValue(2)
     dock.register_button.click()
@@ -132,6 +130,8 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     # Lanes: the preview on the FOV shown, then every FOV
     viewer.dims.current_step = (0, 1, 0, 0)
     dock.tabs.setCurrentIndex(2)
+    dock.lane_mean_n.setValue(LANES["mean_n_frames"])
+    _choose(dock.lane_mean_from, LANES["mean_from"])
     dock.lane_sigma.setValue(LANES["sigma"])
     dock.lane_distance.setValue(LANES["distance"])
     dock.lane_height.setValue(LANES["height"])
@@ -150,6 +150,8 @@ def test_dock_reproduces_the_golden_detection_and_preview(
 
     # Trenches
     dock.tabs.setCurrentIndex(3)
+    dock.trench_mean_n.setValue(TRENCHES["mean_n_frames"])
+    _choose(dock.trench_mean_from, TRENCHES["mean_from"])
     _choose(dock.trench_method, TRENCHES["method"])
     dock.trench_sigma.setValue(TRENCHES["sigma"])
     dock.trench_distance.setValue(TRENCHES["distance"])

@@ -643,8 +643,6 @@ class Extractor:
                 "mode": str(reg.mode),
                 "rotation": reg.rotation,
                 "roi": json.dumps(getattr(reg, "roi", None) or {}, default=str),
-                "mean_n_frames": getattr(reg, "mean_n_frames", None),
-                "mean_from": getattr(reg, "mean_from", None),
                 "downsample": getattr(reg, "downsample", None),
                 "transform_convention": TRANSFORM_CONVENTION,
             },

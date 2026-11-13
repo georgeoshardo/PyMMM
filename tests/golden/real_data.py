@@ -29,8 +29,6 @@ REGISTRATION = {
     "mode": "first",
     "rotation": 0.0,
     "roi": {"y": (250, 800)},
-    "mean_n_frames": 10,
-    "mean_from": "end",
     "backend": "stackreg",
     "downsample": 4,
     "batch_size": 4,
@@ -43,6 +41,9 @@ LANES = {
     "height": 5000.0,
     "orientation_window_um": 20.0,
     "orientation": "down",
+    # the detection image the experiment's lanes and trenches were found on
+    "mean_n_frames": 10,
+    "mean_from": "end",
 }
 TRENCHES = {
     "sigma": 4.0,
@@ -55,6 +56,8 @@ TRENCHES = {
     "method": "periodic",
     "expected_pitch": 0.0,
     "min_symmetry": 0.1,
+    "mean_n_frames": 10,
+    "mean_from": "end",
 }
 EXTRACTION = {"clevel": 3, "byte_shuffle": True, "batch_size": 4, "time_chunk": None}
 

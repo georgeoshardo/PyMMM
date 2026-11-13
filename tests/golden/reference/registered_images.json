@@ -1,12 +1,4 @@
 {
- "mean_images": {
-  "dtype": "<f8",
-  "max": 45446.5,
-  "min": 2313.4,
-  "sha256": "c4f2dbf0d34bce2419cc822fc7f328deca46098765157b991bdca0606a791614",
-  "shape": [2, 1560, 2304],
-  "sum": 36896362959.299995
- },
  "registered_mean_mVenus": {
   "dtype": "<f8",
   "max": 577.9,

@@ -68,7 +68,7 @@ class CompanionStore:
 
         experiment_name.pymmm.zarr/
         ├── zarr.json             # source ND2 identity, creation time
-        ├── registration/         # tmats (P, T, row, col), mean_images (P, Y, X)
+        ├── registration/         # tmats (P, T, row, col)
         ├── lane_detection/       # Lane-indexed table: fov, lane_index, y_center, orientation
         └── trench_detection/     # Trench-indexed table: fov, lane_index, edges, orientation
     """
@@ -164,7 +164,6 @@ class CompanionStore:
     def save_registration(
         self,
         tmats: xr.DataArray,
-        mean_images: xr.DataArray | None,
         params: dict[str, Any],
         source_subset_metadata: dict[str, Any] | None = None,
         made_from: dict[str, str | None] | None = None,
@@ -175,8 +174,6 @@ class CompanionStore:
         ----------
         tmats : xr.DataArray
             Transformation matrices with dims ``(P, T, row, col)``.
-        mean_images : xr.DataArray | None
-            Optional mean reference images with dims ``(P, Y, X)``.
         params : dict
             Registration parameters for reproducibility.
         source_subset_metadata : dict | None
@@ -184,10 +181,7 @@ class CompanionStore:
         made_from : dict | None
             Fingerprints of what it was made from (:mod:`pymmm.store.lineage`).
         """
-        data_vars = {"tmats": tmats.astype("float64")}
-        if mean_images is not None and mean_images.size > 0:
-            data_vars["mean_images"] = mean_images.astype("float64")
-        dataset = xr.Dataset(data_vars)
+        dataset = xr.Dataset({"tmats": tmats.astype("float64")})
         dataset["tmats"].attrs["long_name"] = "registration transform (3x3 affine)"
         self._write_section(
             "registration",
@@ -197,24 +191,16 @@ class CompanionStore:
             extra_attrs={"made_from": made_from},
         )
 
-    def load_registration(self, load_mean_images: bool = True) -> dict[str, Any]:
+    def load_registration(self) -> dict[str, Any]:
         """Load registration checkpoint.
 
         Returns
         -------
         dict
-            Keys: ``"tmats"`` (xr.DataArray), ``"mean_images"``
-            (xr.DataArray or None), ``"params"`` (dict).
+            Keys: ``"tmats"`` (xr.DataArray) and ``"params"`` (dict).
         """
         dataset = self._open_section("registration")
-        mean_images = None
-        if load_mean_images and "mean_images" in dataset:
-            mean_images = dataset["mean_images"].load()
-        return {
-            "tmats": dataset["tmats"].load(),
-            "mean_images": mean_images,
-            "params": dataset.attrs["params"],
-        }
+        return {"tmats": dataset["tmats"].load(), "params": dataset.attrs["params"]}
 
     def load_registration_params(self) -> dict[str, Any]:
         """Load registration parameters without reading image arrays."""
@@ -395,7 +381,7 @@ class CompanionStore:
         """The fingerprint of each section's result as saved; None for one missing."""
         found: dict[str, str | None] = dict.fromkeys(_SECTIONS)
         if self.has_registration():
-            saved = self.load_registration(load_mean_images=False)
+            saved = self.load_registration()
             found["registration"] = lineage.registration_fingerprint(
                 saved["tmats"], saved["params"].get("rotation", 0.0)
             )

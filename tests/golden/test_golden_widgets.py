@@ -22,6 +22,8 @@ LANE_CONTROLS = {
     "height": "height",
     "orientation_window_um": "orient. window (µm)",
     "orientation": "orientation",
+    "mean_n_frames": "mean of n frames",
+    "mean_from": "frames from",
 }
 TRENCH_CONTROLS = {
     "method": "method",
@@ -33,6 +35,8 @@ TRENCH_CONTROLS = {
     "trench_bottom_offset": "bottom offset",
     "expected_pitch": "expected pitch (0 = auto)",
     "min_symmetry": "min symmetry",
+    "mean_n_frames": "mean of n frames",
+    "mean_from": "frames from",
 }
 
 
