@@ -91,9 +91,8 @@ def channel_colormap(name: str) -> str:
 
 
 def coordinate_grid(viewer):
-    """The viewer's coordinate grid overlay (napari 0.10 and later), or None."""
-    overlays = getattr(getattr(viewer, "scene", None), "overlays", None)
-    return getattr(overlays, "coordinate_grid", None)
+    """The viewer's coordinate grid overlay."""
+    return viewer.scene.overlays.coordinate_grid
 
 
 def show_coordinate_grid(viewer) -> None:
@@ -101,9 +100,7 @@ def show_coordinate_grid(viewer) -> None:
     lanes and crops are, to read off for the settings. View → Coordinate Grid turns it
     off again.
     """
-    grid = coordinate_grid(viewer)
-    if grid is not None:
-        grid.visible = True
+    coordinate_grid(viewer).visible = True
 
 
 def set_units(layers, unit: str, pixel_size_um: float) -> None:
@@ -130,7 +127,7 @@ def keep_view(viewer, layers, unit: str, pixel_size_um: float) -> None:
     factor = float(layers[0].scale[-1]) / before
     if factor == 1:
         return
-    camera = viewer.camera
+    camera = viewer.scene.camera
     centre = list(camera.center)
     centre[-2:] = [centre[-2] * factor, centre[-1] * factor]
     camera.center = tuple(centre)
@@ -353,19 +350,11 @@ class ExtractionDock(QWidget):
         layout.addWidget(self.view_box)
         layout.addWidget(self.status)
         grid = coordinate_grid(self.viewer)
-        if grid is None:
-            self.grid_box.hide()  # napari before 0.10
-        else:
-            show_coordinate_grid(self.viewer)
-            self.grid_box.setChecked(grid.visible)
-            self.grid_box.toggled.connect(lambda on: setattr(grid, "visible", on))
-            # View → Coordinate Grid toggles it too
-            # (napari's events pass the new value; older ones an event holding it)
-            grid.events.visible.connect(
-                lambda value: self.grid_box.setChecked(
-                    bool(getattr(value, "value", value))
-                )
-            )
+        show_coordinate_grid(self.viewer)
+        self.grid_box.setChecked(grid.visible)
+        self.grid_box.toggled.connect(lambda on: setattr(grid, "visible", on))
+        # View → Coordinate Grid toggles it too
+        grid.events.visible.connect(self.grid_box.setChecked)
         self._enable()
 
     def _experiment_tab(self) -> QWidget:

@@ -99,13 +99,12 @@ def test_dock_reproduces_the_golden_detection_and_preview(
         "PC (rotated, not registered)",
     ]
     assert viewer.dims.axis_labels == ("T", "P", "y", "x")
-    grid = coordinate_grid(viewer)
-    if grid is not None:  # napari 0.10 and later: on, and the dock's box turns it off
-        assert grid.visible and dock.grid_box.isChecked()
-        dock.grid_box.setChecked(False)
-        assert not grid.visible
-        grid.visible = True  # View → Coordinate Grid
-        assert dock.grid_box.isChecked()
+    grid = coordinate_grid(viewer)  # on, and the dock's box turns it off
+    assert grid.visible and dock.grid_box.isChecked()
+    dock.grid_box.setChecked(False)
+    assert not grid.visible
+    grid.visible = True  # View → Coordinate Grid
+    assert dock.grid_box.isChecked()
 
     # Register, in a process pool
     _choose(dock.reg_channel, REGISTRATION["registration_channel"])
@@ -262,19 +261,21 @@ def test_dock_reproduces_the_golden_detection_and_preview(
 
     # Units: µm scales the y and x of every layer of both viewers, shapes too
     size = pipeline.exp.pixel_size_um
-    viewer.camera.center, viewer.camera.zoom = (0.0, 300.0, 1000.0), 2.0
+    viewer.scene.camera.center, viewer.scene.camera.zoom = (0.0, 300.0, 1000.0), 2.0
     dock.units.setCurrentIndex(dock.units.findData("micrometer"))
     # the view stays on the same pixels, at the same size on screen
-    np.testing.assert_allclose(viewer.camera.center[-2:], (300 * size, 1000 * size))
-    np.testing.assert_allclose(viewer.camera.zoom, 2.0 / size)
+    np.testing.assert_allclose(
+        viewer.scene.camera.center[-2:], (300 * size, 1000 * size)
+    )
+    np.testing.assert_allclose(viewer.scene.camera.zoom, 2.0 / size)
     assert tuple(viewer.layers["PC"].scale) == (1, 1, size, size)
     assert tuple(viewer.layers["trenches"].scale) == (size, size)
     assert tuple(dock.preview_viewer.layers["PC"].scale) == (1, 1, size, size)
     assert tuple(viewer.layers["PC"].units)[-1] == "micrometer"
     dock.units.setCurrentIndex(dock.units.findData("pixel"))
     assert tuple(viewer.layers["trenches"].scale) == (1, 1)
-    np.testing.assert_allclose(viewer.camera.center[-2:], (300, 1000))
-    np.testing.assert_allclose(viewer.camera.zoom, 2.0)
+    np.testing.assert_allclose(viewer.scene.camera.center[-2:], (300, 1000))
+    np.testing.assert_allclose(viewer.scene.camera.zoom, 2.0)
 
     # Reopened, the dock loads all three and fills its tabs from them
     viewer2, dock2 = _dock(qapp, nd2)

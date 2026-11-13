@@ -25,14 +25,16 @@ scikit-image = "*"
 matplotlib = "*"
 tqdm = "*"
 pandas = "*"
-napari = "*"
-pyqt = "*"
+napari = ">=0.10.0,<0.11"
 jupyterlab = "*"
 ipykernel = "*"
 ipywidgets = "*"
 pytest = "*"
 
 [pypi-dependencies]
+# napari 0.10 runs on Qt 6 only. PyQt6 from PyPI: conda-forge has only 6.8, whose
+# right-hand dock splitters don't drag, and 6.11.0, which napari excludes.
+pyqt6 = ">=6.9.1,<6.10"
 pymmm = { path = ".", editable = true, extras = ["notebook", "view", "tracks"] }
 
 [tasks]
