@@ -13,6 +13,7 @@
 | `store.provenance` | the schema version, provenance records, and attributes as plain JSON |
 | `steps.registration` | `Registrator`: drift transforms (stackreg or OpenCV) |
 | `steps.lanes`, `steps.trenches` | `LaneDetector`, `TrenchDetector`: lane and trench geometry |
+| `steps.shading` | `ShadingCorrector`: each FOV's shading, measured on the PDMS between trenches, for extraction to take out of the detection channel |
 | `steps.extraction` | `Extractor`: writes the experiment group |
 | `steps.segmentation` | `Segmenter`: Omnipose labels per hypothesis |
 | `steps.tracking` | `Tracker`: runs chaintrack on the experiment group (fit, track, resume, kymograph) |
