@@ -1,7 +1,7 @@
 """Golden tests of the extraction dock (pymmm.gui.extraction) on real data: driven as a
 person would, with the experiment's settings, it saves the golden registration, lanes,
-trenches and shading, its preview is the extraction, and reopening it loads what it
-saved.
+trenches and shading, its preview is the extraction and its Extract writes it, and
+reopening it loads what it saved.
 
 The dock is a real Qt widget on a napari ViewerModel (the viewer without its canvas);
 Qt draws offscreen.
@@ -10,6 +10,7 @@ Qt draws offscreen.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import threading
 import time
@@ -88,7 +89,7 @@ def _choose(box, value) -> None:
     box.setCurrentIndex(index)
 
 
-def test_dock_reproduces_the_golden_detection_and_preview(
+def test_dock_reproduces_the_golden_detection_and_extraction(
     qapp, scratch_folder, pipeline, monkeypatch
 ):
     nd2 = scratch_folder("dock") / ND2.name
@@ -237,10 +238,10 @@ def test_dock_reproduces_the_golden_detection_and_preview(
         "Lanes ✓",
         "Trenches ✓",
         "Shading",
-        "Preview",
+        "Extract",
     ]
     assert dock.lineage["trench_detection"] == "current"
-    assert "not extracted yet" in dock.extraction_info.text()
+    assert "Not extracted yet" in dock.extraction_info.text()
     # a setting changed and not applied: marked, and marked back when set back
     dock.trench_width.setValue(TRENCHES["trench_width"] + 2)
     assert dock.tabs.tabText(3) == "Trenches *"
@@ -256,7 +257,7 @@ def test_dock_reproduces_the_golden_detection_and_preview(
 
     # Shading: the FOV shown corrected with the tab's settings, then every FOV; the
     # preview waits for it
-    assert not dock.tabs.isTabEnabled(dock.TAB_NAMES.index("Preview"))
+    assert not dock.tabs.isTabEnabled(dock.TAB_NAMES.index("Extract"))
     dock.tabs.setCurrentIndex(dock.TAB_NAMES.index("Shading"))
     _choose(dock.shading_mode, SHADING["mode"])
     dock.shading_offset.setValue(SHADING["offset"])
@@ -319,13 +320,13 @@ def test_dock_reproduces_the_golden_detection_and_preview(
         pipeline.trenches.trenches[FOVS[1]]
     )
 
-    # Preview: the trench images extract() wrote
+    # Extract: first the preview, the trench images extract() wrote
     from napari.components import ViewerModel
 
     # as a person opens it, the button (a new window: here a viewer without a canvas,
     # as offscreen Qt has no OpenGL)
     monkeypatch.setattr("napari.Viewer", lambda title: ViewerModel(title=title))
-    dock.tabs.setCurrentIndex(dock.TAB_NAMES.index("Preview"))
+    dock.tabs.setCurrentIndex(dock.TAB_NAMES.index("Extract"))
     dock.preview_button.click()
     assert dock.preview_viewer.title.endswith("trench preview")
     if coordinate_grid(dock.preview_viewer) is not None:
@@ -341,6 +342,43 @@ def test_dock_reproduces_the_golden_detection_and_preview(
             np.testing.assert_array_equal(
                 layer.data[k], root[f"trench_{trench:04d}/0"][:, c]
             )
+
+    # then Extract, into the path the tab shows: the pipeline's pixels, every channel
+    assert dock.extract_path.text() == str(dock.experiment_group)
+    assert "Not extracted yet" in dock.extraction_info.text()
+    group = nd2.parent / "from_the_dock.zarr"
+    dock.extract_path.setText(str(group))
+    dock.extract_path.editingFinished.emit()
+    dock.extract_button.click()
+    assert dock.extract_cancel.isEnabled() and not dock.extract_button.isEnabled()
+    _wait(qapp, lambda: dock._worker is None)
+    assert dock.status.text() == f"Extracted 28 trenches into {group}."
+    written = zarr.open_group(str(group), mode="r")
+    for trench in root["trenches/trench"][:][[0, -1]]:
+        np.testing.assert_array_equal(
+            written[f"trench_{trench:04d}/0"][...], root[f"trench_{trench:04d}/0"][...]
+        )
+    assert dock.extract_progress.value() == dock.extract_progress.maximum() == 2
+    assert "saved now" in dock.extraction_info.text()
+    assert dock.tabs.tabText(5) == "Extract ✓"
+    # a group whose record says it was cut with other shading is left as it is
+    other = nd2.parent / "cut_another_way.zarr"
+    shutil.copytree(group, other)
+    record = zarr.open_group(str(other), mode="r+")
+    attrs = dict(record.attrs)["pymmm"]
+    record.attrs["pymmm"] = {
+        **attrs,
+        "made_from": {**attrs["made_from"], "shading": "x"},
+    }
+    before = record["trench_0000/0"][...]
+    dock.extract_path.setText(str(other))
+    dock.extract_path.editingFinished.emit()
+    assert dock.tabs.tabText(5) == "Extract"
+    assert "Extract leaves it as it is" in dock.extraction_info.text()
+    dock.extract_button.click()
+    _wait(qapp, lambda: dock._worker is None)
+    assert "cut another way (shading), so it is left as it is" in dock.status.text()
+    np.testing.assert_array_equal(record["trench_0000/0"][...], before)
 
     # Units: µm scales the y and x of every layer of both viewers, shapes too
     size = pipeline.exp.pixel_size_um

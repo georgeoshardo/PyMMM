@@ -19,7 +19,7 @@
 | `steps.tracking` | `Tracker`: runs chaintrack on the experiment group (fit, track, resume, kymograph) |
 | `steps.omnipose` | loading Omnipose models (stock or checkpoint files) and building masks by affinity |
 | `widgets` | the notebook UIs the steps open: lane, trench and segmentation tuning, the label viewer |
-| `gui.extraction` | the extraction dock in napari: the notebook's steps up to the trench preview (`python -m pymmm.gui`) |
+| `gui.extraction` | the extraction dock in napari: the notebook's steps, extraction included (`python -m pymmm.gui`) |
 | `parallel` | where batches run: the active Dask client, a process pool, or this process; `local_cluster`, a notebook's Dask cluster, whose workers outlive the Interrupt button (it then drops the queued batches) |
 | `config` | the experiment file |
 | `plotting`, `view` | diagnostic figures; the napari viewer |

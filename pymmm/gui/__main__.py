@@ -1,9 +1,9 @@
 """``python -m pymmm.gui <experiment.toml or .nd2>``: the extraction dock in a new napari
 viewer.
 
-Light on purpose: registration's process-pool workers start by importing this module
-(the spawn start method imports the main module), so Qt and napari are imported only
-in :func:`main`.
+Light on purpose: registration's and extraction's process-pool workers start by
+importing this module (the spawn start method imports the main module), so Qt and
+napari are imported only in :func:`main`.
 """
 
 from __future__ import annotations
@@ -16,8 +16,9 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="python -m pymmm.gui",
         description=(
-            "Register an ND2, detect its lanes and trenches and preview the trenches "
-            "in napari: the extraction notebook's steps before extract()."
+            "Register an ND2, detect its lanes and trenches, measure its shading, "
+            "and preview and extract the trenches in napari: the extraction "
+            "notebook's steps."
         ),
     )
     parser.add_argument(

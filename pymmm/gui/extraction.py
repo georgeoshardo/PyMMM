@@ -1,4 +1,4 @@
-"""The extraction dock: the extraction notebook's steps before ``extract()``, in napari.
+"""The extraction dock: the extraction notebook's steps, in napari.
 
 Open an experiment file (TOML) or an ND2, set which part of the ND2 to use, then work
 down the tabs as the notebook works down its cells:
@@ -15,9 +15,11 @@ down the tabs as the notebook works down its cells:
   it comes out of the detection channel (subtract or divide), with the evidence: how the
   cells follow the background. The FOV on the P slider is shown corrected, or not; in
   the stitched view, which stays open on this tab, every FOV is.
-- Preview: the trenches as ``extract()`` would write them, in a second viewer. Each
-  slider step cuts one trench at one frame
-  (:class:`~pymmm.steps.extraction.TrenchPreview`).
+- Extract: the trenches as ``extract()`` would write them, in a second viewer (each
+  slider step cuts one trench at one frame,
+  :class:`~pymmm.steps.extraction.TrenchPreview`); then Extract writes them into the
+  experiment group, in a background process pool, going on from where an earlier run
+  stopped. A group cut another way is left as it is: give the extraction a new path.
 
 napari asks each layer only for the plane it shows, and the raw and registered layers
 are dask arrays that read one frame per plane, so the ND2 is never read whole. The
@@ -274,7 +276,7 @@ class _Registered(QObject):
 
 
 class ExtractionDock(QWidget):
-    """The extraction notebook's steps before ``extract()`` as a napari dock widget.
+    """The extraction notebook's steps as a napari dock widget.
 
     Parameters
     ----------
@@ -308,6 +310,7 @@ class ExtractionDock(QWidget):
         self._before_mosaic: dict[str, Any] = {}
         self._drift_from = None  # the Registrator the drift plot was filled from
         self.experiment_group: Path | None = None  # where extract() writes
+        self._written: tuple[int, bool] | None = None  # how far the group got
         self.lineage: dict[str, str] = {}
 
         self._build()
@@ -328,7 +331,7 @@ class ExtractionDock(QWidget):
         self.tabs.addTab(self._lanes_tab(), "Lanes")
         self.tabs.addTab(self._trenches_tab(), "Trenches")
         self.tabs.addTab(self._shading_tab(), "Shading")
-        self.tabs.addTab(self._preview_tab(), "Preview")
+        self.tabs.addTab(self._extract_tab(), "Extract")
         self.tabs.currentChanged.connect(self._on_tab)
         # every setting re-marks the tabs at once (their previews wait a moment)
         for kind in (QDoubleSpinBox, QSpinBox):
@@ -634,21 +637,40 @@ class ExtractionDock(QWidget):
         self.shading_corrected.toggled.connect(self._shading_timer.start)
         return tab
 
-    def _preview_tab(self) -> QWidget:
+    def _extract_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
         self.preview_button = QPushButton("Open the trenches in a new viewer")
         # not connected straight to open_preview: clicked passes its checked flag
         self.preview_button.clicked.connect(lambda: self.open_preview())
         self.preview_info = QLabel(
-            "The trenches as extract() would write them, one per step of the trench "
+            "The trenches as Extract will write them, one per step of the trench "
             "slider. Nothing is written."
         )
         self.preview_info.setWordWrap(True)
+        self.extract_path = QLineEdit()
+        self.extract_path.setPlaceholderText("where the experiment group goes (.zarr)")
+        self.extract_path.editingFinished.connect(self._on_extract_path)
+        path_row = QHBoxLayout()
+        path_row.addWidget(QLabel("experiment group"))
+        path_row.addWidget(self.extract_path, 1)
+        self.extract_button = QPushButton("Extract")
+        self.extract_button.clicked.connect(self.extract)
+        self.extract_cancel = QPushButton("Cancel")
+        self.extract_cancel.clicked.connect(self._cancel_run)
+        self.extract_cancel.setEnabled(False)
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.extract_button)
+        buttons.addWidget(self.extract_cancel)
+        self.extract_progress = QProgressBar()
+        self.extract_progress.setFormat("%v / %m FOVs")
         self.extraction_info = QLabel("")
         self.extraction_info.setWordWrap(True)
         layout.addWidget(self.preview_button)
         layout.addWidget(self.preview_info)
+        layout.addLayout(path_row)
+        layout.addLayout(buttons)
+        layout.addWidget(self.extract_progress)
         layout.addWidget(self.extraction_info)
         layout.addStretch()
         return tab
@@ -686,13 +708,15 @@ class ExtractionDock(QWidget):
         self.trench_apply.setEnabled(lanes and not busy)
         self.shading_apply.setEnabled(trenches and not busy)
         self.preview_button.setEnabled(shaded and not busy)
+        self.extract_button.setEnabled(shaded and not busy)
+        self.extract_cancel.setEnabled(busy and self._cancel is not None)
         self._mark_tabs()
 
     # ------------------------------------------------------------------
     # What each tab shows: saved, or changed since
     # ------------------------------------------------------------------
 
-    TAB_NAMES = ("Experiment", "Register", "Lanes", "Trenches", "Shading", "Preview")
+    TAB_NAMES = ("Experiment", "Register", "Lanes", "Trenches", "Shading", "Extract")
 
     def _mark_tabs(self) -> None:
         """Mark each step's tab: ✓ saved with the settings shown, * settings changed
@@ -704,13 +728,15 @@ class ExtractionDock(QWidget):
             "Lanes": self._mark(self.lane_detector, self._lanes_match),
             "Trenches": self._mark(self.trench_detector, self._trenches_match),
             "Shading": self._mark(self.shading, self._shading_matches),
-            "Preview": "",
+            "Extract": "✓" if self._extracted() else "",
         }
         tips = {"✓": "saved, with these settings", "*": "settings changed, not applied"}
+        if marks["Extract"]:
+            tips = {**tips, "Extract": "extracted, with the steps saved now"}
         for index, name in enumerate(self.TAB_NAMES):
             mark = marks[name]
             self.tabs.setTabText(index, f"{name} {mark}".strip())
-            self.tabs.setTabToolTip(index, tips.get(mark, ""))
+            self.tabs.setTabToolTip(index, tips.get(name, tips.get(mark, "")))
 
     @staticmethod
     def _mark(step, matches) -> str:
@@ -801,9 +827,33 @@ class ExtractionDock(QWidget):
             self.shading_mode.currentData(), self.shading_offset.value()
         )
 
+    def _group_progress(self) -> tuple[int, bool] | None:
+        """How far the experiment group was written: (FOVs written, complete), or
+        None when there is no group there.
+        """
+        group = self.experiment_group
+        if group is None or not (Path(group) / "zarr.json").exists():
+            return None
+        import zarr
+
+        record = dict(zarr.open_group(str(group), mode="r").attrs).get("pymmm") or {}
+        return len(record.get("completed_fovs", [])), bool(
+            record.get("extraction_complete")
+        )
+
+    def _extracted(self) -> bool:
+        """Whether the experiment group is written in full, with the steps saved now
+        (as :meth:`_show_extraction` last found it).
+        """
+        return (
+            self.lineage.get("extraction") == lineage.CURRENT
+            and self._written is not None
+            and self._written[1]
+        )
+
     def _show_extraction(self) -> None:
-        """Say on the Preview tab whether the experiment group was cut with the
-        registration, trenches and shading saved now.
+        """Say on the Extract tab whether the experiment group was cut with the
+        registration, trenches and shading saved now, and how far it got.
         """
         if self.store is None:
             return
@@ -815,16 +865,25 @@ class ExtractionDock(QWidget):
             ),
             lineage.STALE: (
                 "extracted with another registration, other trenches or other shading "
-                "(or none): extract again, with resume=False or to a new path"
+                "(or none); Extract leaves it as it is, so give a new path"
             ),
             lineage.MISSING: "not extracted yet",
             lineage.UNRECORDED: (
                 "extracted before PyMMM recorded what an extraction was made from"
             ),
         }[state]
-        self.extraction_info.setText(
-            f"Experiment group {self.experiment_group}: {text}."
-        )
+        written = self._written = self._group_progress()
+        if written is not None and not written[1] and state != lineage.MISSING:
+            text += (
+                f", but only {written[0]} of {self.experiment.n_fovs} FOVs are "
+                "written: Extract goes on from there"
+            )
+        # the path is in the field above it: a long path does not wrap
+        self.extraction_info.setText(f"{text[0].upper()}{text[1:]}.")
+        if self._worker is None:  # how far the group got, until a run counts on
+            self.extract_progress.setRange(0, self.experiment.n_fovs)
+            self.extract_progress.setValue(written[0] if written is not None else 0)
+        self._mark_tabs()
 
     def _say(self, text: str) -> None:
         self.status.setText(text)
@@ -890,6 +949,7 @@ class ExtractionDock(QWidget):
 
         self.experiment = experiment
         self.experiment_group = Path(group)
+        self.extract_path.setText(str(self.experiment_group))
         self._opened_fields = self._experiment_fields()
         self.store = CompanionStore.for_experiment(experiment)
         self.registrator = self.lane_detector = self.trench_detector = None
@@ -2172,7 +2232,7 @@ class ExtractionDock(QWidget):
                     else ""
                 )
             )
-            self._say("Shading saved. Next: the Preview tab.")
+            self._say("Shading saved. Next: the Extract tab.")
             self._enable()
             self._show_extraction()
             self.update_shading()
@@ -2189,6 +2249,83 @@ class ExtractionDock(QWidget):
             self.shading.evidence(), self.shading.evidence_slopes()
         )
         self.shading_plot.show_fov(self.current_fov())
+
+    # ------------------------------------------------------------------
+    # Extract
+    # ------------------------------------------------------------------
+
+    def _on_extract_path(self) -> None:
+        text = self.extract_path.text().strip()
+        if text and self.experiment is not None:
+            self.experiment_group = Path(text).expanduser()
+            self._show_extraction()
+
+    def _on_extract_progress(self, done: int, total: int) -> None:
+        self.extract_progress.setRange(0, total)
+        self.extract_progress.setValue(done)
+
+    def extract(self) -> None:
+        """Cut every trench into the experiment group at the tab's path, as the
+        notebook's ``extract()`` does, in a background process pool. A run that stopped
+        (cancelled, or napari closed) goes on from the FOVs it wrote; a group cut
+        another way is left as it is.
+        """
+        from pymmm import Extractor
+
+        text = self.extract_path.text().strip()
+        if not text:
+            self._say("Give the experiment group a path first.")
+            return
+        path = Path(text).expanduser()
+        self.experiment_group = path
+        extractor = Extractor(
+            self.experiment,
+            self.registrator,
+            self.trench_detector,
+            self.shading,
+            output_path=path,
+        )
+        n_trenches = len(self.trench_detector.get_trench_table())
+        cancel = threading.Event()
+        progress = _Progress(self)
+        progress.changed.connect(self._on_extract_progress)
+        self.extract_progress.setRange(0, self.experiment.n_fovs)
+        self.extract_progress.setValue(0)
+
+        def job() -> str:
+            """What happened, for the status line: cancelled and refused runs are
+            outcomes, not errors (an error would be raised again in napari).
+            """
+            from pymmm.parallel import Cancelled
+
+            try:
+                extractor.extract(
+                    show_progress=False,
+                    resume=True,
+                    progress=progress.changed.emit,
+                    cancel=cancel,
+                )
+            except Cancelled as stop:
+                return f"Extraction stopped: {stop}."
+            except RuntimeError as error:  # resume refused: never overwrite here
+                if "not an experiment group" in str(error):
+                    return f"{error}"
+                if "not compatible" not in str(error):
+                    raise
+                differ = str(error).split("these inputs differ: ")[-1].split(". Use")[0]
+                return (
+                    f"{path} holds trenches cut another way ({differ}), so it is left "
+                    "as it is: give this extraction a new path."
+                )
+            return f"Extracted {n_trenches} trenches into {path}."
+
+        def done(message: str) -> None:
+            self._show_extraction()
+            self._say(message)
+
+        self._say(f"Extracting {n_trenches} trenches into {path}…")
+        worker = self._run(job, done, "Extraction", cancel=cancel)
+        worker.finished.connect(self._show_extraction)  # cancelled or failed too
 
     def _on_units(self) -> None:
         """Show both viewers in the chosen units (the settings stay in pixels)."""
@@ -2271,8 +2408,7 @@ class ExtractionDock(QWidget):
         n = len(self.trench_detector.get_trench_table())
         self.preview_info.setText(
             f"{n} trenches of {array.shape[2]} × {array.shape[3]} px, "
-            f"{exp.n_timepoints} frames. Nothing is written; extract() in the notebook "
-            "writes them."
+            f"{exp.n_timepoints} frames. Nothing is written until you press Extract."
         )
         return viewer
 
