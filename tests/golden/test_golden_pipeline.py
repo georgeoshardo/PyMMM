@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import shutil
+import threading
 from dataclasses import asdict
 
 import numpy as np
@@ -24,6 +25,7 @@ from pymmm import (
     ShadingCorrector,
     TrenchDetector,
 )
+from pymmm.parallel import Cancelled
 from pymmm.steps.segmentation import background_noise, normalise, trench_bounds
 from real_data import (
     EXTRACTION,
@@ -259,6 +261,44 @@ def test_extraction_resumes_an_interrupted_run(pipeline, tmp_path):
         Extractor(
             pipeline.exp, pipeline.reg, pipeline.trenches, other, output_path=output
         ).extract(**EXTRACTION, resume=True, show_progress=False)
+
+
+def test_extraction_can_be_cancelled_and_goes_on_from_there(pipeline, tmp_path):
+    output = tmp_path / "experiment.zarr"
+    extractor = Extractor(
+        pipeline.exp,
+        pipeline.reg,
+        pipeline.trenches,
+        pipeline.shading,
+        output_path=output,
+    )
+    cancel, seen = threading.Event(), []
+
+    def progress(done: int, total: int) -> None:
+        seen.append((done, total))
+        if done == 1:
+            cancel.set()  # the Cancel button, once the first FOV is written
+
+    with pytest.raises(Cancelled):
+        extractor.extract(
+            **EXTRACTION,
+            resume=False,
+            show_progress=False,
+            progress=progress,
+            cancel=cancel,
+        )
+    assert seen == [(0, 2), (1, 2)]
+    attrs = dict(zarr.open_group(str(output), mode="r").attrs)["pymmm"]
+    assert len(attrs["completed_fovs"]) == 1 and not attrs["extraction_complete"]
+    seen.clear()
+    extractor.extract(
+        **EXTRACTION,
+        resume=True,
+        show_progress=False,
+        progress=lambda done, total: seen.append((done, total)),
+    )
+    assert seen == [(1, 2), (2, 2)]
+    check("extraction", manifest(output, extraction_detail))
 
 
 def test_extraction_time_chunks(pipeline, tmp_path):

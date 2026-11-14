@@ -27,7 +27,7 @@ import json
 import math
 import threading
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -41,7 +41,7 @@ import zarr
 from tqdm.auto import tqdm
 
 from pymmm._utils import normalize_channel_arg
-from pymmm.parallel import Runner
+from pymmm.parallel import Cancelled, Runner
 from pymmm.source.metadata import (
     build_acquisition_dataset,
     build_events_dataset,
@@ -309,8 +309,24 @@ def _codecs(compressor: str, clevel: int, byte_shuffle: bool) -> tuple[list, lis
     )
 
 
-def _cut(runner: Runner, crops: FovCrops, batch_size: int) -> np.ndarray:
-    """A FOV's trenches, (trench, t, c, y, x), cut in batches of frames."""
+def _cut(
+    runner: Runner,
+    crops: FovCrops,
+    batch_size: int,
+    cancel: threading.Event | None = None,
+) -> np.ndarray:
+    """A FOV's trenches, (trench, t, c, y, x), cut in batches of frames; stopped with
+    :class:`~pymmm.parallel.Cancelled` once ``cancel`` is set.
+    """
+
+    def stop_if_cancelled() -> None:
+        if cancel is not None and cancel.is_set():
+            raise Cancelled(
+                "extraction cancelled; the FOVs written so far are kept, and "
+                "extracting again goes on from there"
+            )
+
+    stop_if_cancelled()
     n_times = len(crops.time_indices)
     futures = {
         runner.submit(
@@ -320,6 +336,7 @@ def _cut(runner: Runner, crops: FovCrops, batch_size: int) -> np.ndarray:
     }
     pixels = None
     for future in runner.as_completed(futures):
+        stop_if_cancelled()
         start = futures[future]
         batch = future.result()
         if pixels is None:
@@ -887,6 +904,8 @@ class Extractor:
         batch_size: int = 4,
         time_chunk: int | None = None,
         resume: bool = True,
+        progress: Callable[[int, int], None] | None = None,
+        cancel: threading.Event | None = None,
     ) -> None:
         """Extract all trenches, each into its own OME-Zarr image (module docstring).
 
@@ -912,6 +931,14 @@ class Extractor:
             trajectory of a channel in one chunk.
         resume : bool
             Resume an interrupted compatible output store by completed FOV.
+        progress : callable | None
+            Called as ``progress(fovs_written, n_fovs)`` before the first FOV (those
+            an earlier run wrote count) and as each FOV is written, for a front end's
+            progress bar.
+        cancel : threading.Event | None
+            Set it to stop: the batches already running finish, the queued ones are
+            dropped, and :class:`~pymmm.parallel.Cancelled` is raised. The FOVs written
+            so far are kept, and a resumed extraction goes on from there.
         """
         if int(batch_size) != batch_size or batch_size < 1:
             raise ValueError("batch_size must be a positive integer")
@@ -929,17 +956,22 @@ class Extractor:
         all_fovs = [c.fov for c in crops]
         completed = set(dict(store.attrs)["pymmm"].get("completed_fovs", []))
         todo = [c for c in crops if c.fov not in completed]
+        if progress is not None:
+            progress(len(completed.intersection(all_fovs)), len(all_fovs))
         # A FOV's frames in one batch run here; more batches run on the Dask
         # cluster or in a process pool.
         with Runner(workers=1 if layout.shape[0] <= batch_size else None) as runner:
             for fov_crops in tqdm(
                 todo, desc="Extracting FOVs", total=len(todo), disable=not show_progress
             ):
-                self._write_fov(store, fov_crops, _cut(runner, fov_crops, batch_size))
+                pixels = _cut(runner, fov_crops, batch_size, cancel)
+                self._write_fov(store, fov_crops, pixels)
                 completed.add(fov_crops.fov)
                 _update_attrs(
                     store, completed_fovs=[f for f in all_fovs if f in completed]
                 )
+                if progress is not None:
+                    progress(len(completed.intersection(all_fovs)), len(all_fovs))
 
         _update_attrs(store, extraction_complete=set(all_fovs).issubset(completed))
         print(f"Extraction complete: {self.output_path}")
