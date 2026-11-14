@@ -1178,7 +1178,7 @@ class ExtractionDock(QWidget):
         """The registered layers: drift-corrected when the registration in use matches
         the Register tab, else the frames rotated by the tab's rotation only.
         """
-        if self._mosaic is not None:  # the dock's layers are put away
+        if self._layers_away:
             return
         if self.experiment is None:
             return
@@ -1249,6 +1249,13 @@ class ExtractionDock(QWidget):
             self.update_shading()
         elif name == "Register":
             self._draw_drift()
+
+    @property
+    def _layers_away(self) -> bool:
+        """The dock's layers are put away: for the stitched view, or while they come
+        back from it.
+        """
+        return self._mosaic is not None or not self._layers
 
     def _showing(self, tab: str) -> bool:
         return self.TAB_NAMES[self.tabs.currentIndex()] == tab
@@ -1474,7 +1481,7 @@ class ExtractionDock(QWidget):
             self.viewer.dims.set_current_step(labels.index("T"), frame)
 
     def _on_step(self, _event=None) -> None:
-        if self._mosaic is not None:
+        if self._layers_away:  # nothing to draw on (the slider moves as they go)
             return
         self.drift_plot.show_frame(self.current_frame())
         fov = self.current_fov()
@@ -1691,7 +1698,7 @@ class ExtractionDock(QWidget):
 
     def update_lanes(self) -> None:
         """The candidate lanes of the FOV on the P slider, with the tab's settings."""
-        if self._mosaic is not None:  # the dock's layers are put away
+        if self._layers_away:
             return
         self._mark_tabs()
         fov = self.current_fov()
@@ -1709,7 +1716,7 @@ class ExtractionDock(QWidget):
         self._with_mean(fov, self._draw_lanes, self._lane_mean())
 
     def _draw_lanes(self, fov: str, image: np.ndarray) -> None:
-        if self._mosaic is not None:  # the dock's layers are put away
+        if self._layers_away:
             return
         from pymmm import LaneDetector
 
@@ -1859,7 +1866,7 @@ class ExtractionDock(QWidget):
 
     def update_trenches(self) -> None:
         """The candidate trenches of the FOV on the P slider, with the tab's settings."""
-        if self._mosaic is not None:  # the dock's layers are put away
+        if self._layers_away:
             return
         self._mark_tabs()
         fov = self.current_fov()
@@ -1873,7 +1880,7 @@ class ExtractionDock(QWidget):
         self._with_mean(fov, self._draw_trenches, self._trench_mean())
 
     def _draw_trenches(self, fov: str, image: np.ndarray) -> None:
-        if self._mosaic is not None:  # the dock's layers are put away
+        if self._layers_away:
             return
         from pymmm.widgets.trenches import _plot_lane_profile
 
@@ -2033,7 +2040,7 @@ class ExtractionDock(QWidget):
         """The FOV on the P slider with its background taken out by the tab's
         settings (or as it is), and the PDMS it was measured on.
         """
-        if self._mosaic is not None:  # the dock's layers are put away
+        if self._layers_away:
             return
         self._mark_tabs()
         fov = self.current_fov()
@@ -2044,7 +2051,7 @@ class ExtractionDock(QWidget):
         self._with_mean(fov, self._draw_shading, self.trench_detector.detection_image)
 
     def _draw_shading(self, fov: str, image: np.ndarray) -> None:
-        if self._mosaic is not None:  # the dock's layers are put away
+        if self._layers_away:
             return
         from pymmm.steps import shading
 
@@ -2163,7 +2170,7 @@ class ExtractionDock(QWidget):
         return get_diagnostics_dir(self.experiment.path, kind)
 
     def _show_mean(self, image: np.ndarray) -> None:
-        if self._mosaic is not None:  # the dock's layers are put away
+        if self._layers_away:
             return
         layer = self._layers["mean"]
         layer.data = image
