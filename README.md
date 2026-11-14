@@ -79,13 +79,13 @@ The same steps up to the preview also run in napari:
 python -m pymmm.gui experiments/experiment.toml    # an experiment file, or an ND2
 ```
 
-The dock has one tab per step: Experiment, Register, Lanes, Trenches and Preview. Each
-tab's settings act on the field of view under napari's P slider as you change them.
-Apply saves to the same companion store the notebook uses, so either one can pick up
-where the other stopped. Frames are read only when napari shows them. The preview cuts
-the trench and frame on screen, and nothing is written. Extraction itself is still
-`extractor.extract()` in the notebook. In napari, the dock is also under Plugins →
-PyMMM → Extraction.
+The dock has one tab per step: Experiment, Register, Lanes, Trenches, Shading and
+Preview. Each tab's settings act on the field of view under napari's P slider as you
+change them. Apply saves to the same companion store the notebook uses, so either one
+can pick up where the other stopped. Frames are read only when napari shows them. The
+preview cuts the trench and frame on screen, and nothing is written. Extraction itself
+is still `extractor.extract()` in the notebook. In napari, the dock is also under
+Plugins → PyMMM → Extraction.
 
 After extraction:
 

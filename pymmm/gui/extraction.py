@@ -11,6 +11,9 @@ down the tabs as the notebook works down its cells:
 - Lanes: detect the lanes, or take the image's edge. The candidate lanes of the FOV
   on the P slider follow the settings until you apply them to every FOV and save.
 - Trenches: the same, for the trenches.
+- Shading: measure each FOV's shading on the PDMS between its trenches, and choose how
+  it comes out of the detection channel (subtract or divide), with the evidence: how the
+  cells follow the background. The FOV on the P slider is shown corrected, or not.
 - Preview: the trenches as ``extract()`` would write them, in a second viewer. Each
   slider step cuts one trench at one frame
   (:class:`~pymmm.steps.extraction.TrenchPreview`).
@@ -18,8 +21,8 @@ down the tabs as the notebook works down its cells:
 napari asks each layer only for the plane it shows, and the raw and registered layers
 are dask arrays that read one frame per plane, so the ND2 is never read whole. The
 dock runs the notebook's step classes and saves the same results. On opening, it loads
-a saved registration made with its settings, and the lanes and trenches saved after
-it, instead of computing them again.
+a saved registration made with its settings, and the lanes, trenches and shading saved
+after it, instead of computing them again.
 
 A tab is marked ✓ once its step is saved with the settings it shows, and * when they
 have changed since. The steps after registration wait while the Register tab's settings
@@ -288,6 +291,7 @@ class ExtractionDock(QWidget):
         self.registrator = None  # the computed or loaded Registrator
         self.lane_detector = None
         self.trench_detector = None
+        self.shading = None  # the measured or loaded ShadingCorrector
         self.preview_viewer = None
         self._layers: dict[str, Any] = {}
         self._worker = None
@@ -322,6 +326,7 @@ class ExtractionDock(QWidget):
         self.tabs.addTab(self._register_tab(), "Register")
         self.tabs.addTab(self._lanes_tab(), "Lanes")
         self.tabs.addTab(self._trenches_tab(), "Trenches")
+        self.tabs.addTab(self._shading_tab(), "Shading")
         self.tabs.addTab(self._preview_tab(), "Preview")
         self.tabs.currentChanged.connect(self._on_tab)
         # every setting re-marks the tabs at once (their previews wait a moment)
@@ -594,6 +599,40 @@ class ExtractionDock(QWidget):
             box.currentIndexChanged.connect(self._trench_timer.start)
         return tab
 
+    def _shading_tab(self) -> QWidget:
+        from pymmm.gui.shading_plot import EvidencePlot
+
+        tab = QWidget()
+        form = QFormLayout(tab)
+        self.shading_mode = _combo(
+            [
+                ("subtract (light added)", "subtract"),
+                ("divide (a gain)", "divide"),
+                ("off", "off"),
+            ],
+            "subtract",
+        )
+        self.shading_offset = _dspin(100, 0, 10000, 1, decimals=0)
+        self.shading_corrected = QCheckBox("show corrected")
+        self.shading_corrected.setChecked(True)
+        form.addRow("mode", self.shading_mode)
+        form.addRow("camera offset", self.shading_offset)
+        form.addRow(self.shading_corrected)
+        self.shading_apply = QPushButton("Measure every FOV and save")
+        self.shading_apply.clicked.connect(self.apply_shading)
+        form.addRow(self.shading_apply)
+        self.shading_status = QLabel("")
+        self.shading_status.setWordWrap(True)
+        form.addRow(self.shading_status)
+        self.shading_plot = EvidencePlot()
+        form.addRow(self.shading_plot)
+
+        self._shading_timer = self._timer(self.update_shading)
+        self.shading_offset.valueChanged.connect(self._shading_timer.start)
+        self.shading_mode.currentIndexChanged.connect(self._shading_timer.start)
+        self.shading_corrected.toggled.connect(self._shading_timer.start)
+        return tab
+
     def _preview_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -635,21 +674,24 @@ class ExtractionDock(QWidget):
         )
         self.tabs.setTabEnabled(1, opened)
         self.tabs.setTabEnabled(2, registered)
+        shaded = trenches and self.shading is not None
         self.tabs.setTabEnabled(3, lanes)
         self.tabs.setTabEnabled(4, trenches)
+        self.tabs.setTabEnabled(5, shaded)
         self.open_button.setEnabled(not busy)
         self.register_button.setEnabled(opened and not busy)
         self.cancel_button.setEnabled(busy and self._cancel is not None)
         self.lane_apply.setEnabled(registered and not busy)
         self.trench_apply.setEnabled(lanes and not busy)
-        self.preview_button.setEnabled(trenches and not busy)
+        self.shading_apply.setEnabled(trenches and not busy)
+        self.preview_button.setEnabled(shaded and not busy)
         self._mark_tabs()
 
     # ------------------------------------------------------------------
     # What each tab shows: saved, or changed since
     # ------------------------------------------------------------------
 
-    TAB_NAMES = ("Experiment", "Register", "Lanes", "Trenches", "Preview")
+    TAB_NAMES = ("Experiment", "Register", "Lanes", "Trenches", "Shading", "Preview")
 
     def _mark_tabs(self) -> None:
         """Mark each step's tab: ✓ saved with the settings shown, * settings changed
@@ -660,6 +702,7 @@ class ExtractionDock(QWidget):
             "Register": self._mark(self.registrator, self._settings_match),
             "Lanes": self._mark(self.lane_detector, self._lanes_match),
             "Trenches": self._mark(self.trench_detector, self._trenches_match),
+            "Shading": self._mark(self.shading, self._shading_matches),
             "Preview": "",
         }
         tips = {"✓": "saved, with these settings", "*": "settings changed, not applied"}
@@ -752,19 +795,26 @@ class ExtractionDock(QWidget):
             )
         )
 
+    def _shading_matches(self) -> bool:
+        return self.shading.matches(
+            self.shading_mode.currentData(), self.shading_offset.value()
+        )
+
     def _show_extraction(self) -> None:
         """Say on the Preview tab whether the experiment group was cut with the
-        registration and trenches saved now.
+        registration, trenches and shading saved now.
         """
         if self.store is None:
             return
         self.lineage = self.store.lineage(self.experiment, self.experiment_group)
         state = self.lineage["extraction"]
         text = {
-            lineage.CURRENT: "extracted with the registration and trenches saved now",
+            lineage.CURRENT: (
+                "extracted with the registration, trenches and shading saved now"
+            ),
             lineage.STALE: (
-                "extracted with another registration or other trenches: extract "
-                "again, with resume=False or to a new path"
+                "extracted with another registration, other trenches or other shading "
+                "(or none): extract again, with resume=False or to a new path"
             ),
             lineage.MISSING: "not extracted yet",
             lineage.UNRECORDED: (
@@ -842,6 +892,7 @@ class ExtractionDock(QWidget):
         self._opened_fields = self._experiment_fields()
         self.store = CompanionStore.for_experiment(experiment)
         self.registrator = self.lane_detector = self.trench_detector = None
+        self.shading = None
         channels = list(experiment.channel_names)
         for box in (self.reg_channel, self.det_channel, self.mosaic_channel):
             current = box.currentData()
@@ -854,6 +905,7 @@ class ExtractionDock(QWidget):
         if (saved := self._saved_registration()) is not None:
             _select(self.reg_channel, saved.get("channel"))
         self._load_saved()
+        self._show_evidence()
         self.experiment_info.setText(
             f"<b>{experiment.experiment_name}</b><br>"
             f"{experiment.n_fovs} FOVs × {experiment.n_timepoints} frames × "
@@ -871,6 +923,7 @@ class ExtractionDock(QWidget):
                 ("registration", self.registrator is not None),
                 ("lanes", self.lane_detector is not None),
                 ("trenches", self.trench_detector is not None),
+                ("shading", self.shading is not None),
             )
             if done
         ]
@@ -879,6 +932,7 @@ class ExtractionDock(QWidget):
             for section, name in (
                 ("lane_detection", "lanes"),
                 ("trench_detection", "trenches"),
+                ("shading", "shading"),
             )
             if self.lineage.get(section) == lineage.STALE
         ]
@@ -891,7 +945,8 @@ class ExtractionDock(QWidget):
             )
             + (
                 f" The saved {' and '.join(ignored)} were made from another "
-                "registration or other lanes, so they were not loaded: apply them again."
+                "registration, other lanes or other trenches, so they were not loaded: "
+                "apply them again."
                 if ignored
                 else ""
             )
@@ -943,6 +998,10 @@ class ExtractionDock(QWidget):
             self._fill_lanes(params)
         if store.has_trench_detection():
             self._fill_trenches(store.load_trench_detection()["params"])
+        if store.has_shading():
+            params = store.section_attrs("shading")["params"]
+            _select(self.shading_mode, params.get("mode", "subtract"))
+            self.shading_offset.setValue(float(params.get("offset", 100)))
 
     def _saved_mean(self, params: dict) -> dict[str, Any]:
         """The detection image saved lanes or trenches were found on."""
@@ -979,7 +1038,7 @@ class ExtractionDock(QWidget):
         """Load the saved registration if the Register tab's settings made it, then
         the lanes and trenches saved after it (the notebook's checkpoint cells).
         """
-        from pymmm import LaneDetector, Registrator, TrenchDetector
+        from pymmm import LaneDetector, Registrator, ShadingCorrector, TrenchDetector
 
         self.lineage = self.store.lineage(self.experiment, self.experiment_group)
         wanted = self._form_registrator()
@@ -999,7 +1058,15 @@ class ExtractionDock(QWidget):
                 self.trench_detector = TrenchDetector.load(
                     self.experiment, self.registrator, self.lane_detector, self.store
                 )
+                if lineage.usable(self.lineage["shading"]):
+                    self.shading = ShadingCorrector.load(
+                        self.experiment,
+                        self.registrator,
+                        self.trench_detector,
+                        self.store,
+                    )
         self._lane_note()
+        self._show_evidence()
 
     # ------------------------------------------------------------------
     # Layers
@@ -1054,6 +1121,12 @@ class ExtractionDock(QWidget):
         )
         self._layers["trenches"] = self.viewer.add_shapes(
             name="trenches", edge_color="red", visible=False, **shapes
+        )
+        self._layers["spacers"] = self.viewer.add_shapes(
+            name="PDMS between trenches (shading reference)",
+            edge_color="yellow",
+            visible=False,
+            **{**shapes, "edge_width": 2},
         )
         self.viewer.dims.axis_labels = RAW_AXES
         _first_step(self.viewer)  # napari opens on the middle frame and FOV
@@ -1163,14 +1236,17 @@ class ExtractionDock(QWidget):
             "Register": {"roi"},
             "Lanes": {"mean", "lanes"},
             "Trenches": {"mean", "lanes", "trenches"},
+            "Shading": {"mean", "spacers"},
         }.get(name, set())
-        for key in ("roi", "mean", "lanes", "trenches"):
+        for key in ("roi", "mean", "lanes", "trenches", "spacers"):
             if key in self._layers:
                 self._layers[key].visible = key in shown
         if name == "Lanes":
             self.update_lanes()
         elif name == "Trenches":
             self.update_trenches()
+        elif name == "Shading":
+            self.update_shading()
         elif name == "Register":
             self._draw_drift()
 
@@ -1412,6 +1488,8 @@ class ExtractionDock(QWidget):
             self.update_lanes()
         elif name == "Trenches":
             self.update_trenches()
+        elif name == "Shading":
+            self.update_shading()
 
     # ------------------------------------------------------------------
     # Background runs
@@ -1500,7 +1578,7 @@ class ExtractionDock(QWidget):
         live.fov.connect(lambda fov, shifts: self._on_fov_registered(live, fov, shifts))
 
         def job():
-            store.clear("registration", "lane_detection", "trench_detection")
+            store.clear("registration", "lane_detection", "trench_detection", "shading")
             registrator.compute_tmats(
                 save_diagnostics=True,
                 n_jobs=workers,
@@ -1516,7 +1594,8 @@ class ExtractionDock(QWidget):
         def done(result) -> None:
             self._live_drift = None
             self.registrator = result
-            self.lane_detector = self.trench_detector = None
+            self.lane_detector = self.trench_detector = self.shading = None
+            self._show_evidence()
             self._refresh_registered()
             self._draw_drift()
             self._draw_map()
@@ -1534,6 +1613,8 @@ class ExtractionDock(QWidget):
                 self._draw_drift()
 
         self.registrator = self.lane_detector = self.trench_detector = None
+        self.shading = None
+        self._show_evidence()
         self.drift_plot.clear()
         self._drift_from = None
         self._draw_drift()
@@ -1701,13 +1782,14 @@ class ExtractionDock(QWidget):
                 detector.detect_lanes(**settings, **mean, save_diagnostics=True)
             else:
                 detector.use_image_edge(edge, save_diagnostics=True, **mean)
-            store.clear("lane_detection", "trench_detection")
+            store.clear("lane_detection", "trench_detection", "shading")
             detector.save()
             return detector
 
         def done(result) -> None:
             self.lane_detector = result
-            self.trench_detector = None
+            self.trench_detector = self.shading = None
+            self._show_evidence()
             shape = self._trench_detector().shape_defaults()
             if edge is not None:
                 self.trench_length.setValue(shape["trench_length"])
@@ -1899,13 +1981,18 @@ class ExtractionDock(QWidget):
         settings = self._trench_settings()
         mean = self._trench_mean()
 
+        store = self.store
+
         def job():
             detector.detect_trenches(**settings, **mean, save_diagnostics=True)
+            store.clear("shading")
             detector.save()
             return detector
 
         def done(result) -> None:
             self.trench_detector = result
+            self.shading = None  # measured between the old trenches
+            self._show_evidence()
             self.trench_status.setText(
                 f"<b>Saved</b>: {result.n_trenches} trenches across "
                 f"{len(result.trenches)} FOVs"
@@ -1917,13 +2004,145 @@ class ExtractionDock(QWidget):
             self._draw_map()
             self._say(
                 f"Trenches saved; overlays in {self._diagnostics('trenches')}. "
-                "Next: the Preview tab."
+                "Next: the Shading tab."
             )
             self._enable()
             self._show_extraction()
 
         self._say("Detecting the trenches of every FOV…")
         self._run(job, done, "Trench detection")
+
+    # ------------------------------------------------------------------
+    # Shading
+    # ------------------------------------------------------------------
+
+    def _shading_corrector(self):
+        """A ShadingCorrector with the tab's settings (not measured)."""
+        from pymmm import ShadingCorrector
+
+        return ShadingCorrector(
+            self.experiment,
+            self.registrator,
+            self.trench_detector,
+            self.store,
+            mode=self.shading_mode.currentData(),
+            offset=self.shading_offset.value(),
+        )
+
+    def update_shading(self) -> None:
+        """The FOV on the P slider with its background taken out by the tab's
+        settings (or as it is), and the PDMS it was measured on.
+        """
+        if self._mosaic is not None:  # the dock's layers are put away
+            return
+        self._mark_tabs()
+        fov = self.current_fov()
+        if self.trench_detector is None or fov is None or not self._showing("Shading"):
+            return
+        self.shading_offset.setEnabled(self.shading_mode.currentData() == "divide")
+        self.shading_plot.show_fov(fov)
+        self._with_mean(fov, self._draw_shading, self.trench_detector.detection_image)
+
+    def _draw_shading(self, fov: str, image: np.ndarray) -> None:
+        if self._mosaic is not None:  # the dock's layers are put away
+            return
+        from pymmm.steps import shading
+
+        corrector = self._shading_corrector()
+        lanes = shading.lane_spacers(self.trench_detector.trenches.get(fov, []))
+        rectangles = []
+        for top, bottom, columns in lanes:
+            if len(columns):
+                breaks = np.flatnonzero(np.diff(columns) > 1)
+                for start, stop in zip(
+                    np.r_[columns[0], columns[breaks + 1]],
+                    np.r_[columns[breaks], columns[-1]],
+                ):
+                    rectangles.append(np.array([[top, start], [bottom, stop + 1]]))
+        _set_shapes(
+            self._layers["spacers"],
+            rectangles,
+            "rectangle",
+            ["yellow"] * len(rectangles),
+        )
+        surface = corrector.fit_fov(image, fov)
+        if surface is None:
+            self._show_mean(image)
+            self.shading_status.setText(
+                f"<b>{fov}</b>: too little PDMS between trenches; left uncorrected"
+            )
+            return
+        height, width = image.shape
+        background = shading.sample(
+            surface, np.arange(height), np.arange(width), (height, width)
+        )
+        rows = np.zeros(height, bool)
+        for top, bottom, _ in lanes:
+            rows[top:bottom] = True
+        own = float(np.median(background[rows]))
+        # the saved level, else this FOV's own until every FOV is measured
+        level = self.shading.level if self.shading is not None else own
+        shown = image
+        if self.shading_corrected.isChecked():
+            shown = shading.correct(
+                image, background, level, corrector.offset, corrector.mode
+            )
+            shown[image <= 0] = 0
+        self._show_mean(np.asarray(shown, np.float32))
+        lo, hi = np.percentile(background[rows], [1, 99])
+        self.shading_status.setText(
+            f"<b>{fov}</b>: background {lo:.0f}–{hi:.0f} counts "
+            f"({100 * (hi - lo) / own:.0f}% across the trenches)"
+            + (
+                f"; the experiment's level {level:.0f}"
+                if self.shading is not None
+                else "; level: this FOV's, until every FOV is measured"
+            )
+            + ("" if self.shading_corrected.isChecked() else "; shown as it is")
+        )
+
+    def apply_shading(self) -> None:
+        """Measure every FOV's background with the tab's settings and save it."""
+        corrector = self._shading_corrector()
+
+        def job():
+            corrector.fit()
+            corrector.save()
+            return corrector
+
+        def done(result) -> None:
+            from pymmm.steps.shading import describe
+
+            self.shading = result
+            self._show_evidence()
+            measured = len(result.experiment.fov_names) - len(result.skipped)
+            self.shading_status.setText(
+                f"<b>Saved</b>: {measured} of {len(result.experiment.fov_names)} FOVs, "
+                f"{describe({'mode': result.mode, 'offset': result.offset, 'level': result.level})}"
+                + (
+                    f"<br><b>Left uncorrected</b> (too little PDMS between trenches): "
+                    f"{', '.join(result.skipped)}"
+                    if result.skipped and result.mode != "off"
+                    else ""
+                )
+            )
+            self._say("Shading saved. Next: the Preview tab.")
+            self._enable()
+            self._show_extraction()
+            self.update_shading()
+
+        self._say("Measuring the shading of every FOV…")
+        self._run(job, done, "Shading")
+
+    def _show_evidence(self) -> None:
+        """The evidence plot of the shading in use, or nothing."""
+        if self.shading is None:
+            self.shading_plot.clear()
+            return
+        self.shading_plot.set_evidence(
+            self.shading.evidence(), self.shading.evidence_slopes()
+        )
+        self.shading_plot.show_fov(self.current_fov())
 
     def _on_units(self) -> None:
         """Show both viewers in the chosen units (the settings stay in pixels)."""
@@ -1965,7 +2184,11 @@ class ExtractionDock(QWidget):
 
         exp = self.experiment
         extractor = Extractor(
-            exp, self.registrator, self.trench_detector, output_path=Path("unused.zarr")
+            exp,
+            self.registrator,
+            self.trench_detector,
+            self.shading,
+            output_path=Path("unused.zarr"),
         )
         detection = self.det_channel.currentData()
         if viewer is None:

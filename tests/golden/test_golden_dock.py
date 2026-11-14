@@ -1,6 +1,7 @@
 """Golden tests of the extraction dock (pymmm.gui.extraction) on real data: driven as a
-person would, with the experiment's settings, it saves the golden registration, lanes
-and trenches, its preview is the extraction, and reopening it loads what it saved.
+person would, with the experiment's settings, it saves the golden registration, lanes,
+trenches and shading, its preview is the extraction, and reopening it loads what it
+saved.
 
 The dock is a real Qt widget on a napari ViewerModel (the viewer without its canvas);
 Qt draws offscreen.
@@ -19,7 +20,16 @@ import zarr
 from golden_io import check
 from pymmm import CompanionStore, Registrator
 from pymmm.parallel import Cancelled
-from real_data import FOVS, LANES, ND2, REGISTRATION, TIMES, TRENCHES, open_nd2
+from real_data import (
+    FOVS,
+    LANES,
+    ND2,
+    REGISTRATION,
+    SHADING,
+    TIMES,
+    TRENCHES,
+    open_nd2,
+)
 from test_golden_pipeline import lanes_summary, registration_summary, trenches_summary
 
 pytestmark = [
@@ -221,7 +231,14 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     assert all(f"({FOVS[0]})" not in layer.name for layer in viewer.layers)
     dock.tabs.setCurrentIndex(dock.TAB_NAMES.index("Trenches"))
     tabs = [dock.tabs.tabText(i) for i in range(dock.tabs.count())]
-    assert tabs == ["Experiment", "Register ✓", "Lanes ✓", "Trenches ✓", "Preview"]
+    assert tabs == [
+        "Experiment",
+        "Register ✓",
+        "Lanes ✓",
+        "Trenches ✓",
+        "Shading",
+        "Preview",
+    ]
     assert dock.lineage["trench_detection"] == "current"
     assert "not extracted yet" in dock.extraction_info.text()
     # a setting changed and not applied: marked, and marked back when set back
@@ -237,13 +254,47 @@ def test_dock_reproduces_the_golden_detection_and_preview(
         f"trenches_{fov}.png" for fov in FOVS
     }
 
+    # Shading: the FOV shown corrected with the tab's settings, then every FOV; the
+    # preview waits for it
+    assert not dock.tabs.isTabEnabled(dock.TAB_NAMES.index("Preview"))
+    dock.tabs.setCurrentIndex(dock.TAB_NAMES.index("Shading"))
+    _choose(dock.shading_mode, SHADING["mode"])
+    dock.shading_offset.setValue(SHADING["offset"])
+    dock.update_shading()
+    _wait(qapp, lambda: "background" in dock.shading_status.text())
+    shown = dock.current_fov()
+    spacers = viewer.layers["PDMS between trenches (shading reference)"]
+    # one strip per gap between neighbouring trenches
+    assert spacers.visible
+    assert len(spacers.data) == len(pipeline.trenches.trenches[shown]) - 1
+    mean = viewer.layers["detection image (registered mean)"]
+    corrected = np.asarray(mean.data).copy()
+    dock.shading_corrected.setChecked(False)
+    _wait(qapp, lambda: "shown as it is" in dock.shading_status.text())
+    assert not np.array_equal(np.asarray(mean.data), corrected)
+    dock.shading_corrected.setChecked(True)
+    dock.shading_apply.click()
+    _wait(qapp, lambda: dock._worker is None)
+    assert dock.shading.fingerprint() == pipeline.shading.fingerprint()
+    assert "Shading saved" in dock.status.text()
+    assert dock.tabs.tabText(4) == "Shading ✓"
+    assert "28 trenches" in dock.shading_plot.note.text()
+    assert len(dock.shading_plot.fov.getData()[0]) == len(
+        pipeline.trenches.trenches[shown]
+    )
+    dock.shading_offset.setValue(SHADING["offset"] + 5)
+    assert dock.tabs.tabText(4) == "Shading *"
+    dock.shading_offset.setValue(SHADING["offset"])
+    assert dock.tabs.tabText(4) == "Shading ✓"
+    assert dock.lineage["shading"] == "current"
+
     # Preview: the trench images extract() wrote
     from napari.components import ViewerModel
 
     # as a person opens it, the button (a new window: here a viewer without a canvas,
     # as offscreen Qt has no OpenGL)
     monkeypatch.setattr("napari.Viewer", lambda title: ViewerModel(title=title))
-    dock.tabs.setCurrentIndex(4)
+    dock.tabs.setCurrentIndex(dock.TAB_NAMES.index("Preview"))
     dock.preview_button.click()
     assert dock.preview_viewer.title.endswith("trench preview")
     if coordinate_grid(dock.preview_viewer) is not None:
@@ -251,13 +302,14 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     preview = dock.open_preview(ViewerModel())
     assert preview.dims.axis_labels == ("trench", "t", "y", "x")
     root = zarr.open_group(str(pipeline.group), mode="r")
-    layer = preview.layers["mCherry"]
-    assert layer.data.trench_ids == root["trenches/trench"][:].tolist()
-    for k in (0, len(layer.data) - 1):
-        trench = layer.data.trench_ids[k]
-        np.testing.assert_array_equal(
-            layer.data[k], root[f"trench_{trench:04d}/0"][:, 1]
-        )
+    for c, name in enumerate(("PC", "mCherry")):  # PC with its shading taken out
+        layer = preview.layers[name]
+        assert layer.data.trench_ids == root["trenches/trench"][:].tolist()
+        for k in (0, len(layer.data) - 1):
+            trench = layer.data.trench_ids[k]
+            np.testing.assert_array_equal(
+                layer.data[k], root[f"trench_{trench:04d}/0"][:, c]
+            )
 
     # Units: µm scales the y and x of every layer of both viewers, shapes too
     size = pipeline.exp.pixel_size_um
@@ -277,7 +329,7 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     np.testing.assert_allclose(viewer.scene.camera.center[-2:], (300, 1000))
     np.testing.assert_allclose(viewer.scene.camera.zoom, 2.0)
 
-    # Reopened, the dock loads all three and fills its tabs from them
+    # Reopened, the dock loads them all and fills its tabs from them
     viewer2, dock2 = _dock(qapp, nd2)
     assert dock2.keep_edit.text() == ""
     assert dock2.experiment.fov_names == FOVS
@@ -286,7 +338,12 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     assert dock2.registrator is not None and dock2.registrator.is_computed
     assert dock2.trench_detector.n_trenches == pipeline.trenches.n_trenches
     assert dock2.trench_width.value() == TRENCHES["trench_width"]
-    assert "loaded the saved registration, lanes, trenches" in dock2.status.text()
+    assert (
+        "loaded the saved registration, lanes, trenches, shading" in dock2.status.text()
+    )
+    assert dock2.shading.fingerprint() == pipeline.shading.fingerprint()
+    assert dock2.shading_mode.currentData() == SHADING["mode"]
+    assert dock2.tabs.tabText(4) == "Shading ✓"
     assert viewer2.layers["PC"].name == "PC"  # registered, not only rotated
 
     # A changed setting shows the frames only rotated, locks the later steps and says
@@ -296,10 +353,10 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     assert viewer2.layers[1].name == "PC (rotated, not registered)"
     assert "Register again" in dock2.reg_status.text()
     assert dock2.tabs.tabText(1) == "Register *"
-    assert not any(dock2.tabs.isTabEnabled(i) for i in (2, 3, 4))
+    assert not any(dock2.tabs.isTabEnabled(i) for i in (2, 3, 4, 5))
     dock2.rotation.setValue(REGISTRATION["rotation"])
     dock2._on_registration_settings()
-    assert all(dock2.tabs.isTabEnabled(i) for i in (2, 3, 4))
+    assert all(dock2.tabs.isTabEnabled(i) for i in (2, 3, 4, 5))
 
     # Registered again elsewhere without clearing what followed (a script): the dock
     # loads the registration but not the lanes and trenches made from the old one
@@ -311,6 +368,7 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     _, dock3 = _dock(qapp, nd2)
     assert dock3.registrator is not None and dock3.registrator.rotation == 1.0
     assert dock3.lane_detector is None and dock3.trench_detector is None
+    assert dock3.shading is None
     assert "were not loaded" in dock3.status.text()
     assert dock3.lineage["lane_detection"] == "stale"
     assert not dock3.tabs.isTabEnabled(3)
