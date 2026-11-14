@@ -13,7 +13,8 @@ down the tabs as the notebook works down its cells:
 - Trenches: the same, for the trenches.
 - Shading: measure each FOV's shading on the PDMS between its trenches, and choose how
   it comes out of the detection channel (subtract or divide), with the evidence: how the
-  cells follow the background. The FOV on the P slider is shown corrected, or not.
+  cells follow the background. The FOV on the P slider is shown corrected, or not; in
+  the stitched view, which stays open on this tab, every FOV is.
 - Preview: the trenches as ``extract()`` would write them, in a second viewer. Each
   slider step cuts one trench at one frame
   (:class:`~pymmm.steps.extraction.TrenchPreview`).
@@ -1230,8 +1231,8 @@ class ExtractionDock(QWidget):
     def _on_tab(self, index: int) -> None:
         """Show the overlays of the tab's step."""
         name = self.TAB_NAMES[index]
-        if name != "Experiment" and self._mosaic is not None:
-            self.mosaic_button.setChecked(False)  # the steps work on single FOVs
+        if name not in ("Experiment", "Shading") and self._mosaic is not None:
+            self.mosaic_button.setChecked(False)  # these steps work on single FOVs
         shown = {
             "Register": {"roi"},
             "Lanes": {"mean", "lanes"},
@@ -1379,7 +1380,11 @@ class ExtractionDock(QWidget):
         mosaic.set_marks(*self._marks(frames))
         self.viewer.dims.set_current_step(0, self._before_mosaic["t"])
         self._mosaic.show_all()
-        self._say("Stitched view: pan and zoom, or click the map to go there.")
+        corrected = self._shade_mosaic()
+        self._say(
+            "Stitched view: pan and zoom, or click the map to go there."
+            + (f" {channel} has its shading taken out." if corrected else "")
+        )
 
     def _leave_mosaic(self) -> None:
         mosaic, self._mosaic = self._mosaic, None
@@ -1414,7 +1419,9 @@ class ExtractionDock(QWidget):
         plot.set_viewport(rect)
         if self._mosaic is not None:
             x0, y0, x1, y1 = rect
-            plot.show_fov(self._mosaic.fov_at((x0 + x1) / 2, (y0 + y1) / 2))
+            fov = self._mosaic.fov_at((x0 + x1) / 2, (y0 + y1) / 2)
+            plot.show_fov(fov)
+            self.shading_plot.show_fov(fov)
 
     def _on_map_point(self, x: float, y: float) -> None:
         if self._mosaic is not None:
@@ -2040,13 +2047,16 @@ class ExtractionDock(QWidget):
         """The FOV on the P slider with its background taken out by the tab's
         settings (or as it is), and the PDMS it was measured on.
         """
+        self._mark_tabs()
+        self.shading_offset.setEnabled(self.shading_mode.currentData() == "divide")
+        if self._mosaic is not None:
+            self._shade_mosaic()
+            return
         if self._layers_away:
             return
-        self._mark_tabs()
         fov = self.current_fov()
         if self.trench_detector is None or fov is None or not self._showing("Shading"):
             return
-        self.shading_offset.setEnabled(self.shading_mode.currentData() == "divide")
         self.shading_plot.show_fov(fov)
         self._with_mean(fov, self._draw_shading, self.trench_detector.detection_image)
 
@@ -2107,6 +2117,35 @@ class ExtractionDock(QWidget):
             )
             + ("" if self.shading_corrected.isChecked() else "; shown as it is")
         )
+
+    def _shade_mosaic(self) -> bool:
+        """The stitched view with the saved shading taken out by the tab's mode and
+        offset, when "show corrected" is on, or as recorded; whether it is corrected.
+        """
+        mosaic, shading = self._mosaic, self.shading
+        mode = self.shading_mode.currentData()
+        correct = None
+        if shading is None:
+            note = "as recorded; measure every FOV to correct it"
+        elif mosaic.channel != shading.channel:
+            note = f"{mosaic.channel}, as recorded (the shading is {shading.channel}'s)"
+        elif not self.shading_corrected.isChecked() or mode == "off":
+            note = "as recorded"
+        else:
+            names, offset = self.experiment.fov_names, self.shading_offset.value()
+
+            def correct(p: int, frame: np.ndarray, factor: int) -> np.ndarray:
+                return shading.correct_raw(frame, names[p], factor, mode, offset)
+
+            note = (
+                f"corrected, {mode}, to {shading.level:.0f} counts "
+                "(each frame's own level left out)"
+            )
+        mosaic.set_correction(correct)
+        self.shading_status.setText(f"<b>Stitched view</b>: {note}")
+        x0, y0, x1, y1 = mosaic.view_rect()
+        self.shading_plot.show_fov(mosaic.fov_at((x0 + x1) / 2, (y0 + y1) / 2))
+        return correct is not None
 
     def apply_shading(self) -> None:
         """Measure every FOV's background with the tab's settings and save it."""

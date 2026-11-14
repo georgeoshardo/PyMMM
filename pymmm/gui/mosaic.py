@@ -4,7 +4,8 @@ view, for looking around the whole chip. Nothing is resampled or saved.
 Each FOV is its own image layer of raw frames, placed by the ND2's stage position and
 camera matrix (:class:`~pymmm.source.stage.StageLayout`); napari turns and places it.
 World coordinates are the Experiment tab's map coordinates (µm), so the two line up
-exactly. Frame drift is left out.
+exactly. Frame drift is left out. A correction (:meth:`MosaicView.set_correction`), the
+shading taken out, applies to each frame as it is shown.
 
 Three things keep it light:
 
@@ -78,6 +79,8 @@ class FrameSource:
         self._sizes = (int(cache_frames), int(cache_reduced))
         self._lock = threading.Lock()
         self.reads = 0  # frames read from the file
+        # (p, frame, factor) -> the frame corrected, or None: applied as frames are shown
+        self.correct: Callable[[int, np.ndarray, int], np.ndarray | None] | None = None
 
     @staticmethod
     def _cached(cache: OrderedDict, key: tuple, limit: int, make: Callable):
@@ -136,8 +139,19 @@ class FovFrames:
 
     def _frame(self, t: int) -> np.ndarray:
         if self.is_reduced:
-            return self.source.reduced(self.p, t)
-        return self.source.full(self.p, t)
+            frame = self.source.reduced(self.p, t)
+        else:
+            frame = self.source.full(self.p, t)
+        correct = self.source.correct
+        if correct is None:
+            return frame
+        out = correct(self.p, frame, REDUCTION if self.is_reduced else 1)
+        if out is None:
+            return frame
+        if np.issubdtype(self.dtype, np.integer):
+            limits = np.iinfo(self.dtype)
+            out = np.clip(out, limits.min, limits.max)
+        return out.astype(self.dtype)
 
     def __getitem__(self, key: Any) -> np.ndarray:
         if not isinstance(key, tuple):
@@ -290,6 +304,18 @@ class MosaicView:
         values = np.concatenate([self.source.reduced(p, t).ravel() for p in picks])
         low, high = np.percentile(values, [1, 99.8])
         return float(low), float(max(high, low + 1))
+
+    def set_correction(
+        self, correct: Callable[[int, np.ndarray, int], np.ndarray | None] | None
+    ) -> None:
+        """Show every frame through ``correct(p, frame, factor)`` (``p`` the FOV's
+        index in the experiment, ``factor`` how much smaller the frame is than the
+        camera's), or as recorded with ``None``.
+        """
+        self.source.correct = correct
+        for layer in self.layers.values():
+            if layer.visible:  # a hidden layer is drawn afresh when it comes into view
+                layer.refresh()
 
     def close(self) -> None:
         """Remove the layers and stop following the camera."""

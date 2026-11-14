@@ -288,6 +288,37 @@ def test_dock_reproduces_the_golden_detection_and_preview(
     assert dock.tabs.tabText(4) == "Shading ✓"
     assert dock.lineage["shading"] == "current"
 
+    # The stitched view stays open on the Shading tab, every FOV with its shading out
+    dock.tabs.setCurrentIndex(dock.TAB_NAMES.index("Experiment"))
+    dock.mosaic_button.click()
+    mosaic = dock._mosaic
+    assert "shading taken out" in dock.status.text()
+    dock.tabs.setCurrentIndex(dock.TAB_NAMES.index("Shading"))
+    assert dock._mosaic is mosaic
+    assert "Stitched view</b>: corrected" in dock.shading_status.text()
+    t = int(viewer.dims.current_step[0])
+    zoomed_out = mosaic.layers[FOVS[0]].data[1]
+    raw = mosaic.source.reduced(0, t)
+    expected = pipeline.shading.correct_raw(raw, FOVS[0], 8)
+    np.testing.assert_array_equal(
+        zoomed_out[t], np.clip(expected, 0, 65535).astype(raw.dtype)
+    )
+    assert not np.array_equal(zoomed_out[t], raw)
+    dock.shading_corrected.setChecked(False)
+    _wait(qapp, lambda: "as recorded" in dock.shading_status.text())
+    np.testing.assert_array_equal(zoomed_out[t], raw)
+    dock.shading_corrected.setChecked(True)
+    _wait(qapp, lambda: "corrected" in dock.shading_status.text())
+    # panned to the other FOV, then a step on single FOVs: the dock's layers come back
+    # with nothing drawn on them while they do
+    plan.point_clicked.emit(*mosaic.outlines[FOVS[1]].mean(axis=0))
+    dock.tabs.setCurrentIndex(dock.TAB_NAMES.index("Trenches"))
+    _wait(qapp, lambda: "trenches" in viewer.layers)
+    assert dock._mosaic is None and dock.current_fov() == FOVS[1]
+    assert len(viewer.layers["trenches"].data) == len(
+        pipeline.trenches.trenches[FOVS[1]]
+    )
+
     # Preview: the trench images extract() wrote
     from napari.components import ViewerModel
 

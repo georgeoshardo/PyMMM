@@ -173,7 +173,7 @@ def test_extraction_corrects_only_its_channel_and_clips_at_zero(monkeypatch, tmp
     np.testing.assert_array_equal(only_pc[0, 0, 0], out[0, 0, 0])
 
 
-def _corrector(tmp_path, mode="divide", offset=100.0):
+def _corrector(tmp_path, mode="divide", offset=100.0, rotation=0.0):
     images, table = {}, {}
     for fov, shade in (("A", "added"), ("B", "gain")):
         table[fov] = trenches(fov)
@@ -191,6 +191,7 @@ def _corrector(tmp_path, mode="divide", offset=100.0):
             f: images[f] for f in (fovs or images)
         },
         fingerprint=lambda: "r",
+        rotation=rotation,
     )
     detector = SimpleNamespace(
         channel="PC",
@@ -252,3 +253,29 @@ def test_the_evidence_tells_added_light_from_a_gain(tmp_path):
         rows = table[table["fov"] == fov]
         slope = np.polyfit(rows["background"], rows["cells"], 1)[0]
         assert slope == pytest.approx(expected, abs=0.05)
+
+
+def test_the_raw_background_is_the_registered_one_turned_back(tmp_path):
+    """For the stitched view, which shows raw frames: raw pixel q is registered pixel
+    M^-1 q, M the rotation extraction composes into its warp."""
+    from pymmm.steps.registration import _rotation_matrix
+
+    flat, _ = _corrector(tmp_path)
+    flat.fit()
+    np.testing.assert_allclose(flat.raw_background("A"), flat.background("A"), atol=0.5)
+    turned, _ = _corrector(tmp_path / "turned", rotation=3.0)
+    turned.fit()
+    gy, gx = shading.grid_axis(H), shading.grid_axis(W)
+    yy, xx = np.meshgrid(gy[5:-5], gx[5:-5], indexing="ij")  # inside the frame
+    x, y, _ = np.linalg.inv(_rotation_matrix(3.0, (H, W))) @ np.stack(
+        [xx.ravel(), yy.ravel(), np.ones(xx.size)]
+    )
+    expected = shading.sample_points(turned._surfaces["A"], y, x, (H, W))
+    raw = turned.raw_background("A")
+    np.testing.assert_allclose(raw[yy.ravel(), xx.ravel()], expected, atol=0.5)
+    small = turned.raw_background("A", 8)  # each 8 x 8 block's centre
+    assert small.shape == (H // 8, W // 8)
+    np.testing.assert_allclose(small[10, 20], raw[83:85, 163:165].mean(), atol=2)
+    assert turned.raw_background("C") is None  # not measured
+    frame = np.full((H, W), 5000.0)
+    assert np.array_equal(turned.correct_raw(frame, "C"), frame)

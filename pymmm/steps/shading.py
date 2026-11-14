@@ -23,6 +23,7 @@ measure (:attr:`ShadingCorrector.skipped`).
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import pairwise
@@ -33,7 +34,7 @@ import pandas as pd
 import xarray as xr
 
 from pymmm.source.nd2 import ND2Experiment
-from pymmm.steps.registration import Registrator
+from pymmm.steps.registration import Registrator, _rotation_matrix
 from pymmm.steps.trenches import TrenchDefinition, TrenchDetector
 from pymmm.store import lineage
 from pymmm.store.companion import CompanionStore
@@ -135,6 +136,19 @@ def sample(
     top = surface[i][:, j] * (1 - wx) + surface[i][:, j + 1] * wx
     bottom = surface[i + 1][:, j] * (1 - wx) + surface[i + 1][:, j + 1] * wx
     return (top * (1 - wy)[:, None] + bottom * wy[:, None]).astype(np.float32)
+
+
+def sample_points(
+    surface: np.ndarray, rows: np.ndarray, columns: np.ndarray, shape: tuple[int, int]
+) -> np.ndarray:
+    """The surface at the points ``(rows[k], columns[k])`` (pixels, fractions allowed),
+    linearly interpolated: one value per point.
+    """
+    i, wy = _weights(grid_axis(shape[0]), np.asarray(rows, float))
+    j, wx = _weights(grid_axis(shape[1]), np.asarray(columns, float))
+    top = surface[i, j] * (1 - wx) + surface[i, j + 1] * wx
+    bottom = surface[i + 1, j] * (1 - wx) + surface[i + 1, j + 1] * wx
+    return (top * (1 - wy) + bottom * wy).astype(np.float32)
 
 
 def _tiles(image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -291,6 +305,8 @@ class ShadingCorrector:
         self._surfaces: dict[str, np.ndarray | None] | None = None
         self._level: float | None = None
         self._evidence: pd.DataFrame | None = None
+        # backgrounds at raw-frame pixels, by (FOV, factor): a few full size, more small
+        self._raw: dict[bool, OrderedDict] = {True: OrderedDict(), False: OrderedDict()}
 
     # ------------------------------------------------------------------
     # Properties
@@ -385,6 +401,64 @@ class ShadingCorrector:
             return None
         height, width = self.shape
         return sample(surface, np.arange(height), np.arange(width), self.shape)
+
+    def raw_background(self, fov: str, factor: int = 1) -> np.ndarray | None:
+        """A FOV's background at the pixels of its raw frame, before the registration
+        turns it: every pixel, or the centre of every ``factor`` × ``factor`` block (as
+        a stitched view shrinks frames). Drift is left out: it moves the frame a few
+        pixels, and the background changes over hundreds. Kept for reuse.
+        """
+        full = factor == 1
+        cache = self._raw[full]
+        key = (fov, int(factor))
+        if key in cache:
+            cache.move_to_end(key)
+            return cache[key]
+        surface = self._fitted().get(fov)
+        if surface is None:
+            return None
+        height, width = self.shape
+        gy, gx = grid_axis(height), grid_axis(width)
+        yy, xx = np.meshgrid(gy, gx, indexing="ij")
+        # extraction reads raw pixel M @ p for registered pixel p (x, y)
+        to_registered = np.linalg.inv(
+            _rotation_matrix(self.registrator.rotation, self.shape)
+        )
+        x, y, _ = to_registered @ np.stack([xx.ravel(), yy.ravel(), np.ones(xx.size)])
+        raw_surface = sample_points(surface, y, x, self.shape).reshape(yy.shape)
+        rows = np.arange(height // factor) * factor + (factor - 1) / 2
+        columns = np.arange(width // factor) * factor + (factor - 1) / 2
+        background = sample(raw_surface, rows, columns, self.shape)
+        cache[key] = background
+        while len(cache) > (12 if full else 1024):
+            cache.popitem(last=False)
+        return background
+
+    def correct_raw(
+        self,
+        frame: np.ndarray,
+        fov: str,
+        factor: int = 1,
+        mode: str | None = None,
+        offset: float | None = None,
+    ) -> np.ndarray:
+        """A raw frame of ``fov`` (shrunk ``factor`` times, as by
+        :meth:`raw_background`) corrected with its background, as float32, by this
+        correction's mode and offset or the ones given. Without the frame's own level
+        (:class:`FovShading`): this is for looking at, not for extraction.
+        """
+        background = self.raw_background(fov, factor)
+        mode = self.mode if mode is None else mode
+        if background is None or mode == "off":
+            return np.asarray(frame, np.float32)
+        height, width = background.shape
+        return correct(
+            np.asarray(frame)[:height, :width],
+            background,
+            self.level,
+            self.offset if offset is None else round(float(offset), 6),
+            mode,
+        )
 
     def correct_image(self, image: np.ndarray, fov: str) -> np.ndarray:
         """A registered image of ``fov`` corrected with its background (without the
