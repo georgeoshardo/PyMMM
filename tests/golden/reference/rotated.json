@@ -15,11 +15,13 @@
       "layout": "experiment",
       "made_from": {
        "registration": "ddb6ba1f1cb435cd",
+       "shading": null,
        "trench_detection": "c5af3ec6059c0808"
       },
       "pixel_size_um": 0.107869821220548,
       "provenance": "<volatile>",
       "schema_version": 5,
+      "shading": null,
       "source_file_size_bytes": 363359944704,
       "source_mtime_ns": "<volatile>",
       "source_nd2": "<volatile>",

@@ -9,10 +9,10 @@
  },
  "trench_7_PC": {
   "dtype": "<u2",
-  "max": 10197.0,
-  "min": 2988.0,
-  "sha256": "fef18e4a6eea9df044b6eaf9e32065c9ed66661e51a40401e6724998b89e5d9a",
+  "max": 9971.0,
+  "min": 2950.0,
+  "sha256": "5d9dc7908f6d6f151b8007c4e399eecaaa2bdf9896a39e8a1ff77b781ab9d6e3",
   "shape": [10, 655, 94],
-  "sum": 3074058843.0
+  "sum": 3087963315.0
  }
 }

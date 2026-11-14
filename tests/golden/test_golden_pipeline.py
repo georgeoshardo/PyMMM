@@ -8,6 +8,7 @@ resume, time chunks and an output rotation.
 
 from __future__ import annotations
 
+import copy
 import shutil
 from dataclasses import asdict
 
@@ -15,7 +16,14 @@ import numpy as np
 import pytest
 import zarr
 from golden_io import canonical, check, digest, manifest
-from pymmm import CompanionStore, Extractor, LaneDetector, Registrator, TrenchDetector
+from pymmm import (
+    CompanionStore,
+    Extractor,
+    LaneDetector,
+    Registrator,
+    ShadingCorrector,
+    TrenchDetector,
+)
 from pymmm.steps.segmentation import background_noise, normalise, trench_bounds
 from real_data import (
     EXTRACTION,
@@ -166,6 +174,9 @@ def test_checkpoints(pipeline):
     reg = Registrator.load(pipeline.exp, store)
     lanes = LaneDetector.load(pipeline.exp, reg, store)
     trenches = TrenchDetector.load(pipeline.exp, reg, lanes, store)
+    shading = ShadingCorrector.load(pipeline.exp, reg, trenches, store)
+    assert shading.fingerprint() == pipeline.shading.fingerprint()
+    assert shading.evidence().equals(pipeline.shading.evidence())
     check("registration_first", registration_summary(reg))
     check("lanes", lanes_summary(lanes))
     check("trenches", trenches_summary(trenches))
@@ -197,7 +208,11 @@ def test_extraction_paths(pipeline, request, tmp_path, path, batch_size):
     run_on(path, request)
     output = tmp_path / "experiment.zarr"
     Extractor(
-        pipeline.exp, pipeline.reg, pipeline.trenches, output_path=output
+        pipeline.exp,
+        pipeline.reg,
+        pipeline.trenches,
+        pipeline.shading,
+        output_path=output,
     ).extract(
         **{**EXTRACTION, "batch_size": batch_size}, resume=False, show_progress=False
     )
@@ -208,7 +223,11 @@ def test_extraction_resumes_an_interrupted_run(pipeline, tmp_path):
     output = tmp_path / "experiment.zarr"
     shutil.copytree(pipeline.group, output)
     extractor = Extractor(
-        pipeline.exp, pipeline.reg, pipeline.trenches, output_path=output
+        pipeline.exp,
+        pipeline.reg,
+        pipeline.trenches,
+        pipeline.shading,
+        output_path=output,
     )
 
     extractor.extract(**EXTRACTION, resume=True, show_progress=False)  # complete: no-op
@@ -233,12 +252,23 @@ def test_extraction_resumes_an_interrupted_run(pipeline, tmp_path):
         extractor.extract(
             **{**EXTRACTION, "clevel": 5}, resume=True, show_progress=False
         )
+    # nor with the shading taken out another way: it would mix the two in one group
+    other = copy.copy(pipeline.shading)
+    other.mode = "subtract"
+    with pytest.raises(RuntimeError, match="shading"):
+        Extractor(
+            pipeline.exp, pipeline.reg, pipeline.trenches, other, output_path=output
+        ).extract(**EXTRACTION, resume=True, show_progress=False)
 
 
 def test_extraction_time_chunks(pipeline, tmp_path):
     output = tmp_path / "experiment.zarr"
     Extractor(
-        pipeline.exp, pipeline.reg, pipeline.trenches, output_path=output
+        pipeline.exp,
+        pipeline.reg,
+        pipeline.trenches,
+        pipeline.shading,
+        output_path=output,
     ).extract(**{**EXTRACTION, "time_chunk": 4}, resume=False, show_progress=False)
     check(
         "extraction_time_chunk4",
@@ -262,18 +292,31 @@ def test_preview_matches_extraction(pipeline):
 
 
 def test_extract_single_trench(pipeline):
-    """A separate warp: the whole stabilised frame, then the crop."""
+    """One trench and one channel cut on their own: the same pixels as the extraction,
+    shading and all (a frame's level comes from all its FOV's spacers)."""
+    single = pipeline.extractor.extract_single_trench(7, channel="PC")
+    root = zarr.open_group(str(pipeline.group), mode="r")
+    np.testing.assert_array_equal(single, root["trench_0007/0"][:, 0])
     check(
         "extract_single_trench",
         {
-            "trench_7_PC": digest(
-                pipeline.extractor.extract_single_trench(7, channel="PC")
-            ),
+            "trench_7_PC": digest(single),
             "trench_20_mCherry": digest(
                 pipeline.extractor.extract_single_trench(20, channel="mCherry")
             ),
         },
     )
+
+
+def test_shading_changes_only_its_channel(pipeline):
+    plain = Extractor(pipeline.exp, pipeline.reg, pipeline.trenches)
+    for channel in pipeline.exp.channel_names:
+        shaded = np.asarray(pipeline.extractor.preview_array(channel)[...])
+        unshaded = np.asarray(plain.preview_array(channel)[...])
+        if channel == pipeline.shading.channel:
+            assert not np.array_equal(shaded, unshaded)
+        else:
+            np.testing.assert_array_equal(shaded, unshaded)
 
 
 def test_segmenter_normalisation(pipeline):

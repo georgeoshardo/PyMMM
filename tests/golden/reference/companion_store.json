@@ -1,5 +1,5 @@
 {
- "files": ["lane_detection/Lane/c/0", "lane_detection/Lane/zarr.json", "lane_detection/fov/c/0", "lane_detection/fov/zarr.json", "lane_detection/lane_index/zarr.json", "lane_detection/orientation/c/0", "lane_detection/orientation/zarr.json", "lane_detection/y_center/c/0", "lane_detection/y_center/zarr.json", "lane_detection/zarr.json", "registration/P/c/0", "registration/P/zarr.json", "registration/T/c/0", "registration/T/zarr.json", "registration/col/c/0", "registration/col/zarr.json", "registration/row/c/0", "registration/row/zarr.json", "registration/tmats/c/0/0/0/0", "registration/tmats/zarr.json", "registration/zarr.json", "trench_detection/Trench/c/0", "trench_detection/Trench/zarr.json", "trench_detection/fov/c/0", "trench_detection/fov/zarr.json", "trench_detection/lane_index/zarr.json", "trench_detection/needs_flip/zarr.json", "trench_detection/orientation/c/0", "trench_detection/orientation/zarr.json", "trench_detection/x_left/c/0", "trench_detection/x_left/zarr.json", "trench_detection/x_right/c/0", "trench_detection/x_right/zarr.json", "trench_detection/y_bottom/c/0", "trench_detection/y_bottom/zarr.json", "trench_detection/y_top/c/0", "trench_detection/y_top/zarr.json", "trench_detection/zarr.json", "zarr.json"],
+ "files": ["lane_detection/Lane/c/0", "lane_detection/Lane/zarr.json", "lane_detection/fov/c/0", "lane_detection/fov/zarr.json", "lane_detection/lane_index/zarr.json", "lane_detection/orientation/c/0", "lane_detection/orientation/zarr.json", "lane_detection/y_center/c/0", "lane_detection/y_center/zarr.json", "lane_detection/zarr.json", "registration/P/c/0", "registration/P/zarr.json", "registration/T/c/0", "registration/T/zarr.json", "registration/col/c/0", "registration/col/zarr.json", "registration/row/c/0", "registration/row/zarr.json", "registration/tmats/c/0/0/0/0", "registration/tmats/zarr.json", "registration/zarr.json", "shading/FOV/c/0", "shading/FOV/zarr.json", "shading/Trench/c/0", "shading/Trench/zarr.json", "shading/gx/c/0", "shading/gx/zarr.json", "shading/gy/c/0", "shading/gy/zarr.json", "shading/surface/c/0/0/0", "shading/surface/zarr.json", "shading/trench_background/c/0", "shading/trench_background/zarr.json", "shading/trench_cells/c/0", "shading/trench_cells/zarr.json", "shading/trench_fov/c/0", "shading/trench_fov/zarr.json", "shading/zarr.json", "trench_detection/Trench/c/0", "trench_detection/Trench/zarr.json", "trench_detection/fov/c/0", "trench_detection/fov/zarr.json", "trench_detection/lane_index/zarr.json", "trench_detection/needs_flip/zarr.json", "trench_detection/orientation/c/0", "trench_detection/orientation/zarr.json", "trench_detection/x_left/c/0", "trench_detection/x_left/zarr.json", "trench_detection/x_right/c/0", "trench_detection/x_right/zarr.json", "trench_detection/y_bottom/c/0", "trench_detection/y_bottom/zarr.json", "trench_detection/y_top/c/0", "trench_detection/y_top/zarr.json", "trench_detection/zarr.json", "zarr.json"],
  "nodes": {
   ".": {
    "attributes": {
@@ -563,6 +563,413 @@
    "fill_value": "NaN",
    "node_type": "array",
    "shape": [2, 10, 3, 3],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "shading": {
+   "attributes": {
+    "complete": true,
+    "layout": "shading",
+    "made_from": {
+     "registration": "4fc706659f029326",
+     "trench_detection": "eadfbd857f813279"
+    },
+    "params": {
+     "channel": "PC",
+     "level": 4858.2041015625,
+     "mean_from": "end",
+     "mean_n_frames": 10,
+     "mode": "divide",
+     "offset": 100.0,
+     "skipped": []
+    },
+    "provenance": "<volatile>",
+    "source_subset_metadata": {
+     "active_fov_names": ["XYPos:2", "XYPos:5"],
+     "active_timepoint_count": 10,
+     "discarded_fov_names": ["XYPos:0", "XYPos:1", "XYPos:3", "XYPos:4", "XYPos:6", "XYPos:7", "XYPos:8", "XYPos:9", "XYPos:10", "XYPos:11", "XYPos:12", "XYPos:13", "XYPos:14", "XYPos:15", "XYPos:16", "XYPos:17", "XYPos:18", "XYPos:19", "XYPos:20", "XYPos:21", "XYPos:22", "XYPos:23", "XYPos:24", "XYPos:25", "XYPos:26", "XYPos:27", "XYPos:28", "XYPos:29", "XYPos:30", "XYPos:31", "XYPos:32", "XYPos:33", "XYPos:34"],
+     "raw_fov_names": ["XYPos:0", "XYPos:1", "XYPos:2", "XYPos:3", "XYPos:4", "XYPos:5", "XYPos:6", "XYPos:7", "XYPos:8", "XYPos:9", "XYPos:10", "XYPos:11", "XYPos:12", "XYPos:13", "XYPos:14", "XYPos:15", "XYPos:16", "XYPos:17", "XYPos:18", "XYPos:19", "XYPos:20", "XYPos:21", "XYPos:22", "XYPos:23", "XYPos:24", "XYPos:25", "XYPos:26", "XYPos:27", "XYPos:28", "XYPos:29", "XYPos:30", "XYPos:31", "XYPos:32", "XYPos:33", "XYPos:34"],
+     "raw_timepoint_count": 361,
+     "roi": {
+      "x": null,
+      "y": null
+     },
+     "time_slice": {
+      "start": 20,
+      "step": null,
+      "stop": 30
+     }
+    }
+   },
+   "node_type": "group",
+   "zarr_format": 3
+  },
+  "shading/FOV": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "1c642864c9c59c87fa716d9d7395b0f7a86bf6696440598a2d23364be11ac314",
+    "shape": [2]
+   },
+   "data_type": {
+    "configuration": {
+     "length_bytes": 28
+    },
+    "name": "fixed_length_utf32"
+   },
+   "dimension_names": ["FOV"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [2],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "shading/Trench": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i4",
+    "max": 27.0,
+    "min": 0.0,
+    "sha256": "285a84688c8ea542d43b96f2803ae6a798159a915b9c0989a1a6e501d00418e3",
+    "shape": [28],
+    "sum": 378.0
+   },
+   "data_type": "int32",
+   "dimension_names": ["Trench"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "shading/gx": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [145]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 2303.0,
+    "min": 0.0,
+    "sha256": "0d64992a5f5903f5ca7e4b47dcd265f1611427f0d7532e21705411544fd17278",
+    "shape": [145],
+    "sum": 167039.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["gx"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [145],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "shading/gy": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [99]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<i8",
+    "max": 1559.0,
+    "min": 0.0,
+    "sha256": "847a7d56a2f0c9268288f2007d4dacceb39bf3cd4b2f239e8c4bfebc311786c9",
+    "shape": [99],
+    "sum": 77607.0
+   },
+   "data_type": "int64",
+   "dimension_names": ["gy"],
+   "fill_value": 0,
+   "node_type": "array",
+   "shape": [99],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "shading/surface": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "background: a smooth surface through the PDMS between trenches, on pixel rows gy and columns gx of the registered FOV",
+    "units": "counts"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [2, 99, 145]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<f4",
+    "max": 5590.02880859375,
+    "min": 4268.12353515625,
+    "sha256": "69ea56fcff8247ad5003f98caa81b845da0efc74c1007ba6de8f903f3561fbb8",
+    "shape": [2, 99, 145],
+    "sum": 142716888.76611328
+   },
+   "data_type": "float32",
+   "dimension_names": ["FOV", "gy", "gx"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [2, 99, 145],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "shading/trench_background": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "background at the cells",
+    "units": "counts"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 5214.32666015625,
+    "min": 4391.537109375,
+    "sha256": "3cd26457b3c056df6dddea5811334630d374ef7511eafc236e794b13d79f147b",
+    "shape": [28],
+    "sum": 136613.869140625
+   },
+   "data_type": "float64",
+   "dimension_names": ["Trench"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "shading/trench_cells": {
+   "attributes": {
+    "_FillValue": "AAAAAAAA+H8=",
+    "long_name": "darkest 5% of the trench's cells (detection image)",
+    "units": "counts"
+   },
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {
+      "endian": "little"
+     },
+     "name": "bytes"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "<f8",
+    "max": 4147.165,
+    "min": 3053.1949999999997,
+    "sha256": "c15cc44a6356e9e057c24749167d796ad92e5092ebc17eb11834a950519d6af0",
+    "shape": [28],
+    "sum": 101928.62999999999
+   },
+   "data_type": "float64",
+   "dimension_names": ["Trench"],
+   "fill_value": "NaN",
+   "node_type": "array",
+   "shape": [28],
+   "storage_transformers": [],
+   "zarr_format": 3
+  },
+  "shading/trench_fov": {
+   "attributes": {},
+   "chunk_grid": {
+    "configuration": {
+     "chunk_shape": [28]
+    },
+    "name": "regular"
+   },
+   "chunk_key_encoding": {
+    "configuration": {
+     "separator": "/"
+    },
+    "name": "default"
+   },
+   "codecs": [
+    {
+     "configuration": {},
+     "name": "vlen-utf8"
+    },
+    {
+     "configuration": {
+      "checksum": false,
+      "level": 0
+     },
+     "name": "zstd"
+    }
+   ],
+   "data": {
+    "dtype": "str",
+    "sha256": "7a013aa32a2525a95c5c948880edd3e9a7be85ae0b156f85944ffcf52e210a8a",
+    "shape": [28]
+   },
+   "data_type": "string",
+   "dimension_names": ["Trench"],
+   "fill_value": "",
+   "node_type": "array",
+   "shape": [28],
    "storage_transformers": [],
    "zarr_format": 3
   },

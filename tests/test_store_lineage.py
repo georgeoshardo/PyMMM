@@ -13,13 +13,15 @@ FINGERPRINTS = {
     "registration": "r",
     "lane_detection": "l",
     "trench_detection": "t",
+    "shading": "h",
     "extraction": "e",
 }
 MADE_FROM = {
     "registration": {"source": "s"},
     "lane_detection": {"registration": "r"},
     "trench_detection": {"registration": "r", "lane_detection": "l"},
-    "extraction": {"registration": "r", "trench_detection": "t"},
+    "shading": {"registration": "r", "trench_detection": "t"},
+    "extraction": {"registration": "r", "trench_detection": "t", "shading": "h"},
 }
 
 
@@ -33,8 +35,27 @@ def test_a_changed_result_makes_what_was_made_from_it_stale():
         "registration": "current",
         "lane_detection": "current",
         "trench_detection": "stale",
+        "shading": "stale",
         "extraction": "stale",
     }
+
+
+def test_shading_measured_again_makes_only_the_extraction_stale():
+    status = lineage.status({**FINGERPRINTS, "shading": "h2"}, MADE_FROM)
+    assert status["trench_detection"] == "current"
+    assert status["shading"] == "current"
+    assert status["extraction"] == "stale"
+
+
+def test_an_extraction_without_shading_is_not_current():
+    """Cut without measuring the shading (Extractor(..., shading=None)): it records
+    none, and none is saved, so it is stale, as one whose input is gone."""
+    status = lineage.status(
+        {**FINGERPRINTS, "shading": None},
+        {**MADE_FROM, "extraction": {**MADE_FROM["extraction"], "shading": None}},
+    )
+    assert status["shading"] == "missing"
+    assert status["extraction"] == "stale"
 
 
 def test_stale_passes_down_even_where_the_record_matches():

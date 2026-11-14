@@ -6,7 +6,8 @@ fingerprints of the results it was made from (``made_from``):
     registration        the source: the ND2's size and the part of it used
     lane_detection      registration
     trench_detection    registration, lane_detection
-    extraction          registration, trench_detection
+    shading             registration, trench_detection
+    extraction          registration, trench_detection, shading
 
 A result's own fingerprint is a hash of the result, so redoing a step that gives the
 same result (registering again with the same settings, say) leaves what follows
@@ -34,7 +35,8 @@ GRAPH: dict[str, tuple[str, ...]] = {
     "registration": ("source",),
     "lane_detection": ("registration",),
     "trench_detection": ("registration", "lane_detection"),
-    "extraction": ("registration", "trench_detection"),
+    "shading": ("registration", "trench_detection"),
+    "extraction": ("registration", "trench_detection", "shading"),
 }
 """Each step, and the steps whose results it uses, in the order they run."""
 
@@ -105,6 +107,23 @@ def registration_fingerprint(tmats: Any, rotation: float) -> str:
         fovs = [str(p) for p in tmats.coords["P"].values]
     values = np.asarray(tmats.values, dtype="<f8")
     return fingerprint({"tmats": values, "fovs": fovs, "rotation": float(rotation)})
+
+
+def shading_fingerprint(
+    surfaces: np.ndarray, fovs: list[str], mode: str, offset: float, level: float
+) -> str:
+    """The shading's backgrounds (``(FOV, gy, gx)``, NaN where a FOV has none), the
+    FOVs they belong to, and how they come out: mode, camera offset and level.
+    """
+    return fingerprint(
+        {
+            "surfaces": np.asarray(surfaces, dtype="<f4"),
+            "fovs": [str(f) for f in fovs],
+            "mode": str(mode),
+            "offset": round(float(offset), 6),
+            "level": float(level),
+        }
+    )
 
 
 def table_fingerprint(rows: Iterable[Mapping[str, Any]], columns: Iterable[str]) -> str:

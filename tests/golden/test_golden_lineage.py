@@ -43,7 +43,7 @@ def test_registering_again_with_the_same_result_keeps_what_follows(copy):
     assert set(store.lineage(exp, group).values()) == {"current"}
 
 
-def test_another_registration_makes_lanes_trenches_and_extraction_stale(copy):
+def test_another_registration_makes_everything_after_it_stale(copy):
     exp, store, _, _, group = copy
     reg = Registrator(exp, store, **{**REGISTRATION, "rotation": 1.0})
     reg.compute_tmats(n_jobs=1)
@@ -52,11 +52,12 @@ def test_another_registration_makes_lanes_trenches_and_extraction_stale(copy):
         "registration": "current",
         "lane_detection": "stale",
         "trench_detection": "stale",
+        "shading": "stale",
         "extraction": "stale",
     }
 
 
-def test_other_lanes_make_the_trenches_and_extraction_stale(copy):
+def test_other_lanes_make_the_trenches_shading_and_extraction_stale(copy):
     exp, store, reg, lanes, group = copy
     lanes.use_image_edge("down", save_diagnostics=False)
     lanes.save()
@@ -64,6 +65,7 @@ def test_other_lanes_make_the_trenches_and_extraction_stale(copy):
         "registration": "current",
         "lane_detection": "current",
         "trench_detection": "stale",
+        "shading": "stale",
         "extraction": "stale",
     }
     trenches = TrenchDetector(exp, reg, lanes, store, detection_channel="PC")
@@ -82,12 +84,13 @@ def test_other_frames_make_everything_stale(copy):
 
 def test_records_from_before_are_unrecorded_and_usable(copy):
     exp, store, *_ = copy
-    for section in ("registration", "lane_detection", "trench_detection"):
+    for section in ("registration", "lane_detection", "trench_detection", "shading"):
         del store._store[section].attrs["made_from"]
     status = store.lineage(exp)
     assert status == {
         "registration": "unrecorded",
         "lane_detection": "unrecorded",
         "trench_detection": "unrecorded",
+        "shading": "unrecorded",
         "extraction": "missing",
     }

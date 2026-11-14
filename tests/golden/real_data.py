@@ -59,6 +59,9 @@ TRENCHES = {
     "mean_n_frames": 10,
     "mean_from": "end",
 }
+# the PDMS background divided out of PC: in this experiment the cells follow the shading
+# as a gain does more nearly than as added light
+SHADING = {"mode": "divide", "offset": 100.0}
 EXTRACTION = {"clevel": 3, "byte_shuffle": True, "batch_size": 4, "time_chunk": None}
 
 

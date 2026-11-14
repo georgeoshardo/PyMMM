@@ -54,10 +54,10 @@
          "color": "FFFFFF",
          "label": "PC",
          "window": {
-          "end": 8954.602000000188,
+          "end": 8197.301000000094,
           "max": 65535.0,
           "min": 0.0,
-          "start": 3438.0
+          "start": 3283.0
          }
         },
         {
@@ -178,11 +178,11 @@
     ],
     "data": {
      "dtype": "<u2",
-     "max": 12195.0,
+     "max": 11028.0,
      "min": 40.0,
-     "sha256": "bffb229d070b61262a1b4408434e12ee133d0aa6a3c6bf6e11495625421f12f0",
+     "sha256": "1b4aca2efe7ffcf21ae1326d66c58fa200276d4b01e682ca1a8a795a7bd4b0d4",
      "shape": [10, 4, 655, 94],
-     "sum": 3333334705.0
+     "sum": 3183804693.0
     },
     "data_type": "uint16",
     "dimension_names": ["t", "c", "y", "x"],

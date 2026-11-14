@@ -29,7 +29,8 @@ with the `notebook`, `view` and `tracks` extras).
 ## The pipeline
 
 ```python
-from pymmm import CompanionStore, Extractor, LaneDetector, ND2Experiment, Registrator, TrenchDetector
+from pymmm import (CompanionStore, Extractor, LaneDetector, ND2Experiment, Registrator,
+                   ShadingCorrector, TrenchDetector)
 
 exp = ND2Experiment("raw_data/experiment.nd2").select_times(0, 260)
 store = CompanionStore.for_experiment(exp)        # checkpoints beside the ND2
@@ -49,17 +50,27 @@ trenches = TrenchDetector(exp, reg, lanes, store, detection_channel="PC")
 trenches.interactive_detect_trenches()
 trenches.save()
 
-extractor = Extractor(exp, reg, trenches, output_path="experiment.zarr")
+shading = ShadingCorrector(exp, reg, trenches, store, mode="subtract")  # or "divide"
+shading.fit()                                     # each FOV's background, on the PDMS
+shading.plot()                                    # how the cells follow it
+shading.save()
+
+extractor = Extractor(exp, reg, trenches, shading, output_path="experiment.zarr")
 extractor.preview()                               # lazy: the trenches as they will be written
 extractor.extract()                               # resumes an interrupted run
 ```
 
-Each step saves its result to the companion store, `<experiment>.pymmm.zarr` beside
-the ND2, and `Registrator.load`, `LaneDetector.load` and `TrenchDetector.load` pick it
-up again. Without widgets, `detect_lanes(...)` and `detect_trenches(...)` take the
-settings directly. With `use_image_edge`, each FOV's lane is the image's edge where the
-trenches open, and trench detection takes the image's whole height by default.
-Registration and extraction run on the active Dask client if there
+Each step saves its result to the companion store, `<experiment>.pymmm.zarr` beside the
+ND2, and `Registrator.load`, `LaneDetector.load`, `TrenchDetector.load` and
+`ShadingCorrector.load` pick it up again. Without widgets, `detect_lanes(...)` and
+`detect_trenches(...)` take the settings directly. With `use_image_edge`, each FOV's
+lane is the image's edge where the trenches open, and trench detection takes the image's
+whole height by default. The PDMS between neighbouring trenches is the same material
+everywhere, so `ShadingCorrector` takes a smooth surface through it as each FOV's
+background and extraction takes that out of the detection channel, every frame at its
+own level. Subtract it when the cells brighten one for one with it (light added, as
+scattered by the chip); divide it out when they brighten in proportion (a gain).
+`plot()` shows which. Registration and extraction run on the active Dask client if there
 is one, else in a process pool.
 
 The same steps up to the preview also run in napari:

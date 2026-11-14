@@ -11,12 +11,20 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from pymmm import CompanionStore, Extractor, LaneDetector, Registrator, TrenchDetector
+from pymmm import (
+    CompanionStore,
+    Extractor,
+    LaneDetector,
+    Registrator,
+    ShadingCorrector,
+    TrenchDetector,
+)
 from real_data import (
     EXTRACTION,
     LANES,
     ND2,
     REGISTRATION,
+    SHADING,
     TRENCHES,
     no_dask_client,
     open_nd2,
@@ -39,8 +47,8 @@ def scratch_folder(tmp_path_factory):
 
 @pytest.fixture(scope="session")
 def pipeline(scratch_folder):
-    """Registration (one process), lanes, trenches and extraction (process pool),
-    each saved, as the extraction notebook runs them."""
+    """Registration (one process), lanes, trenches, shading and extraction (process
+    pool), each saved, as the extraction notebook runs them."""
     assert no_dask_client()
     folder = scratch_folder("pipeline")
     exp = open_nd2(folder)
@@ -56,7 +64,12 @@ def pipeline(scratch_folder):
     trenches = TrenchDetector(exp, reg, lanes, store, detection_channel="PC")
     trenches.detect_trenches(**TRENCHES, save_diagnostics=False)
     trenches.save()
-    extractor = Extractor(exp, reg, trenches, output_path=folder / "experiment.zarr")
+    shading = ShadingCorrector(exp, reg, trenches, store, **SHADING)
+    shading.fit()
+    shading.save()
+    extractor = Extractor(
+        exp, reg, trenches, shading, output_path=folder / "experiment.zarr"
+    )
     extractor.extract(**EXTRACTION, resume=False, show_progress=False)
     return SimpleNamespace(
         folder=folder,
@@ -65,6 +78,7 @@ def pipeline(scratch_folder):
         reg=reg,
         lanes=lanes,
         trenches=trenches,
+        shading=shading,
         extractor=extractor,
         group=folder / "experiment.zarr",
     )

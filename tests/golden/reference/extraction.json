@@ -14,11 +14,19 @@
      "layout": "experiment",
      "made_from": {
       "registration": "4fc706659f029326",
+      "shading": "56d4ad61d13e7189",
       "trench_detection": "eadfbd857f813279"
      },
      "pixel_size_um": 0.107869821220548,
      "provenance": "<volatile>",
      "schema_version": 5,
+     "shading": {
+      "channel": "PC",
+      "level": 4858.2041015625,
+      "mode": "divide",
+      "offset": 100.0,
+      "uncorrected_fovs": []
+     },
      "source_file_size_bytes": 363359944704,
      "source_mtime_ns": "<volatile>",
      "source_nd2": "<volatile>",
@@ -1589,10 +1597,10 @@
         "color": "FFFFFF",
         "label": "PC",
         "window": {
-         "end": 8792.301000000094,
+         "end": 8532.301000000094,
          "max": 65535.0,
          "min": 0.0,
-         "start": 3309.0
+         "start": 3196.0
         }
        },
        {
@@ -1713,11 +1721,11 @@
    ],
    "data": {
     "dtype": "<u2",
-    "max": 12917.0,
+    "max": 11474.0,
     "min": 33.0,
-    "sha256": "3e6c600ad8b3a80eb0f110cbc79723dbd1535ff13468fdade895093ee82ef4ce",
+    "sha256": "3a84061adcb2458f669cea0a65812253ef1e3169c1bbb0738238837b764ce55c",
     "shape": [10, 4, 655, 94],
-    "sum": 3244530253.0
+    "sum": 3134778125.0
    },
    "data_type": "uint16",
    "dimension_names": ["t", "c", "y", "x"],
@@ -1728,380 +1736,380 @@
    "zarr_format": 3
   },
   "trench_0001": {
-   "zarr_json_sha256": "c2f2fd0b405884cc835c1d8880dbe9b16f45daa4e78206791b43fb470ae3c37b"
+   "zarr_json_sha256": "f42ec8e167ba1210a07eb1b7ce1c43e966701db81ab7e3a9aaf5fe2b838ecff1"
   },
   "trench_0001/0": {
    "data": {
     "dtype": "<u2",
-    "max": 11875.0,
+    "max": 11028.0,
     "min": 42.0,
-    "sha256": "e796d62c48445e9b4f842c37bd0c02cad2a156d8b1147123048ac497f375add0",
+    "sha256": "5eec0452dd3aa043b64ada3bf249751e9005ad1bd5852fd73181274096c7a016",
     "shape": [10, 4, 655, 94],
-    "sum": 3302155052.0
+    "sum": 3182078355.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0002": {
-   "zarr_json_sha256": "4d2e98c5e8612336511ef38060b41be84c2b3ac6e2aae347161a97322baf4f67"
+   "zarr_json_sha256": "8f2199fa71fc627824242838714c24f236543d10a64ab51a39f47e72ee3be910"
   },
   "trench_0002/0": {
    "data": {
     "dtype": "<u2",
-    "max": 12195.0,
+    "max": 11028.0,
     "min": 40.0,
-    "sha256": "bffb229d070b61262a1b4408434e12ee133d0aa6a3c6bf6e11495625421f12f0",
+    "sha256": "1b4aca2efe7ffcf21ae1326d66c58fa200276d4b01e682ca1a8a795a7bd4b0d4",
     "shape": [10, 4, 655, 94],
-    "sum": 3333334705.0
+    "sum": 3183804693.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0003": {
-   "zarr_json_sha256": "1722b65d540ef32e4e72296d3a7849f85fc5110d8f80ffe7b80faaad630392dd"
+   "zarr_json_sha256": "1f2a56c3765a0b024f29f46e5bb7eade28b8cdf3c9441456c9d59e59c6dbbd8a"
   },
   "trench_0003/0": {
    "data": {
     "dtype": "<u2",
-    "max": 12164.0,
+    "max": 11513.0,
     "min": 45.0,
-    "sha256": "355a87678e9997e45252587501753a35f357d0c0d79d98aac2766b262dc06f57",
+    "sha256": "abeb9aa47a5034ad069626929ef0537e2746a38b8730e3dea9b602f45739fa5d",
     "shape": [10, 4, 655, 94],
-    "sum": 3373893356.0
+    "sum": 3226582042.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0004": {
-   "zarr_json_sha256": "d02aba342fd419cf601fec520177a76e592f59866672577418334f13400f880e"
+   "zarr_json_sha256": "017e3ca8d7b043e211147b69752f5915567a88f5bfa5b5092bb575458ca9acb5"
   },
   "trench_0004/0": {
    "data": {
     "dtype": "<u2",
-    "max": 11377.0,
+    "max": 10968.0,
     "min": 38.0,
-    "sha256": "bbdb8919c50f183ad28ea413dcb89db743053b1353b21b553b905eb97d0a540c",
+    "sha256": "71baddee4d6587dd2d41c7331b64c6683402915c87dbf46d55089aa94afed91c",
     "shape": [10, 4, 655, 94],
-    "sum": 3329005423.0
+    "sum": 3244606609.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0005": {
-   "zarr_json_sha256": "806d9b137cffb8673b6e9a6046b471cb90ba85a9f07e9ce6d1fd7906835aa8bf"
+   "zarr_json_sha256": "2458d310ea4451ab8dd113dd21591ee8c405124464aaacf7d5ec029456809d1c"
   },
   "trench_0005/0": {
    "data": {
     "dtype": "<u2",
-    "max": 11251.0,
+    "max": 10557.0,
     "min": 44.0,
-    "sha256": "5be15536db3062028de57fe6bab77e3ce59dd6c1bf9dcdb66b1a133b01a7a9de",
+    "sha256": "d2c82c79d2f9430786287c5455980a1035bd38a2f532c5f52f27fb2bfc4aa35c",
     "shape": [10, 4, 655, 94],
-    "sum": 3263381623.0
+    "sum": 3255594538.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0006": {
-   "zarr_json_sha256": "7efd5ba11cbca8699a4a635321c22cc3d5619ff59ee112f1fa0b6f54cb30ebce"
+   "zarr_json_sha256": "d2d44763c0756cb1e21ca1a501e136d7cad0e25ccb5885ab30f72070ad287970"
   },
   "trench_0006/0": {
    "data": {
     "dtype": "<u2",
-    "max": 11290.0,
+    "max": 11049.0,
     "min": 44.0,
-    "sha256": "b8b16a17106bbb45407f4ef816c9171ab208f5e1a6f078e536d347268852c307",
+    "sha256": "07800cc7f5ca6dedbe60abb10f2cfeb816816b20a107649e210f7a50f22e5d31",
     "shape": [10, 4, 655, 94],
-    "sum": 3177601605.0
+    "sum": 3229117829.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0007": {
-   "zarr_json_sha256": "67b783aed563523946a489a5d4d36a7cc20ccdc9ada11b6599a5db640c3989af"
+   "zarr_json_sha256": "ab0583e41d3ba704017d8c5d63fb5c28b3286d9a93e0a24a518bbb37553dd646"
   },
   "trench_0007/0": {
    "data": {
     "dtype": "<u2",
-    "max": 10197.0,
+    "max": 9971.0,
     "min": 46.0,
-    "sha256": "13da12ff6e31482400174d5a1c2bace9d54b7e7eb805a436e6865f8a0a04f2c3",
+    "sha256": "3612a6d20efef43d8d76aadd1cde0167fbcad588db490668a5a2704756eccd56",
     "shape": [10, 4, 655, 94],
-    "sum": 3256508662.0
+    "sum": 3270413134.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0008": {
-   "zarr_json_sha256": "b6c60698ade81fff948f855c43ac8f6146a633b8148f937657030ef8083a67a9"
+   "zarr_json_sha256": "79378e4f378f08258d45ff2ed240747c4b43027d542496153d27d20f3108c3f7"
   },
   "trench_0008/0": {
    "data": {
     "dtype": "<u2",
-    "max": 10114.0,
+    "max": 9493.0,
     "min": 47.0,
-    "sha256": "91cd395188ef49caba398aab27d3b9564472629a2bb8acafd11451760de07853",
+    "sha256": "3fd6c8a3f3daea9d2613f595ad07a0296374a8e8103d93402535c7542906e53d",
     "shape": [10, 4, 655, 94],
-    "sum": 3379803211.0
+    "sum": 3244008809.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0009": {
-   "zarr_json_sha256": "e95a55679acf28560dfdcede89e9b31ac9158b556b1607475de6e4cfcd98c025"
+   "zarr_json_sha256": "73a45eb81f74bd2e4ff2da17981a9385cf866ca6ac1ac953fb4a550b694a0f0c"
   },
   "trench_0009/0": {
    "data": {
     "dtype": "<u2",
-    "max": 11164.0,
+    "max": 10063.0,
     "min": 51.0,
-    "sha256": "327fc45b3afa763fdb5c67f3f5ac200e6ef13333a1996d35611e34735a4f15b7",
+    "sha256": "21568ff4984eb05ef1976485f8c594f205f173716664ff19db427e86af9706d8",
     "shape": [10, 4, 655, 94],
-    "sum": 3438721693.0
+    "sum": 3228728007.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0010": {
-   "zarr_json_sha256": "9d2b8a86837a24a75d60ce6035e2116b75666d23f1a09154ebee2db54918c815"
+   "zarr_json_sha256": "d51a4f30482e4fff90cb3cb97ad68cbbc1034d5693efdd661b71d337bd7cc4fa"
   },
   "trench_0010/0": {
    "data": {
     "dtype": "<u2",
-    "max": 13429.0,
+    "max": 13077.0,
     "min": 48.0,
-    "sha256": "7d671ac63941842e32ba5e7bcc7de04490f1b72e33126e016805ebe62f2c0cdf",
+    "sha256": "c07b425080ed36a0723810b7f879ab3beecc697b75e48000a7d18f5366830537",
     "shape": [10, 4, 655, 94],
-    "sum": 3397025458.0
+    "sum": 3227284711.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0011": {
-   "zarr_json_sha256": "9b383841ef5dc6f6120ad839813236a035086ef60d49d3a491e66a81c44ad6d4"
+   "zarr_json_sha256": "92d11b7e960bf398508ef67ea919f5460d6a2dd916b1137b84045d6469d8ac37"
   },
   "trench_0011/0": {
    "data": {
     "dtype": "<u2",
-    "max": 51815.0,
+    "max": 53012.0,
     "min": 56.0,
-    "sha256": "27aa5af062ab8148d326040217b42b8287ac170aba04042c7e5c6f8eb2a46ce6",
+    "sha256": "feaa9ab083ecfa7de947cbcc94b478ea2551c5030da6e427572ecc02e415c9fe",
     "shape": [10, 4, 655, 94],
-    "sum": 3408181063.0
+    "sum": 3332683014.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0012": {
-   "zarr_json_sha256": "c78872d266a2933adacd18c760f2815ee9098a8fe1dc9782958430a9e10f70e1"
+   "zarr_json_sha256": "d273b8d1a4862e6c5ae85435850a35cda14d34c94a685601def91100b4662be9"
   },
   "trench_0012/0": {
    "data": {
     "dtype": "<u2",
-    "max": 9904.0,
+    "max": 9560.0,
     "min": 59.0,
-    "sha256": "f345d707c25daf42f8cd6445214342ede9ebd996da6d5eae494cbbe738889989",
+    "sha256": "6951e92c5adcd973bff4ebc69f2fa50344c1b09fa31e6e79a5916e7abf14af7e",
     "shape": [10, 4, 655, 94],
-    "sum": 3275069191.0
+    "sum": 3279638421.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0013": {
-   "zarr_json_sha256": "790b2937d16859315f6671932f89f26f76af8a8a10930dd9d9cb47d230104639"
+   "zarr_json_sha256": "1775ab4bef222262d7ebdfd4a75573e431afbfc2a90fa114c33609a0eabe0c0c"
   },
   "trench_0013/0": {
    "data": {
     "dtype": "<u2",
-    "max": 16500.0,
+    "max": 16700.0,
     "min": 60.0,
-    "sha256": "34ac62ecf17258cdfe64226d7b85685933f5f393c42665cbd65c4c8afe24f868",
+    "sha256": "ac47d185d2def5c22f658e0513fa75956d76e43c5ed1e277842bb792f418d934",
     "shape": [10, 4, 655, 94],
-    "sum": 3172285262.0
+    "sum": 3238714905.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0014": {
-   "zarr_json_sha256": "a8177fb3b383606ca93ecd2a863730735c2d57f6d28c8b1cf06d02d91edc79ea"
+   "zarr_json_sha256": "efec2c3afb6bbc5bff11bc2c953ecf41ddd8d4e25de7145bf921f3834fd544c1"
   },
   "trench_0014/0": {
    "data": {
     "dtype": "<u2",
-    "max": 14075.0,
+    "max": 12385.0,
     "min": 42.0,
-    "sha256": "a1ee22ea5278e0f337851bc71b698d5971df0fbe6cb8e1041fc4ae3c6ea33986",
+    "sha256": "1931f277cc49adfc8ac49b2acce03ac5a4c2b42fe0d8dd581a6e088f1c35aee6",
     "shape": [10, 4, 655, 94],
-    "sum": 3230321774.0
+    "sum": 3092412618.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0015": {
-   "zarr_json_sha256": "e287d682197688f680557531bd6a562e2cde783a30962d1b36e40e1f35889630"
+   "zarr_json_sha256": "2c7047cf8329f8366d0a72fe83b4833423366fcc6385460fe1a515ed12389f7a"
   },
   "trench_0015/0": {
    "data": {
     "dtype": "<u2",
-    "max": 13747.0,
+    "max": 12471.0,
     "min": 34.0,
-    "sha256": "36cbec4e0693221eac9eb6fba22b0d5c7727afdd34727a575e870687f0e3b738",
+    "sha256": "2f19cdefdfbe0088e73af978c93f64d77a07de0c6870f04fdbc2fb0fec70c936",
     "shape": [10, 4, 655, 94],
-    "sum": 3231033362.0
+    "sum": 3112662951.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0016": {
-   "zarr_json_sha256": "8efe0f17590f248e133962e7d01110a995e06332471eebc7d34ac9b083c16a29"
+   "zarr_json_sha256": "e88e680b0e68553037f6a4dee00efd2591cfd8b66e6d2e2589bfcd5a9b914865"
   },
   "trench_0016/0": {
    "data": {
     "dtype": "<u2",
-    "max": 10920.0,
+    "max": 10320.0,
     "min": 43.0,
-    "sha256": "6d7a3c19d1d7ecab974cac105919074a65d91b748addfd6fee82da36482e7fe4",
+    "sha256": "4f6acc765cfe06f8f09cea258fbc3665690fe8ccc773946f51fc5d792b930794",
     "shape": [10, 4, 655, 94],
-    "sum": 3209636262.0
+    "sum": 3118150710.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0017": {
-   "zarr_json_sha256": "3c4bf997ad5cd49ef399c72ff0053f4605007014fd3e41bc121b8d539bc3a832"
+   "zarr_json_sha256": "23ed65b3ba0d3cb5ad987c665c3e43a039c81dedac7868c0c426292fe887b12f"
   },
   "trench_0017/0": {
    "data": {
     "dtype": "<u2",
-    "max": 11906.0,
+    "max": 10772.0,
     "min": 42.0,
-    "sha256": "32b29d9a693895086d9fd4657c1472b187c36d19ecfa9fc19cd1472a877f7cdf",
+    "sha256": "c96ed8054dbda51d94b51c6654e37ce8b2407a72b0cd9f2fa2d151482934498f",
     "shape": [10, 4, 655, 94],
-    "sum": 3165423604.0
+    "sum": 3142708357.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0018": {
-   "zarr_json_sha256": "db74e51623771112f68e329b4d6cb6193682a53b6c74620d94b6b2e731bd6c17"
+   "zarr_json_sha256": "e908711c9944d408d942382fc8e49b386c92daf9ad4a52f4c9a840ccd6b268dc"
   },
   "trench_0018/0": {
    "data": {
     "dtype": "<u2",
-    "max": 13114.0,
+    "max": 12187.0,
     "min": 35.0,
-    "sha256": "21503cab26a9855c2a3f3a3486cff5b1c6f089e7fdba4dd1b83707a85e87f9de",
+    "sha256": "f9ca68e5e1a834e27ee7a0b046ff4322677ac2e45389e2f03a7f156628c82a8f",
     "shape": [10, 4, 655, 94],
-    "sum": 3061460710.0
+    "sum": 3164820444.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0019": {
-   "zarr_json_sha256": "e71b5528a1b44639e05a99d8beb63bbbaaae9ee401c254f33d7b9d87494ac865"
+   "zarr_json_sha256": "062c019a8302ec2732e2a5a97623ee760f0143089b7f309498cd64f0797b3b1c"
   },
   "trench_0019/0": {
    "data": {
     "dtype": "<u2",
-    "max": 10260.0,
+    "max": 10136.0,
     "min": 44.0,
-    "sha256": "a9e41a6b07344d72976c736d42e538ceb3503ba196b233229ad4c284e54fd525",
+    "sha256": "fcab0dcabc74d1eeb4fa1d13f4f9135e901847c7fd69b9ac4067bb9364a326e1",
     "shape": [10, 4, 655, 94],
-    "sum": 2954120476.0
+    "sum": 3174501072.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0020": {
-   "zarr_json_sha256": "79c28a8c87d4b0545e8e46845c146f269f16dc121608540bdd1a5fd93b9455db"
+   "zarr_json_sha256": "3427e75f17b6f6243deebc726ce31d813e297771a26ab17a772e1c7d259d8f84"
   },
   "trench_0020/0": {
    "data": {
     "dtype": "<u2",
-    "max": 9518.0,
+    "max": 10007.0,
     "min": 42.0,
-    "sha256": "76d7871333c4b128d61a351edd2e55e9d8ddb6bcbfaff757764b16b94b82cfec",
+    "sha256": "6ad8dad7e60fc77d6cefa4920c15535320571bd1755ecac660cbfe96b464a1eb",
     "shape": [10, 4, 655, 94],
-    "sum": 2918919941.0
+    "sum": 3185843843.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0021": {
-   "zarr_json_sha256": "3fbb04b15159141654089aa1c4dd35244b19b85e64fba36fec5c467f69aa28c3"
+   "zarr_json_sha256": "fbb37e7d6108033109d2b6c710959e56310f6a43cc3d61b9e31cedb7fc635543"
   },
   "trench_0021/0": {
    "data": {
     "dtype": "<u2",
-    "max": 9471.0,
+    "max": 10327.0,
     "min": 47.0,
-    "sha256": "01800bbd0b65e7a43bf124bf3b57875c4070c86f7e7d090da69882b45c0f4802",
+    "sha256": "30bbc014e51c9e48a06643a0bc75f19f7d8099f110e0bd5b242d75479182154b",
     "shape": [10, 4, 655, 94],
-    "sum": 2966671363.0
+    "sum": 3207285311.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0022": {
-   "zarr_json_sha256": "6fef689c2254b4a9a83baea113533666e3d0de88a87b03ea10798663a84e9912"
+   "zarr_json_sha256": "fdab4e1b34d45146b135dd543784bc37be68cc0b0964bd3dfc454d1c5ff54a58"
   },
   "trench_0022/0": {
    "data": {
     "dtype": "<u2",
-    "max": 11583.0,
+    "max": 11721.0,
     "min": 38.0,
-    "sha256": "8b359302505a338c0978df7a4f8df16eef7bc3900473296e3b9c7566fafceb92",
+    "sha256": "d34776e725c6e76f75831e53169f1faf808a6860227acbfc4ef2ae0a66c15505",
     "shape": [10, 4, 655, 94],
-    "sum": 3036651992.0
+    "sum": 3183494829.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0023": {
-   "zarr_json_sha256": "359dce11055be3095724eaaada97f41966bfb71b23887cfbd0e2974aba8e0b56"
+   "zarr_json_sha256": "2999b17963ef752171d2302ef336566bbcf2c992d63112636fda98193c138f52"
   },
   "trench_0023/0": {
    "data": {
     "dtype": "<u2",
-    "max": 18882.0,
+    "max": 19793.0,
     "min": 48.0,
-    "sha256": "441884d69b5a50ab1327b4fc03b39cd31a4d7554a12d110e2eae06dc4329b92d",
+    "sha256": "5f2fe1e94cd1a05f7ad22c0766e18404409b3ab20bbd59aa398bc4a1cf63533b",
     "shape": [10, 4, 655, 94],
-    "sum": 3136256433.0
+    "sum": 3208994374.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0024": {
-   "zarr_json_sha256": "955b20b52cf69465280098395b3302d9d5a07785240506209960a2e143628e33"
+   "zarr_json_sha256": "3722df65b65dcc237039665de81e97ba0f85f25742255fe642a093a7b5b51bee"
   },
   "trench_0024/0": {
    "data": {
     "dtype": "<u2",
-    "max": 10391.0,
+    "max": 10165.0,
     "min": 53.0,
-    "sha256": "bc8d46aed5c9f886a217a12f8432fef0c56809a045c3d0616452dff932ceebfb",
+    "sha256": "bbc20b7ad6dc372d66d0fd2c96f56ce2f4f390af344be135e42b55f7e179c20e",
     "shape": [10, 4, 655, 94],
-    "sum": 3116656765.0
+    "sum": 3190439469.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0025": {
-   "zarr_json_sha256": "e6f7680013719d17e7dc6f4f3d34379556eee7e37692b0b2dc3da90023c44881"
+   "zarr_json_sha256": "e96b96818cd12bf35a9915e6e0d5abb89761fbd4c6cccc24371f1679755fa282"
   },
   "trench_0025/0": {
    "data": {
     "dtype": "<u2",
-    "max": 10345.0,
+    "max": 10325.0,
     "min": 51.0,
-    "sha256": "5e0a6b425da3b55bb741f7347fa28590f46d3b659109a2295b6f9f1ed1e56328",
+    "sha256": "36f55a3333d0a456e6c1e150f2fbc2461de80b1d566ba797dc270089c177d55a",
     "shape": [10, 4, 655, 94],
-    "sum": 3060603867.0
+    "sum": 3171221767.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0026": {
-   "zarr_json_sha256": "433b1a23e2b5944ba4138e44aebe3bccd6875e033beebabd11dba6042496291d"
+   "zarr_json_sha256": "13a2cd6eb08aa29746430b4a78d3bfa83e1fbfd1310f3e9fe912914808b0da31"
   },
   "trench_0026/0": {
    "data": {
     "dtype": "<u2",
-    "max": 11066.0,
+    "max": 11425.0,
     "min": 64.0,
-    "sha256": "07b12256a75c4ab19cf841b7f82689177ead87f99093c2b8582925c66979c897",
+    "sha256": "2222e6466c4b704f6f5188acaf5fafdb0f4c18d24de58604efa7629a28a35cb2",
     "shape": [10, 4, 655, 94],
-    "sum": 3096026775.0
+    "sum": 3207193248.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },
   "trench_0027": {
-   "zarr_json_sha256": "878d99e42b9e0eb989b50a2805ae1ae3c2e0c0422e8be79248ec23539b772d85"
+   "zarr_json_sha256": "158f7f074ed1ed571eb80c1dddbd6e39295746c2614478f020421128458fd15a"
   },
   "trench_0027/0": {
    "data": {
     "dtype": "<u2",
-    "max": 11415.0,
+    "max": 11294.0,
     "min": 53.0,
-    "sha256": "a54ed015ddfb1c16ceb023b0e3827018781984ee166cf08506625f328ecacc08",
+    "sha256": "9932583f1c18dee0038752ba09ce4d07a8c37202b081b6b56e289f96e4b97b2f",
     "shape": [10, 4, 655, 94],
-    "sum": 3065020877.0
+    "sum": 3141101582.0
    },
    "zarr_json_sha256": "352a0b1ab34b39c41b5f950626c17aadd36e61e80a746eb7ff503a44159b810f"
   },

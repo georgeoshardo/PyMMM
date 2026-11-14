@@ -18,7 +18,7 @@ from pymmm.store.provenance import SCHEMA_VERSION, plain_json, provenance
 if TYPE_CHECKING:
     from pymmm.source.nd2 import ND2Experiment
 
-_SECTIONS = ("registration", "lane_detection", "trench_detection")
+_SECTIONS = ("registration", "lane_detection", "trench_detection", "shading")
 
 _LANE_COLUMNS = {
     "fov": {"long_name": "field of view"},
@@ -70,7 +70,9 @@ class CompanionStore:
         ├── zarr.json             # source ND2 identity, creation time
         ├── registration/         # tmats (P, T, row, col)
         ├── lane_detection/       # Lane-indexed table: fov, lane_index, y_center, orientation
-        └── trench_detection/     # Trench-indexed table: fov, lane_index, edges, orientation
+        ├── trench_detection/     # Trench-indexed table: fov, lane_index, edges, orientation
+        └── shading/              # each FOV's background surface (FOV, gy, gx); per
+                                  # trench: background and cells (the evidence)
     """
 
     def __init__(self, path: str | Path, mode: str = "a") -> None:
@@ -364,6 +366,105 @@ class CompanionStore:
         return self._has_section("trench_detection")
 
     # ------------------------------------------------------------------
+    # Shading
+    # ------------------------------------------------------------------
+
+    def save_shading(
+        self,
+        surface: xr.DataArray,
+        evidence: pd.DataFrame,
+        params: dict[str, Any],
+        source_subset_metadata: dict[str, Any] | None = None,
+        made_from: dict[str, str | None] | None = None,
+    ) -> None:
+        """Persist the shading (:class:`pymmm.steps.shading.ShadingCorrector`).
+
+        Parameters
+        ----------
+        surface : xr.DataArray
+            Each FOV's background, ``(FOV, gy, gx)``: on the pixel rows ``gy`` and
+            columns ``gx`` of its registered frame; NaN for a FOV left uncorrected.
+        evidence : pd.DataFrame
+            One row per trench: ``trench_id``, ``fov``, ``background``, ``cells``.
+        params : dict
+            Channel, mode, offset, level, skipped FOVs, detection image.
+        source_subset_metadata : dict | None
+            The experiment subset it was measured on.
+        made_from : dict | None
+            Fingerprints of what it was made from (:mod:`pymmm.store.lineage`).
+        """
+        trench = evidence["trench_id"].to_numpy(dtype=np.int32)
+        dataset = xr.Dataset(
+            {
+                "surface": surface.astype(np.float32).assign_attrs(
+                    units="counts",
+                    long_name="background: a smooth surface through the PDMS between "
+                    "trenches, on pixel rows gy and columns gx of the registered FOV",
+                ),
+                "trench_background": xr.DataArray(
+                    evidence["background"].to_numpy(float),
+                    dims=("Trench",),
+                    attrs={"units": "counts", "long_name": "background at the cells"},
+                ),
+                "trench_cells": xr.DataArray(
+                    evidence["cells"].to_numpy(float),
+                    dims=("Trench",),
+                    attrs={
+                        "units": "counts",
+                        "long_name": "darkest 5% of the trench's cells "
+                        "(detection image)",
+                    },
+                ),
+                "trench_fov": xr.DataArray(
+                    np.asarray([str(f) for f in evidence["fov"]], dtype=object),
+                    dims=("Trench",),
+                ),
+            },
+            coords={
+                "FOV": [str(f) for f in surface.coords["FOV"].values],
+                "Trench": trench,
+            },
+        )
+        self._write_section(
+            "shading",
+            dataset,
+            params,
+            source_subset_metadata,
+            extra_attrs={"made_from": made_from},
+        )
+
+    def load_shading(self) -> dict[str, Any]:
+        """Load the shading checkpoint.
+
+        Returns
+        -------
+        dict
+            Keys: ``"surface"`` (xr.DataArray), ``"evidence"`` (pd.DataFrame) and
+            ``"params"`` (dict).
+        """
+        dataset = self._open_section("shading").load()
+        evidence = pd.DataFrame(
+            {
+                "trench_id": dataset["Trench"].values.astype(int),
+                "fov": [str(f) for f in dataset["trench_fov"].values],
+                "background": dataset["trench_background"].values,
+                "cells": dataset["trench_cells"].values,
+            }
+        )
+        surface = dataset["surface"].assign_coords(
+            FOV=[str(f) for f in dataset["FOV"].values]
+        )
+        return {
+            "surface": surface,
+            "evidence": evidence,
+            "params": dataset.attrs["params"],
+        }
+
+    def has_shading(self) -> bool:
+        """Check whether shading is checkpointed."""
+        return self._has_section("shading")
+
+    # ------------------------------------------------------------------
     # Reset
     # ------------------------------------------------------------------
 
@@ -394,6 +495,16 @@ class CompanionStore:
             found["trench_detection"] = lineage.table_fingerprint(
                 self.load_trench_detection()["trenches"].to_dict("records"),
                 lineage.TRENCH_COLUMNS,
+            )
+        if self.has_shading():
+            saved = self.load_shading()
+            params = saved["params"]
+            found["shading"] = lineage.shading_fingerprint(
+                saved["surface"].values,
+                list(saved["surface"].coords["FOV"].values),
+                params["mode"],
+                params["offset"],
+                params["level"],
             )
         return found
 
@@ -436,8 +547,8 @@ class CompanionStore:
         Parameters
         ----------
         section : str | None
-            ``"registration"``, ``"lane_detection"``, or
-            ``"trench_detection"`` to clear just that section.
+            ``"registration"``, ``"lane_detection"``, ``"trench_detection"`` or
+            ``"shading"`` to clear just that section.
             ``None`` (default) deletes the entire store and re-creates it.
         """
         if section is not None:

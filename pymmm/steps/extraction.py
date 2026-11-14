@@ -54,6 +54,7 @@ from pymmm.steps.registration import (
     Registrator,
     _rotation_matrix,
 )
+from pymmm.steps.shading import FovShading, ShadingCorrector
 from pymmm.steps.trenches import TrenchDetector
 from pymmm.store import lineage, ome
 from pymmm.store.experiment_group import CHUNK_KEYS as _CHUNK_KEYS
@@ -77,13 +78,15 @@ def _crop_frames(
     image_width,
     out_dtype,
     channels=None,
+    shading: FovShading | None = None,
 ):
     """Read frames (all channels, or ``channels``) with one ND2 handle and cut their
     trenches: ``(t, trench, c, y, x)``.
 
     Each lane band is one warp of the raw frame (``tmats``: translation then rotation,
     offset to the band's top row); its trenches are column ranges of it, flipped when
-    they open upward.
+    they open upward. With ``shading``, its channel's bands are corrected first
+    (:meth:`FovShading.correct_band`), within the output dtype's range.
     """
     import nd2
     from skimage.transform import warp as ski_warp
@@ -93,6 +96,12 @@ def _crop_frames(
     trench_h = trench_specs[0][1] - trench_specs[0][0]
     trench_w = trench_specs[0][3] - trench_specs[0][2]
     result = None
+    channel_numbers = list(channels) if channels is not None else None
+    limits = (
+        (np.iinfo(out_dtype).min, np.iinfo(out_dtype).max)
+        if np.issubdtype(out_dtype, np.integer)
+        else None
+    )
 
     with nd2.ND2File(nd2_path) as f:
         coord_axes = [k for k in f.sizes if k not in {"X", "Y", "C", "S"}]
@@ -118,6 +127,12 @@ def _crop_frames(
                 )
 
             for channel_idx, image in enumerate(frame):
+                number = (
+                    channel_numbers[channel_idx]
+                    if channel_numbers is not None
+                    else channel_idx
+                )
+                corrected = shading is not None and number == shading.channel
                 for y_top, y_bottom, band_trenches in band_specs:
                     offset = np.eye(3)
                     offset[1, 2] = y_top
@@ -128,6 +143,10 @@ def _crop_frames(
                         preserve_range=True,
                         order=1,
                     )
+                    if corrected:
+                        band = shading.correct_band(band, y_top)
+                        if limits is not None:
+                            band = np.clip(band, *limits)
                     for local_idx, x_left, x_right, needs_flip in band_trenches:
                         crop = band[:, x_left:x_right]
                         if needs_flip:
@@ -156,6 +175,7 @@ class FovCrops:
     band_specs: tuple[
         tuple, ...
     ]  # (y_top, y_bottom, ((local index, x_left, x_right, needs_flip), ...))
+    shading: FovShading | None = None  # the detection channel's correction
 
     def batch(
         self, start: int, stop: int, channels: Sequence[int] | None = None
@@ -172,6 +192,7 @@ class FovCrops:
             self.image_width,
             self.dtype,
             None if channels is None else tuple(channels),
+            self.shading,
         )
 
 
@@ -367,6 +388,11 @@ class Extractor:
         Completed registrator.
     trench_detector : TrenchDetector
         Completed trench detector.
+    shading : ShadingCorrector | None
+        Measured shading, taken out of its channel before the trenches are cut.
+        ``None`` corrects nothing, and the extraction is then not current
+        (:mod:`pymmm.store.lineage`): the pipeline measures the shading first, even
+        to leave it in (mode ``"off"``).
     output_path : str | Path | None
         Path for the experiment group (see the module docstring). Defaults to
         ``<nd2_dir>/<experiment_name>.zarr``.
@@ -377,11 +403,13 @@ class Extractor:
         experiment: ND2Experiment,
         registrator: Registrator,
         trench_detector: TrenchDetector,
+        shading: ShadingCorrector | None = None,
         output_path: str | Path | None = None,
     ) -> None:
         self.experiment = experiment
         self.registrator = registrator
         self.trench_detector = trench_detector
+        self.shading = shading
 
         if output_path is None:
             nd2_dir = experiment.path.parent
@@ -420,17 +448,32 @@ class Extractor:
                 "provenance": provenance(),
                 **self._source_attrs(),
                 "made_from": self._made_from(),
+                "shading": self._shading_attrs(),
                 "channels": list(channel_names),
                 "pixel_size_um": pixel_size_um,
                 "frame_interval_ms": frame_interval_ms,
             }
         )
 
-    def _made_from(self) -> dict[str, str]:
-        """Fingerprints of the registration and trench table the trenches are cut with
-        (:mod:`pymmm.store.lineage`).
+    def _shading_attrs(self) -> dict[str, Any] | None:
+        """How the shading was taken out, for the experiment group's attributes."""
+        shading = self.shading
+        if shading is None:
+            return None
+        return {
+            "channel": shading.channel,
+            "mode": shading.mode,
+            "offset": shading.offset,
+            "level": shading.level,
+            "uncorrected_fovs": shading.skipped if shading.mode != "off" else [],
+        }
+
+    def _made_from(self) -> dict[str, str | None]:
+        """Fingerprints of the registration, trench table and shading the trenches
+        are cut with (:mod:`pymmm.store.lineage`).
         """
         return {
+            "shading": lineage.of(self.shading),
             "registration": lineage.registration_fingerprint(
                 self.registrator.tmats, self.registrator.rotation
             ),
@@ -580,6 +623,11 @@ class Extractor:
                 mismatches.append("compression settings")
         elif blosc:
             mismatches.append("compression settings")
+
+        if (attrs.get("made_from") or {}).get("shading") != self._made_from()[
+            "shading"
+        ]:
+            mismatches.append("shading")
 
         stored_reg = store["registration"]
         current_reg = self._build_registration_dataset(self.experiment.source_axes)
@@ -1105,6 +1153,11 @@ class Extractor:
                     band_specs=tuple(
                         (y_top, y_bottom, tuple(band))
                         for (y_top, y_bottom), band in bands.items()
+                    ),
+                    shading=(
+                        self.shading.fov_shading(str(fov))
+                        if self.shading is not None
+                        else None
                     ),
                 )
             )
